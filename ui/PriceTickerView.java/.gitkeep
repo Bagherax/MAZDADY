@@ -1,0 +1,13 @@
+// MAZDADY - PriceTickerView
+// المؤلف: BAGHERAX
+// الحالة: Placeholder - سيتم التنفيذ لاحقًا
+
+public class PriceTickerView {
+    // يعرض: 🔺 +2.34% (أخضر) أو 🔻 -1.87% (أحمر)
+    public void updatePriceChange(double percentageChange) {
+        String symbol = percentageChange >= 0 ? "🔺" : "🔻";
+        String color = percentageChange >= 0 ? "GREEN" : "RED";
+        String display = symbol + " " + String.format("%.2f", Math.abs(percentageChange)) + "%";
+        // سيتم ربط هذا بواجهة المستخدم لاحقًا
+    }
+}
