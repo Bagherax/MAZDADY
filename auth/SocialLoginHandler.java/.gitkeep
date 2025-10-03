@@ -1,0 +1,35 @@
+package mazdady.auth;
+
+import android.app.Activity;
+import com.google.android.gms.auth.api.signin.GoogleSignIn;
+import com.google.android.gms.auth.api.signin.GoogleSignInClient;
+import com.google.android.gms.auth.api.signin.GoogleSignInOptions;
+
+public class SocialLoginHandler {
+    private GoogleSignInClient googleClient;
+
+    public void initGoogle(Activity activity) {
+        GoogleSignInOptions gso = new GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+                .requestEmail()
+                .build();
+        googleClient = GoogleSignIn.getClient(activity, gso);
+    }
+
+    public void signInWithGoogle(Activity activity) {
+        activity.startActivityForResult(googleClient.getSignInIntent(), 1001);
+    }
+
+    public void signInWithFacebook(Activity activity) {
+        // استخدام Facebook SDK (سيتم تفعيله عند الإضافة إلى build.gradle)
+    }
+
+    public void signInWithTwitter(Activity activity) {
+        // استخدام Twitter Kit أو OAuth مباشر
+    }
+
+    public void signInWithTikTok(Activity activity) {
+        // استخدام TikTok Login Kit
+    }
+
+    // معالجة النتائج في MainActivity.onActivityResult
+}
