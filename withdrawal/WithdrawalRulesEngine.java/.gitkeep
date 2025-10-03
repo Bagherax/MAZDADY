@@ -1,20 +1,52 @@
-// MAZDADY - WithdrawalRulesEngine
-// المؤلف: BAGHERAX
-// الحالة: Placeholder - سيتم التنفيذ لاحقًا
+package mazdady.withdrawal;
+
+import mazdady.user.User;
+import mazdady.admin.AdminConfig;
 
 public class WithdrawalRulesEngine {
-    public boolean canWithdraw(User user, double amount) {
-        int minLevel = getMinLevelFromAdmin(); // من لوحة التحكم
-        double weeklyLimit = getWeeklyLimitByLevel(user.getLevel());
-        boolean isWithdrawalDay = isTodayAllowedWithdrawalDay();
+    private AdminConfig config;
 
-        return user.getLevel() >= minLevel &&
-               user.getWeeklyWithdrawn() + amount <= weeklyLimit &&
-               isWithdrawalDay;
+    public WithdrawalRulesEngine() {
+        this.config = AdminConfig.getInstance(); // يحمل الإعدادات من server/config.json
     }
 
-    private int getMinLevelFromAdmin() {
-        // سيتم ربطه بـ AdminConfigService لاحقًا
-        return 5;
+    public WithdrawalResult canWithdraw(User user, double amount) {
+        // 1. التحقق من المستوى
+        if (user.getLevel() < config.getMinWithdrawalLevel()) {
+            return new WithdrawalResult(false, "يجب أن تكون في المستوى " + config.getMinWithdrawalLevel() + " على الأقل.");
+        }
+
+        // 2. التحقق من الحد الأسبوعي
+        double weeklyLimit = config.getWeeklyLimitForLevel(user.getLevel());
+        if (user.getWeeklyWithdrawn() + amount > weeklyLimit) {
+            double remaining = weeklyLimit - user.getWeeklyWithdrawn();
+            return new WithdrawalResult(false, "الحد الأسبوعي المتبقي: " + remaining + " MAZDADY");
+        }
+
+        // 3. التحقق من جدولة السحب
+        if (!config.isTodayWithdrawalDay()) {
+            return new WithdrawalResult(false, "يوم السحب القادم: " + config.getNextWithdrawalDate());
+        }
+
+        // 4. التحقق من KYC
+        if (!user.isKYCVerified()) {
+            return new WithdrawalResult(false, "يجب توثيق هويتك قبل السحب.");
+        }
+
+        return new WithdrawalResult(true, "يمكنك السحب.");
+    }
+
+    // فئة داخلية لنتائج التحقق
+    public static class WithdrawalResult {
+        private final boolean allowed;
+        private final String message;
+
+        public WithdrawalResult(boolean allowed, String message) {
+            this.allowed = allowed;
+            this.message = message;
+        }
+
+        public boolean isAllowed() { return allowed; }
+        public String getMessage() { return message; }
     }
 }
