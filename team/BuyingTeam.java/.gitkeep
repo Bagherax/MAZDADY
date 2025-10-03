@@ -1,0 +1,51 @@
+package mazdady.team;
+
+import mazdady.trading.PriceEngine;
+import mazdady.user.User;
+import java.util.List;
+import java.util.concurrent.ThreadLocalRandom;
+
+public class BuyingTeam {
+    private final String teamId = "BUY_TEAM";
+    private double teamCapital = 10000.0; // رأس مال افتراضي
+    private final PriceEngine priceEngine;
+
+    public BuyingTeam(PriceEngine priceEngine) {
+        this.priceEngine = priceEngine;
+    }
+
+    public void executeTrades(List<User> realUsers) {
+        // 1. تحليل السوق
+        double currentPrice = priceEngine.getCurrentPrice();
+        double trend = priceEngine.getMarketTrend(); // -1 إلى +1
+
+        // 2. اتخاذ القرار: إذا كان الاتجاه صاعدًا، نشتري أكثر
+        int tradeCount = (int) (5 + (trend * 3)); // 2 إلى 8 صفقات
+        if (tradeCount < 1) tradeCount = 1;
+
+        for (int i = 0; i < tradeCount; i++) {
+            double amount = ThreadLocalRandom.current().nextDouble(10, 100);
+            if (teamCapital >= amount) {
+                priceEngine.executeBuyOrder(teamId, amount);
+                teamCapital -= amount;
+                
+                // 3. محاكاة تفاعل مع مستخدم حقيقي
+                if (!realUsers.isEmpty()) {
+                    User randomUser = realUsers.get(
+                        ThreadLocalRandom.current().nextInt(realUsers.size())
+                    );
+                    // إرسال إشعار: "فريق الشراء يشتري!"
+                    randomUser.notify("فريق الشراء نشط — السعر يرتفع!");
+                }
+            }
+        }
+    }
+
+    public double getCapital() {
+        return teamCapital;
+    }
+
+    public void addCapital(double profit) {
+        this.teamCapital += profit;
+    }
+}
