@@ -1,0 +1,68 @@
+package mazdady.admin;
+
+import org.json.JSONObject;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
+import java.net.URL;
+
+public class AdminConfig {
+    private static AdminConfig instance;
+    private int minWithdrawalLevel = 5;
+    private double[] weeklyLimits = {0, 10, 30, 60, 100, 200}; // index = level
+    private String withdrawalSchedule = "weekly"; // weekly, monthly
+    private boolean isInitialized = false;
+
+    private AdminConfig() {}
+
+    public static synchronized AdminConfig getInstance() {
+        if (instance == null) {
+            instance = new AdminConfig();
+            instance.loadFromServer();
+        }
+        return instance;
+    }
+
+    private void loadFromServer() {
+        if (isInitialized) return;
+
+        try {
+            String configUrl = "https://raw.githubusercontent.com/BAGHERAX/MAZDADY/main/server/config.json";
+            HttpURLConnection conn = (HttpURLConnection) new URL(configUrl).openConnection();
+            conn.setRequestMethod("GET");
+            conn.setConnectTimeout(5000);
+            conn.setReadTimeout(5000);
+
+            BufferedReader reader = new BufferedReader(new InputStreamReader(conn.getInputStream()));
+            StringBuilder response = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) {
+                response.append(line);
+            }
+            reader.close();
+
+            JSONObject json = new JSONObject(response.toString());
+            minWithdrawalLevel = json.getInt("min_withdrawal_level");
+            withdrawalSchedule = json.getString("withdrawal_schedule");
+            // تحميل باقي الإعدادات...
+
+            isInitialized = true;
+        } catch (Exception e) {
+            // استخدام الإعدادات الافتراضية في حال فشل التحميل
+            isInitialized = true;
+        }
+    }
+
+    public int getMinWithdrawalLevel() { return minWithdrawalLevel; }
+    public double getWeeklyLimitForLevel(int level) {
+        if (level < weeklyLimits.length) return weeklyLimits[level];
+        return weeklyLimits[weeklyLimits.length - 1];
+    }
+    public boolean isTodayWithdrawalDay() {
+        // منطق بسيط: إذا كان weekly → تحقق من اليوم
+        return true; // سيتم تحسينه لاحقًا
+    }
+    public String getNextWithdrawalDate() {
+        return "الاثنين القادم";
+    }
+}
