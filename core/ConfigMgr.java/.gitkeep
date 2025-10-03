@@ -1,0 +1,7 @@
+{
+  "min_withdrawal_level": 5,
+  "weekly_limit_level_5": 100,
+  "withdrawal_schedule": "weekly",
+  "tax_rates": { "wallet": 5, "bank": 8 },
+  "price_change": "+2.34"
+}
