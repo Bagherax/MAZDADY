@@ -1,13 +1,38 @@
-// MAZDADY - PriceTickerView
-// المؤلف: BAGHERAX
-// الحالة: Placeholder - سيتم التنفيذ لاحقًا
+package mazdady.ui;
+
+import android.widget.TextView;
+import android.graphics.Color;
 
 public class PriceTickerView {
-    // يعرض: 🔺 +2.34% (أخضر) أو 🔻 -1.87% (أحمر)
-    public void updatePriceChange(double percentageChange) {
-        String symbol = percentageChange >= 0 ? "🔺" : "🔻";
-        String color = percentageChange >= 0 ? "GREEN" : "RED";
-        String display = symbol + " " + String.format("%.2f", Math.abs(percentageChange)) + "%";
-        // سيتم ربط هذا بواجهة المستخدم لاحقًا
+    private TextView priceView;
+    private double lastPrice = 100.0;
+
+    public PriceTickerView(TextView priceView) {
+        this.priceView = priceView;
+    }
+
+    public void updatePrice(double newPrice) {
+        double change = ((newPrice - lastPrice) / lastPrice) * 100;
+        String symbol = change >= 0 ? "🔺" : "🔻";
+        String formattedChange = String.format("%.2f", Math.abs(change));
+        String display = symbol + " " + formattedChange + "%";
+
+        // تغيير اللون ديناميكيًا
+        int color = change >= 0 ? Color.parseColor("#4CAF50") : Color.parseColor("#F44336");
+        priceView.setTextColor(color);
+        priceView.setText(display);
+
+        // تأثير اهتزاز خفيف عند التغيير الكبير
+        if (Math.abs(change) > 5.0) {
+            animatePulse();
+        }
+
+        lastPrice = newPrice;
+    }
+
+    private void animatePulse() {
+        // تأثير بصري بسيط (يمكن تحسينه لاحقًا)
+        priceView.animate().scaleX(1.1f).scaleY(1.1f).setDuration(100)
+                .withEndAction(() -> priceView.animate().scaleX(1.0f).scaleY(1.0f).setDuration(100));
     }
 }
