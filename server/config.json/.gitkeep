@@ -1,0 +1,15 @@
+{
+  "min_withdrawal_level": 5,
+  "weekly_limits": [0, 10, 30, 60, 100, 200, 500, 1000],
+  "withdrawal_schedule": "weekly",
+  "tax_rates": {
+    "wallet_crypto": 5,
+    "bank_transfer": 8,
+    "internal_transfer": 1,
+    "mobile_wallet": 6
+  },
+  "gift_tax_rate": 30,
+  "team_loss_penalty": 10,
+  "price_change": "+2.34",
+  "last_updated": "2025-04-05T10:00:00Z"
+}
