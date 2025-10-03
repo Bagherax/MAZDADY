@@ -1,0 +1,20 @@
+// MAZDADY - WithdrawalRulesEngine
+// المؤلف: BAGHERAX
+// الحالة: Placeholder - سيتم التنفيذ لاحقًا
+
+public class WithdrawalRulesEngine {
+    public boolean canWithdraw(User user, double amount) {
+        int minLevel = getMinLevelFromAdmin(); // من لوحة التحكم
+        double weeklyLimit = getWeeklyLimitByLevel(user.getLevel());
+        boolean isWithdrawalDay = isTodayAllowedWithdrawalDay();
+
+        return user.getLevel() >= minLevel &&
+               user.getWeeklyWithdrawn() + amount <= weeklyLimit &&
+               isWithdrawalDay;
+    }
+
+    private int getMinLevelFromAdmin() {
+        // سيتم ربطه بـ AdminConfigService لاحقًا
+        return 5;
+    }
+}
