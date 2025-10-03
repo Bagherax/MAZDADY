@@ -1,0 +1,48 @@
+package mazdady.team;
+
+import mazdady.trading.PriceEngine;
+import mazdady.user.User;
+import java.util.List;
+import java.util.concurrent.ThreadLocalRandom;
+
+public class SellingTeam {
+    private final String teamId = "SELL_TEAM";
+    private double teamHoldings = 5000.0; // عدد العملات المحتفظ بها
+    private final PriceEngine priceEngine;
+
+    public SellingTeam(PriceEngine priceEngine) {
+        this.priceEngine = priceEngine;
+    }
+
+    public void executeTrades(List<User> realUsers) {
+        double currentPrice = priceEngine.getCurrentPrice();
+        double volatility = priceEngine.getVolatility(); // 0 إلى 1
+
+        // إذا كان السوق متقلبًا، نبيع أكثر
+        int tradeCount = (int) (3 + (volatility * 5));
+        if (tradeCount < 1) tradeCount = 1;
+
+        for (int i = 0; i < tradeCount; i++) {
+            double amount = ThreadLocalRandom.current().nextDouble(5, 50);
+            if (teamHoldings >= amount) {
+                priceEngine.executeSellOrder(teamId, amount);
+                teamHoldings -= amount;
+
+                if (!realUsers.isEmpty()) {
+                    User randomUser = realUsers.get(
+                        ThreadLocalRandom.current().nextInt(realUsers.size())
+                    );
+                    randomUser.notify("فريق البيع نشط — السعر ينخفض!");
+                }
+            }
+        }
+    }
+
+    public double getHoldings() {
+        return teamHoldings;
+    }
+
+    public void addHoldings(double coins) {
+        this.teamHoldings += coins;
+    }
+}
