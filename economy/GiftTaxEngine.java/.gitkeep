@@ -1,0 +1,29 @@
+package mazdady.economy;
+
+import mazdady.user.User;
+import mazdady.trading.PriceEngine;
+
+public class GiftTaxEngine {
+    private static final double GIFT_TAX_RATE = 0.3; // 30%
+    private final PriceEngine priceEngine;
+
+    public GiftTaxEngine(PriceEngine priceEngine) {
+        this.priceEngine = priceEngine;
+    }
+
+    public double applyGiftTax(User user, double profit) {
+        double giftAmount = profit * GIFT_TAX_RATE;
+        double netProfit = profit - giftAmount;
+
+        // تحويل "الهدية" إلى خزينة النظام
+        priceEngine.addToSystemTreasury(giftAmount);
+
+        // منح المستخدم نقاط مجتمعية
+        user.addCommunityPoints((int) giftAmount);
+
+        // عرض تأثير بصري: "30 MAZDADY تم تخصيصها كهدية مجتمعية"
+        user.showGiftEffect(giftAmount);
+
+        return netProfit;
+    }
+}
