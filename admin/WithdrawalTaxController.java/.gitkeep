@@ -1,0 +1,6 @@
+{
+  "wallet_crypto": 5,
+  "bank_transfer": 8,
+  "internal_transfer": 1,
+  "mobile_wallet": 6
+}
