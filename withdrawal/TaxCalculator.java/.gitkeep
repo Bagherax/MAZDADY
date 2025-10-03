@@ -1,0 +1,17 @@
+// MAZDADY - TaxCalculator
+// المؤلف: BAGHERAX
+// الحالة: Placeholder - سيتم التنفيذ لاحقًا
+
+public class TaxCalculator {
+    // يحسب المبلغ الصافي بعد الضريبة
+    public double calculateNetAmount(double grossAmount, String withdrawalMethod) {
+        double taxRate = getTaxRateFromAdmin(withdrawalMethod);
+        return grossAmount * (1 - taxRate / 100);
+    }
+
+    // يستدعي النسبة من لوحة التحكم (سيتم ربطها لاحقًا)
+    private double getTaxRateFromAdmin(String method) {
+        // سيتم استبدال هذا بـ API call إلى AdminConfigService
+        return 5.0; // مؤقت
+    }
+}
