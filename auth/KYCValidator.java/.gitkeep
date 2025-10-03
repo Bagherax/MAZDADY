@@ -1,0 +1,71 @@
+package mazdady.auth;
+
+import android.net.Uri;
+import java.util.concurrent.CompletableFuture;
+
+public class KYCValidator {
+    private String userId;
+    private String phoneNumber;
+    private boolean isPhoneVerified = false;
+    private boolean isDocumentUploaded = false;
+
+    public KYCValidator(String userId) {
+        this.userId = userId;
+    }
+
+    public void setPhoneNumber(String phone) {
+        this.phoneNumber = phone;
+    }
+
+    public CompletableFuture<Boolean> verifyPhoneNumber(String code) {
+        return CompletableFuture.supplyAsync(() -> {
+            // هنا تتصل بسيرفر التحقق (مثلاً: Firebase أو GitHub Action)
+            // لكننا نستخدم محاكاة ذكية لـ P2P
+            boolean isValid = code.equals("123456"); // في الواقع: تحقق من السيرفر
+            if (isValid) isPhoneVerified = true;
+            return isValid;
+        });
+    }
+
+    public CompletableFuture<Boolean> uploadDocument(Uri documentUri) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                // 1. تشفير المستند محليًا قبل الإرسال
+                byte[] encryptedDoc = encryptDocument(documentUri);
+                
+                // 2. رفعه إلى "نقطة ثقة" (مثل GitHub Releases عبر Token)
+                boolean uploaded = uploadToSecureStorage(encryptedDoc, userId);
+                
+                if (uploaded) {
+                    isDocumentUploaded = true;
+                    // 3. إرسال تأكيد إلى شبكة P2P
+                    broadcastKYCStatus(true);
+                }
+                return uploaded;
+            } catch (Exception e) {
+                return false;
+            }
+        });
+    }
+
+    public boolean isFullyVerified() {
+        return isPhoneVerified && isDocumentUploaded;
+    }
+
+    // --- طرق مساعدة ---
+    private byte[] encryptDocument(Uri uri) {
+        // تشفير AES-256 باستخدام مفتاح مشتق من DeviceFingerprint
+        return new byte[0]; // سيتم تنفيذه لاحقًا
+    }
+
+    private boolean uploadToSecureStorage(byte[] data, String userId) {
+        // رفع إلى GitHub Releases (باستخدام Token مخزن في Keystore)
+        // أو إلى Firebase Storage المجاني
+        return true; // placeholder
+    }
+
+    private void broadcastKYCStatus(boolean verified) {
+        // إرسال رسالة إلى شبكة P2P: "المستخدم X موثق"
+        // ليتمكن الآخرون من التحقق منه عند التداول
+    }
+}
