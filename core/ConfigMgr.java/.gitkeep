@@ -1,4 +1,7 @@
 {
+// مثال رمزي
+String config = downloadFromURL("https://raw.githubusercontent.com/BAGHERAX/MAZDADY/main/server/config.json");
+}
   "min_withdrawal_level": 5,
   "weekly_limit_level_5": 100,
   "withdrawal_schedule": "weekly",
