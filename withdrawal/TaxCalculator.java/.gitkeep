@@ -1,17 +1,48 @@
-// MAZDADY - TaxCalculator
-// المؤلف: BAGHERAX
-// الحالة: Placeholder - سيتم التنفيذ لاحقًا
+package mazdady.withdrawal;
+
+import mazdady.admin.AdminConfig;
+import mazdady.security.SecureStorage;
+import org.json.JSONObject;
+import java.util.Base64;
 
 public class TaxCalculator {
-    // يحسب المبلغ الصافي بعد الضريبة
-    public double calculateNetAmount(double grossAmount, String withdrawalMethod) {
-        double taxRate = getTaxRateFromAdmin(withdrawalMethod);
-        return grossAmount * (1 - taxRate / 100);
+    private final AdminConfig config;
+    private final SecureStorage secureStorage;
+
+    public TaxCalculator() {
+        this.config = AdminConfig.getInstance();
+        this.secureStorage = new SecureStorage();
     }
 
-    // يستدعي النسبة من لوحة التحكم (سيتم ربطها لاحقًا)
-    private double getTaxRateFromAdmin(String method) {
-        // سيتم استبدال هذا بـ API call إلى AdminConfigService
-        return 5.0; // مؤقت
+    public WithdrawalResult calculate(double grossAmount, String method) {
+        try {
+            // تحميل نسب الضرائب من السيرفر (مشفرة)
+            String encryptedRates = config.getEncryptedTaxRates();
+            String decryptedRates = secureStorage.decrypt(Base64.getDecoder().decode(encryptedRates));
+            JSONObject rates = new JSONObject(decryptedRates);
+
+            double taxRate = rates.getDouble(method);
+            double taxAmount = grossAmount * (taxRate / 100);
+            double netAmount = grossAmount - taxAmount;
+
+            return new WithdrawalResult(netAmount, taxAmount, taxRate);
+        } catch (Exception e) {
+            // في حال الخطأ، استخدم نسب افتراضية آمنة
+            double fallbackRate = 5.0;
+            double taxAmount = grossAmount * (fallbackRate / 100);
+            return new WithdrawalResult(grossAmount - taxAmount, taxAmount, fallbackRate);
+        }
+    }
+
+    public static class WithdrawalResult {
+        public final double netAmount;
+        public final double taxAmount;
+        public final double taxRate;
+
+        public WithdrawalResult(double netAmount, double taxAmount, double taxRate) {
+            this.netAmount = netAmount;
+            this.taxAmount = taxAmount;
+            this.taxRate = taxRate;
+        }
     }
 }
