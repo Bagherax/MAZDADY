@@ -19,19 +19,16 @@ public class DynamicPopupManager {
 
     public void showScrollablePopup(String title, String content) {
         Dialog dialog = new Dialog(context);
-        dialog.setContentView(R.layout.dynamic_popup_layout); // سيتم إنشاؤه لاحقًا
+        dialog.setContentView(R.layout.dynamic_popup_layout);
 
-        // تخصيص الخلفية
         ViewGroup root = dialog.findViewById(R.id.popup_root);
         root.setBackgroundColor(Color.parseColor(uiConfig.getPopupBackgroundColor()));
 
-        // تخصيص العنوان
         TextView titleView = dialog.findViewById(R.id.popup_title);
         titleView.setText(title);
         titleView.setTextColor(Color.parseColor(uiConfig.getPopupTitleColor()));
         titleView.setTextSize(uiConfig.getPopupTitleSize());
 
-        // تخصيص المحتوى (قابل للتمرير)
         ScrollView scrollView = dialog.findViewById(R.id.popup_scroll);
         TextView contentView = new TextView(context);
         contentView.setText(content);
@@ -40,13 +37,11 @@ public class DynamicPopupManager {
         contentView.setPadding(20, 20, 20, 20);
         scrollView.addView(contentView);
 
-        // تخصيص زر الإغلاق
         TextView closeButton = dialog.findViewById(R.id.popup_close);
         closeButton.setTextColor(Color.parseColor(uiConfig.getPopupButtonColor()));
         closeButton.setTextSize(uiConfig.getPopupButtonSize());
         closeButton.setOnClickListener(v -> dialog.dismiss());
 
-        // تخصيص الحجم
         int width = (int) (context.getResources().getDisplayMetrics().widthPixels * uiConfig.getPopupWidthRatio());
         int height = (int) (context.getResources().getDisplayMetrics().heightPixels * uiConfig.getPopupHeightRatio());
         dialog.getWindow().setLayout(width, height);
