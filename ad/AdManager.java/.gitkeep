@@ -1,45 +1,88 @@
 package mazdady.ad;
 
+import mazdady.arch.UseCaseExecutor;
 import mazdady.user.UserManager;
 import mazdady.wallet.WalletManager;
 
-public class AdManager {
-    private static AdManager instance;
-    private AdPerformanceTracker tracker;
+import java.util.concurrent.CompletableFuture;
+import java.util.function.Consumer;
+
+/**
+ * مدير الحملات الإعلانية مع دعم التنفيذ غير المتزامن
+ * يتبع نمط Observer لفصل الإنشاء عن التنفيذ
+ */
+public final class AdManager {
+    private final AdCampaignCreator campaignCreator;
+    private final AdMarketplace marketplace;
+    private final AdDeliveryEngine deliveryEngine;
+    private final UseCaseExecutor useCaseExecutor;
 
     private AdManager() {
-        this.tracker = new AdPerformanceTracker();
+        this.campaignCreator = new AdCampaignCreator();
+        this.marketplace = new AdMarketplace();
+        this.deliveryEngine = new AdDeliveryEngine();
+        this.useCaseExecutor = UseCaseExecutor.getInstance();
     }
 
-    public static synchronized AdManager getInstance() {
-        if (instance == null) {
-            instance = new AdManager();
-        }
-        return instance;
+    private static class Holder {
+        static final AdManager INSTANCE = new AdManager();
     }
 
-    public boolean createCampaign(String platform, String contentUrl, 
-                                 String goal, int targetCount, double budget) {
-        // 1. التحقق من الرصيد
-        WalletManager wallet = new WalletManager();
-        if (wallet.getBalance() < budget) {
-            return false;
-        }
-
-        // 2. خصم الميزانية
-        wallet.withdrawMAZDADY(budget); // في الإنتاج: استخدام طريقة خاصة للإعلانات
-
-        // 3. إنشاء الحملة
-        String userId = UserManager.getInstance(null).getCurrentUser().getUserId();
-        AdCampaign campaign = new AdCampaign(userId, platform, contentUrl, goal, targetCount, budget);
-
-        // 4. بدء تتبع الأداء
-        tracker.startTracking(campaign);
-
-        return true;
+    public static AdManager getInstance() {
+        return Holder.INSTANCE;
     }
 
-    public AdPerformanceTracker getTracker() {
-        return tracker;
+    /**
+     * إنشاء حملة إعلانية غير متزامنة
+     */
+    public CompletableFuture<AdCampaign> createCampaignAsync(
+        AdCampaign.Platform platform,
+        String contentUrl,
+        AdCampaign.Goal goal,
+        int targetCount,
+        double budget
+    ) {
+        return CompletableFuture.supplyAsync(() -> {
+            String userId = UserManager.getInstance(null).getCurrentUser().getUserId();
+            return campaignCreator.createCampaign(userId, platform, contentUrl, goal, targetCount, budget);
+        }).thenApply(campaign -> {
+            marketplace.publishCampaign(campaign);
+            deliveryEngine.deliverAd(campaign);
+            return campaign;
+        });
+    }
+
+    /**
+     * إنشاء حملة إعلانية مع معالجة النتائج عبر callbacks
+     */
+    public void createCampaign(
+        AdCampaign.Platform platform,
+        String contentUrl,
+        AdCampaign.Goal goal,
+        int targetCount,
+        double budget,
+        Consumer<AdCampaign> onSuccess,
+        Consumer<Exception> onError
+    ) {
+        useCaseExecutor.execute(
+            () -> {
+                String userId = UserManager.getInstance(null).getCurrentUser().getUserId();
+                return campaignCreator.createCampaign(userId, platform, contentUrl, goal, targetCount, budget);
+            },
+            campaign -> {
+                marketplace.publishCampaign(campaign);
+                deliveryEngine.deliverAd(campaign);
+                onSuccess.accept(campaign);
+            },
+            onError
+        );
+    }
+
+    public AdMarketplace getMarketplace() {
+        return marketplace;
+    }
+
+    public AdDeliveryEngine getDeliveryEngine() {
+        return deliveryEngine;
     }
 }
