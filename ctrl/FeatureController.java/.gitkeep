@@ -1,0 +1,55 @@
+package mazdady.ctrl;
+
+import mazdady.admin.FeatureToggleManager;
+import mazdady.user.UserManager;
+
+/**
+ * وحدة تحكم الميزات مع دعم التفعيل الديناميكي
+ * يتبع نمط Strategy لفصل منطق التفعيل
+ */
+public final class FeatureController {
+    private final FeatureToggleManager featureToggleManager;
+    private static final FeatureController INSTANCE = new FeatureController();
+
+    private FeatureController() {
+        this.featureToggleManager = new FeatureToggleManager();
+    }
+
+    public static FeatureController getInstance() {
+        return INSTANCE;
+    }
+
+    /**
+     * تفعيل ميزة للمستخدم الحالي
+     */
+    public boolean enableFeatureForCurrentUser(String featureId) {
+        String userId = UserManager.getInstance(null).getCurrentUser().getUserId();
+        return enableFeatureForUser(featureId, userId);
+    }
+
+    /**
+     * تفعيل ميزة لمستخدم محدد
+     */
+    public boolean enableFeatureForUser(String featureId, String userId) {
+        // في الإنتاج: التحقق من صلاحيات الادمن
+        featureToggleManager.toggleFeature(featureId, true);
+        System.out.println("FEATURE: " + featureId + " enabled for user " + userId);
+        return true;
+    }
+
+    /**
+     * تعطيل ميزة
+     */
+    public boolean disableFeature(String featureId) {
+        featureToggleManager.toggleFeature(featureId, false);
+        System.out.println("FEATURE: " + featureId + " disabled");
+        return true;
+    }
+
+    /**
+     * التحقق من توفر الميزة
+     */
+    public boolean isFeatureAvailable(String featureId) {
+        return featureToggleManager.isFeatureEnabled(featureId);
+    }
+}
