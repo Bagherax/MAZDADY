@@ -143,3 +143,21 @@ public UIConfig(JSONObject json) {
 public ButtonConfig getButtonConfig(String buttonId) {
     return buttonConfigs.getOrDefault(buttonId, buttonConfigs.get("default"));
 }
+// داخل فئة UIConfig
+private String splashVideoUrl = "";
+private String splashFallbackImage = "";
+private int splashDuration = 5000;
+
+public UIConfig(JSONObject json) {
+    if (json.has("ui")) {
+        JSONObject ui = json.getJSONObject("ui");
+        splashVideoUrl = ui.optString("splash_video_url", splashVideoUrl);
+        splashFallbackImage = ui.optString("splash_fallback_image", splashFallbackImage);
+        splashDuration = ui.optInt("splash_duration", splashDuration);
+    }
+}
+
+public String getSplashVideoUrl() { return splashVideoUrl; }
+public String getSplashFallbackImage() { return splashFallbackImage; }
+public int getSplashDuration() { return splashDuration; }
+}
