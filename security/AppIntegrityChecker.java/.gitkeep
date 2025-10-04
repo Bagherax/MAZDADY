@@ -1,0 +1,24 @@
+package mazdady.security;
+
+import android.content.Context;
+import android.content.pm.PackageInfo;
+import android.content.pm.PackageManager;
+
+public class AppIntegrityChecker {
+    // بصمة SHA-256 للتطبيق الأصلي (يتم توليدها عند الإصدار)
+    private static final String ORIGINAL_APP_SIGNATURE = 
+        "YOUR_APP_SHA256_SIGNATURE_HERE"; // ← يجب ملؤها عند الإصدار
+
+    public static boolean isAppIntegrityValid(Context context) {
+        try {
+            PackageInfo packageInfo = context.getPackageManager()
+                .getPackageInfo(context.getPackageName(), PackageManager.GET_SIGNATURES);
+            
+            // في الإنتاج: مقارنة البصمة الفعلية مع ORIGINAL_APP_SIGNATURE
+            // هنا نستخدم true مؤقتًا للتطوير
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+}
