@@ -1,15 +1,18 @@
 {
   "min_withdrawal_level": 5,
-  "weekly_limits": [0, 10, 30, 60, 100, 200, 500, 1000],
-  "withdrawal_schedule": "weekly",
   "tax_rates": {
-    "wallet_crypto": 5,
-    "bank_transfer": 8,
-    "internal_transfer": 1,
-    "mobile_wallet": 6
+    "wallet_crypto": 5
   },
-  "gift_tax_rate": 30,
-  "team_loss_penalty": 10,
-  "price_change": "+2.34",
-  "last_updated": "2025-04-05T10:00:00Z"
+  "ui": {
+    "popup_bg": "#1a1a2e",
+    "popup_title_color": "#4CAF50",
+    "popup_content_color": "#ffffff",
+    "popup_button_color": "#FF5722",
+    "popup_title_size": 20,
+    "popup_content_size": 16,
+    "popup_button_size": 18,
+    "popup_width_ratio": 0.95,
+    "popup_height_ratio": 0.8
+  },
+  "last_updated": "2025-04-05T12:00:00Z"
 }
