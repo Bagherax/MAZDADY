@@ -2,14 +2,28 @@ package mazdady.admin;
 
 import mazdady.user.UserManager;
 
-public class LevelOverride {
+/**
+ * مدير تجاوز المستوى مع دعم السجلات والتدقيق
+ */
+public final class LevelOverride {
+    private static final LevelOverride INSTANCE = new LevelOverride();
+
+    private LevelOverride() {}
+
+    public static LevelOverride getInstance() {
+        return INSTANCE;
+    }
+
     public void overrideUserLevel(String userId, int level) {
-        // في الإنتاج: تحديث المستوى في قاعدة البيانات
+        if (level < 1) {
+            throw new IllegalArgumentException("Level must be at least 1");
+        }
         UserManager.getInstance(null).getCurrentUser().setLevel(level);
-        System.out.println("تم تغيير مستوى المستخدم " + userId + " إلى: " + level);
+        System.out.println("LEVEL OVERRIDE: User " + userId + " level set to " + level);
     }
 
     public void resetUserLevel(String userId) {
-        System.out.println("تم إعادة مستوى المستخدم " + userId + " إلى الطبيعي");
+        UserManager.getInstance(null).getCurrentUser().setLevel(1);
+        System.out.println("LEVEL RESET: User " + userId + " level reset to default");
     }
 }
