@@ -157,3 +157,22 @@ if (RootDetection.isDeviceRooted()) {
 if (!AppIntegrityChecker.isAppIntegrityValid(this)) {
     new SecurityMonitor(this).reportSuspiciousActivity("MODIFIED_APP");
 }
+// تهيئة الترجمة
+TranslationManager translationManager = new TranslationManager(this);
+
+// ترجمة العناصر
+balanceView.setText(translationManager.getString("balance_label", "9891.26"));
+buyButton.setText(translationManager.getString("buy_button"));
+sellButton.setText(translationManager.getString("sell_button"));
+
+// تغيير اللغة ديناميكيًا
+translationManager.changeLanguage("en"); // تغيير إلى الإنجليزية
+}
+// ترجمة فورية لأي نص
+RealTimeTranslator translator = RealTimeTranslator.getInstance();
+String translated = translator.translateToArabic("Hello, how are you?");
+// الناتج: "[مترجم إلى العربية] Hello, how are you?"
+
+// ترجمة من العربية إلى لغة المستخدم
+String userLangText = translator.translateToUserLanguage("مرحبا بك في MAZDADY!");
+}
