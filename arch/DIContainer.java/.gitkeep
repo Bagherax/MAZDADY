@@ -1,0 +1,72 @@
+package mazdady.arch;
+
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Supplier;
+
+/**
+ * حاوية حقن التبعيات متعددة النطاقات
+ * تدعم Singleton, PerRequest, وتهيئة ديناميكية
+ */
+public final class DIContainer {
+    private final Map<Class<?>, Supplier<Object>> bindings;
+    private final Map<Class<?>, Object> singletons;
+
+    private DIContainer() {
+        this.bindings = new ConcurrentHashMap<>();
+        this.singletons = new ConcurrentHashMap<>();
+        configureBindings();
+    }
+
+    private static class Holder {
+        static final DIContainer INSTANCE = new DIContainer();
+    }
+
+    public static DIContainer getInstance() {
+        return Holder.INSTANCE;
+    }
+
+    /**
+     * ربط واجهة بتنفيذ معين
+     */
+    public <T> void bind(Class<T> interfaceType, Supplier<T> implementation) {
+        bindings.put(interfaceType, () -> implementation.get());
+    }
+
+    /**
+     * ربط كـ Singleton
+     */
+    public <T> void bindSingleton(Class<T> interfaceType, Supplier<T> implementation) {
+        bindings.put(interfaceType, () -> singletons.computeIfAbsent(interfaceType, k -> implementation.get()));
+    }
+
+    /**
+     * الحصول على مثيل من الحاوية
+     */
+    @SuppressWarnings("unchecked")
+    public <T> T get(Class<T> type) {
+        Supplier<Object> supplier = bindings.get(type);
+        if (supplier == null) {
+            throw new IllegalStateException("No binding found for: " + type.getName());
+        }
+        return (T) supplier.get();
+    }
+
+    /**
+     * تهيئة الروابط الأساسية
+     */
+    private void configureBindings() {
+        // روابط افتراضية
+        bindSingleton(UserManager.class, () -> UserManager.getInstance(null));
+        bindSingleton(ContractValidator.class, ContractValidator::new);
+    }
+
+    /**
+     * إعادة تهيئة الحاوية (للاختبارات)
+     */
+    public void reset() {
+        bindings.clear();
+        singletons.clear();
+        configureBindings();
+    }
+}
