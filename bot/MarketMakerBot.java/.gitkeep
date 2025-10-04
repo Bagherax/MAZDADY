@@ -1,0 +1,78 @@
+package mazdady.bot;
+
+import mazdady.trading.PriceEngine;
+import mazdady.trading.OrderBook;
+
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+
+/**
+ * بوت صانع السوق مع دعم فروق الأسعار الديناميكية
+ * يوفر عروض شراء وبيع مستمرة
+ */
+public final class MarketMakerBot extends TradingBot {
+    private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+    private double inventory = 5000.0; // مخزون العملة
+
+    public MarketMakerBot(String botId, PriceEngine priceEngine, OrderBook orderBook) {
+        super(botId, priceEngine, orderBook);
+        setBehavior(new DynamicSpreadBehavior());
+    }
+
+    @Override
+    protected void executeTradingStrategy() {
+        scheduler.scheduleAtFixedRate(
+            this::updateMarketMakingOrders,
+            0,
+            15,
+            TimeUnit.SECONDS
+        );
+    }
+
+    private void updateMarketMakingOrders() {
+        if (!isActive()) return;
+        
+        BotBehavior behavior = currentBehavior.get();
+        if (behavior != null) {
+            behavior.execute(this);
+        }
+    }
+
+    private void placeBid(double price, double quantity) {
+        // في الإنتاج: إضافة أمر شراء لسجل الأوامر
+        logger.accept("BID: " + quantity + " @ " + price);
+    }
+
+    private void placeAsk(double price, double quantity) {
+        // في الإنتاج: إضافة أمر بيع لسجل الأوامر
+        logger.accept("ASK: " + quantity + " @ " + price);
+    }
+
+    /**
+     * سلوك فروق الأسعار الديناميكية
+     */
+    private final class DynamicSpreadBehavior implements BotBehavior {
+        @Override
+        public String getName() {
+            return "DYNAMIC_SPREAD";
+        }
+
+        @Override
+        public void execute(TradingBot bot) {
+            double currentPrice = priceEngine.getCurrentPrice();
+            double volatility = priceEngine.getVolatility();
+            
+            // فرق سعر ديناميكي حسب التقلب
+            double spread = 0.02 * (1 + volatility); // 2% + تعديل حسب التقلب
+            
+            double bidPrice = currentPrice * (1 - spread / 2);
+            double askPrice = currentPrice * (1 + spread / 2);
+            
+            double quantity = 100.0 * (1 - volatility); // كمية أقل في أوقات التقلب العالي
+            
+            placeBid(bidPrice, quantity);
+            placeAsk(askPrice, quantity);
+        }
+    }
+}
