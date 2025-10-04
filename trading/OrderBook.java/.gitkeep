@@ -1,0 +1,44 @@
+package mazdady.trading;
+
+import java.util.ArrayList;
+import java.util.List;
+
+public class OrderBook {
+    private List<Order> buyOrders = new ArrayList<>();
+    private List<Order> sellOrders = new ArrayList<>();
+
+    public void addBuyOrder(String userId, double price, double quantity) {
+        buyOrders.add(new Order(userId, "BUY", price, quantity));
+        matchOrders();
+    }
+
+    public void addSellOrder(String userId, double price, double quantity) {
+        sellOrders.add(new Order(userId, "SELL", price, quantity));
+        matchOrders();
+    }
+
+    private void matchOrders() {
+        // في الإنتاج: مطابقة أوامر الشراء والبيع
+        System.out.println("تمت مطابقة الأوامر");
+    }
+
+    public static class Order {
+        private String userId;
+        private String type; // "BUY" or "SELL"
+        private double price;
+        private double quantity;
+
+        public Order(String userId, String type, double price, double quantity) {
+            this.userId = userId;
+            this.type = type;
+            this.price = price;
+            this.quantity = quantity;
+        }
+
+        // Getters
+        public String getUserId() { return userId; }
+        public String getType() { return type; }
+        public double getPrice() { return price; }
+        public double getQuantity() { return quantity; }
+    }
+}
