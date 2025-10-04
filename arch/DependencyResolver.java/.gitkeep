@@ -1,0 +1,83 @@
+package mazdady.arch;
+
+import java.lang.reflect.Constructor;
+import java.lang.reflect.Parameter;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+
+/**
+ * محلل التبعيات الديناميكي باستخدام Reflection
+ * يدعم التحميل الكسول والحقن التلقائي
+ */
+public final class DependencyResolver {
+    private final DIContainer container;
+    private final Map<Class<?>, Object> lazyInstances;
+
+    private DependencyResolver() {
+        this.container = DIContainer.getInstance();
+        this.lazyInstances = new ConcurrentHashMap<>();
+    }
+
+    private static class Holder {
+        static final DependencyResolver INSTANCE = new DependencyResolver();
+    }
+
+    public static DependencyResolver getInstance() {
+        return Holder.INSTANCE;
+    }
+
+    /**
+     * إنشاء مثيل مع حقن التبعيات تلقائيًا
+     */
+    @SuppressWarnings("unchecked")
+    public <T> T resolve(Class<T> type) {
+        try {
+            // محاولة الحصول من الحاوية أولاً
+            try {
+                return container.get(type);
+            } catch (IllegalStateException e) {
+                // إذا لم يكن مربوطًا، إنشاء يدويًا
+            }
+
+            // التحقق من وجود مثيل كسول
+            Object instance = lazyInstances.get(type);
+            if (instance != null) {
+                return (T) instance;
+            }
+
+            // تحليل الباني (Constructor)
+            Constructor<?>[] constructors = type.getDeclaredConstructors();
+            if (constructors.length == 0) {
+                throw new IllegalStateException("No constructor found for: " + type.getName());
+            }
+
+            Constructor<?> primaryConstructor = constructors[0];
+            primaryConstructor.setAccessible(true);
+
+            // حل التبعيات للمعلمات
+            Parameter[] parameters = primaryConstructor.getParameters();
+            Object[] args = new Object[parameters.length];
+            for (int i = 0; i < parameters.length; i++) {
+                Class<?> paramType = parameters[i].getType();
+                args[i] = resolve(paramType);
+            }
+
+            // إنشاء المثيل
+            T newInstance = (T) primaryConstructor.newInstance(args);
+            lazyInstances.put(type, newInstance);
+            return newInstance;
+
+        } catch (Exception e) {
+            throw new ResolutionException("Failed to resolve dependency: " + type.getName(), e);
+        }
+    }
+
+    /**
+     * استثناء مخصص لأخطاء تحليل التبعيات
+     */
+    public static class ResolutionException extends RuntimeException {
+        public ResolutionException(String message, Throwable cause) {
+            super(message, cause);
+        }
+    }
+}
