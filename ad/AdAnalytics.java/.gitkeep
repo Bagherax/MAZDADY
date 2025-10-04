@@ -1,0 +1,41 @@
+package mazdady.ad;
+
+import java.util.HashMap;
+import java.util.Map;
+
+public class AdAnalytics {
+    private Map<String, AdMetrics> campaignMetrics = new HashMap<>();
+
+    public void trackImpression(String campaignId) {
+        getMetrics(campaignId).incrementImpressions();
+    }
+
+    public void trackClick(String campaignId) {
+        getMetrics(campaignId).incrementClicks();
+    }
+
+    public void trackConversion(String campaignId, String conversionType) {
+        getMetrics(campaignId).addConversion(conversionType);
+    }
+
+    public AdMetrics getMetrics(String campaignId) {
+        return campaignMetrics.computeIfAbsent(campaignId, k -> new AdMetrics());
+    }
+
+    public static class AdMetrics {
+        private int impressions = 0;
+        private int clicks = 0;
+        private Map<String, Integer> conversions = new HashMap<>();
+
+        public void incrementImpressions() { impressions++; }
+        public void incrementClicks() { clicks++; }
+        public void addConversion(String type) {
+            conversions.put(type, conversions.getOrDefault(type, 0) + 1);
+        }
+
+        public int getImpressions() { return impressions; }
+        public int getClicks() { return clicks; }
+        public double getCTR() { return impressions > 0 ? (clicks * 100.0 / impressions) : 0; }
+        public Map<String, Integer> getConversions() { return new HashMap<>(conversions); }
+    }
+}
