@@ -4,3 +4,25 @@
   "internal_transfer": 1,
   "mobile_wallet": 6
 }
+package mazdady.admin;
+
+public class WithdrawalTaxController {
+    public void setTaxRate(String method, double rate) {
+        // في الإنتاج: تحديث الضريبة في config.json
+        System.out.println("تم تعيين ضريبة السحب لـ " + method + " إلى: " + rate + "%");
+    }
+
+    public void setTaxRates(java.util.Map<String, Double> rates) {
+        for (String method : rates.keySet()) {
+            setTaxRate(method, rates.get(method));
+        }
+    }
+
+    public void disableTaxForMethod(String method) {
+        setTaxRate(method, 0.0);
+    }
+
+    public void enableDynamicTax(boolean enabled) {
+        System.out.println("تم " + (enabled ? "تفعيل" : "إيقاف") + " الضريبة الديناميكية");
+    }
+}
