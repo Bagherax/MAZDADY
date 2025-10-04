@@ -1,0 +1,36 @@
+package mazdady.admin;
+
+import mazdady.user.User;
+import mazdady.user.UserManager;
+
+import java.util.List;
+
+public class UserInspector {
+    public void setUserLevel(String userId, int level) {
+        // في الإنتاج: تحميل المستخدم من قاعدة البيانات
+        User user = findUserById(userId);
+        if (user != null) {
+            user.setLevel(level);
+            // حفظ التغييرات
+            System.out.println("تم تغيير مستوى المستخدم " + userId + " إلى " + level);
+        }
+    }
+
+    public void freezeUserAccount(String userId) {
+        User user = findUserById(userId);
+        if (user != null) {
+            // في الإنتاج: تعيين حالة الحساب إلى "مجمد"
+            System.out.println("تم تجميد حساب المستخدم " + userId);
+        }
+    }
+
+    public int getActiveUsersCount() {
+        // في الإنتاج: عد المستخدمين النشطين خلال 24 ساعة
+        return 1250; // قيمة افتراضية
+    }
+
+    private User findUserById(String userId) {
+        // في الإنتاج: البحث في قاعدة البيانات
+        return UserManager.getInstance(null).getCurrentUser();
+    }
+}
