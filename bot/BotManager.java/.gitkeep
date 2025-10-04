@@ -1,0 +1,105 @@
+package mazdady.bot;
+
+import mazdady.trading.PriceEngine;
+import mazdady.trading.OrderBook;
+import mazdady.user.User;
+import mazdady.user.UserManager;
+
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Supplier;
+
+/**
+ * مدير البوتات مع دعم الإدارة المركزية
+ * يتبع نمط Factory لإنشاء أنواع البوتات المختلفة
+ */
+public final class BotManager {
+    private final Map<String, TradingBot> activeBots = new ConcurrentHashMap<>();
+    private final PriceEngine priceEngine;
+    private final OrderBook orderBook;
+    private final Map<String, Supplier<TradingBot>> botFactories;
+    private static BotManager instance;
+
+    private BotManager() {
+        this.priceEngine = new PriceEngine();
+        this.orderBook = new OrderBook();
+        this.botFactories = new ConcurrentHashMap<>();
+        initializeBotFactories();
+    }
+
+    public static synchronized BotManager getInstance() {
+        if (instance == null) {
+            instance = new BotManager();
+        }
+        return instance;
+    }
+
+    private void initializeBotFactories() {
+        botFactories.put("liquidity", () -> new LiquidityBot("LIQ_BOT_" + System.currentTimeMillis(), priceEngine, orderBook));
+        botFactories.put("market_maker", () -> new MarketMakerBot("MM_BOT_" + System.currentTimeMillis(), priceEngine, orderBook));
+        botFactories.put("stabilizer", () -> new MarketStabilizerBot("STAB_BOT_" + System.currentTimeMillis(), priceEngine, orderBook));
+    }
+
+    /**
+     * إنشاء بوت جديد
+     */
+    public TradingBot createBot(String botType) {
+        Supplier<TradingBot> factory = botFactories.get(botType);
+        if (factory == null) {
+            throw new IllegalArgumentException("Unsupported bot type: " + botType);
+        }
+        TradingBot bot = factory.get();
+        activeBots.put(bot.botId, bot);
+        return bot;
+    }
+
+    /**
+     * إنشاء بوت تعليمي للمستخدم
+     */
+    public TeachingBot createTeachingBot(User user) {
+        TeachingBot bot = new TeachingBot("TEACH_BOT_" + user.getUserId(), priceEngine, orderBook, user);
+        activeBots.put(bot.botId, bot);
+        return bot;
+    }
+
+    /**
+     * بدء جميع البوتات
+     */
+    public void startAllBots() {
+        activeBots.values().forEach(TradingBot::start);
+        System.out.println("BOT MANAGER: All bots started (" + activeBots.size() + " active)");
+    }
+
+    /**
+     * إيقاف جميع البوتات
+     */
+    public void stopAllBots() {
+        activeBots.values().forEach(TradingBot::stop);
+        System.out.println("BOT MANAGER: All bots stopped");
+    }
+
+    /**
+     * الحصول على بوت تداول
+     */
+    public TradingBot getTradingBot(String botId) {
+        return activeBots.get(botId);
+    }
+
+    /**
+     * الحصول على عدد البوتات النشطة
+     */
+    public int getActiveBotCount() {
+        return (int) activeBots.values().stream().filter(TradingBot::isActive).count();
+    }
+
+    /**
+     * إعادة تعيين المدير (للاختبارات)
+     */
+    public static void reset() {
+        if (instance != null) {
+            instance.stopAllBots();
+            instance.activeBots.clear();
+            instance = null;
+        }
+    }
+}
