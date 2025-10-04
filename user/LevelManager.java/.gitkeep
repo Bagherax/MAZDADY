@@ -1,0 +1,27 @@
+package mazdady.user;
+
+import mazdady.admin.AdminConfig;
+
+public class LevelManager {
+    public static int calculateLevel(double totalProfit) {
+        // من config.json: weekly_limits = [0, 10, 30, 60, 100, 200, 500, 1000]
+        double[] limits = AdminConfig.getInstance().getWeeklyLimits();
+        for (int i = limits.length - 1; i >= 0; i--) {
+            if (totalProfit >= limits[i]) {
+                return i;
+            }
+        }
+        return 1; // الحد الأدنى
+    }
+
+    public static boolean canAccessFeature(String featureId, int userLevel) {
+        // مثال: "payment_tools" يتطلب المستوى 3
+        if ("payment_tools".equals(featureId)) {
+            return userLevel >= 3;
+        }
+        if ("advanced_analytics".equals(featureId)) {
+            return userLevel >= 5;
+        }
+        return true; // الميزات الأساسية متاحة للجميع
+    }
+}
