@@ -1,0 +1,26 @@
+package mazdady.user;
+
+import java.util.Date;
+
+public class Subscription {
+    private boolean active = false;
+    private Date expiryDate;
+    private String planType; // "monthly", "yearly"
+
+    public boolean isActive() {
+        if (!active) return false;
+        return expiryDate != null && expiryDate.after(new Date());
+    }
+
+    public void activate(String planType, int durationDays) {
+        this.active = true;
+        this.planType = planType;
+        long expiryTime = System.currentTimeMillis() + (durationDays * 24L * 60 * 60 * 1000);
+        this.expiryDate = new Date(expiryTime);
+    }
+
+    // Getters
+    public boolean isActiveNow() { return isActive(); }
+    public String getPlanType() { return planType; }
+    public Date getExpiryDate() { return expiryDate; }
+}
