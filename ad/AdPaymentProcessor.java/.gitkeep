@@ -2,14 +2,47 @@ package mazdady.ad;
 
 import mazdady.wallet.WalletManager;
 
-public class AdPaymentProcessor {
-    public boolean processPayment(double amount, String paymentMethod) {
-        // في الإنتاج: دعم طرق دفع متعددة
-        if ("mazdady_wallet".equals(paymentMethod)) {
-            WalletManager wallet = new WalletManager();
-            return wallet.getBalance() >= amount && wallet.withdrawMAZDADY(amount);
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.BiFunction;
+
+/**
+ * معالج الدفع مع دعم استراتيجيات الدفع المتعددة
+ * يتبع نمط Strategy لفصل منطق الدفع
+ */
+public final class AdPaymentProcessor {
+    private final Map<String, BiFunction<Double, String, Boolean>> paymentStrategies = new ConcurrentHashMap<>();
+
+    private AdPaymentProcessor() {
+        // تسجيل استراتيجيات الدفع
+        paymentStrategies.put("mazdady_wallet", this::processWalletPayment);
+        paymentStrategies.put("crypto", this::processCryptoPayment);
+    }
+
+    private static class Holder {
+        static final AdPaymentProcessor INSTANCE = new AdPaymentProcessor();
+    }
+
+    public static AdPaymentProcessor getInstance() {
+        return Holder.INSTANCE;
+    }
+
+    public boolean processPayment(double amount, String paymentMethod, String details) {
+        BiFunction<Double, String, Boolean> strategy = paymentStrategies.get(paymentMethod);
+        if (strategy == null) {
+            throw new IllegalArgumentException("Unsupported payment method: " + paymentMethod);
         }
-        throw new UnsupportedOperationException("طريقة الدفع غير مدعومة");
+        return strategy.apply(amount, details);
+    }
+
+    private boolean processWalletPayment(Double amount, String userId) {
+        WalletManager wallet = new WalletManager();
+        return wallet.getBalance() >= amount && wallet.withdrawMAZDADY(amount);
+    }
+
+    private boolean processCryptoPayment(Double amount, String walletAddress) {
+        // في الإنتاج: معالجة الدفع بالعملات الرقمية
+        return true;
     }
 
     public double calculateTotalCost(AdCampaign campaign) {
