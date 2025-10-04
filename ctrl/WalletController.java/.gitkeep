@@ -1,0 +1,70 @@
+package mazdady.ctrl;
+
+import mazdady.wallet.WalletManager;
+import mazdady.wallet.WalletConnector;
+import mazdady.user.UserManager;
+
+import java.util.concurrent.CompletableFuture;
+
+/**
+ * وحدة تحكم المحفظة مع دعم العمليات الآمنة
+ * يتبع نمط Facade لتوفير واجهة موحدة
+ */
+public final class WalletController {
+    private final WalletManager walletManager;
+    private final WalletConnector walletConnector;
+    private static final WalletController INSTANCE = new WalletController();
+
+    private WalletController() {
+        this.walletManager = new WalletManager();
+        this.walletConnector = new WalletConnector();
+    }
+
+    public static WalletController getInstance() {
+        return INSTANCE;
+    }
+
+    /**
+     * ربط محفظة خارجية غير متزامن
+     */
+    public CompletableFuture<Boolean> connectWalletAsync(String address, String network) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                walletConnector.connectWallet(address, network);
+                UserManager.getInstance(null).getCurrentUser().setWalletAddress(address);
+                System.out.println("WALLET: Connected to " + address + " on " + network);
+                return true;
+            } catch (Exception e) {
+                System.err.println("WALLET ERROR: " + e.getMessage());
+                return false;
+            }
+        });
+    }
+
+    /**
+     * سحب الأرباح غير المتزامن
+     */
+    public CompletableFuture<Boolean> withdrawAsync(double amount) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                boolean success = walletManager.withdrawMAZDADY(amount);
+                if (success) {
+                    System.out.println("WALLET: Withdrawal of " + amount + " MAZDADY successful");
+                }
+                return success;
+            } catch (Exception e) {
+                System.err.println("WALLET ERROR: " + e.getMessage());
+                return false;
+            }
+        });
+    }
+
+    /**
+     * الحصول على رصيد المحفظة
+     */
+    public double getBalance() {
+        return walletManager.getBalance();
+    }
+
+    /**
+  
