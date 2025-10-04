@@ -1,0 +1,27 @@
+package mazdady.admin;
+
+import mazdady.team.TeamManager;
+
+public class TeamBalanceController {
+    private TeamManager teamManager;
+
+    public TeamBalanceController() {
+        this.teamManager = new TeamManager(/* priceEngine */);
+    }
+
+    public void adjustTeamCapital(String teamId, double amount) {
+        System.out.println("تم تعديل رأس مال الفريق " + teamId + " بمقدار: " + amount);
+    }
+
+    public void setTeamActivity(boolean isActive) {
+        if (isActive) {
+            System.out.println("تم تفعيل فرق التداول");
+        } else {
+            System.out.println("تم إيقاف فرق التداول");
+        }
+    }
+
+    public void rebalanceTeams() {
+        System.out.println("تم إعادة توازن الفرق");
+    }
+}
