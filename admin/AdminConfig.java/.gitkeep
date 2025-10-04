@@ -9,21 +9,21 @@ import java.net.URL;
 public class AdminConfig {
     private static AdminConfig instance;
     private int minWithdrawalLevel = 5;
-    private double[] weeklyLimits = {0, 10, 30, 60, 100, 200}; // index = level
-    private String withdrawalSchedule = "weekly"; // weekly, monthly
+    private double[] weeklyLimits = {0, 10, 30, 60, 100, 200, 500, 1000};
+    private String withdrawalSchedule = "weekly";
     private boolean isInitialized = false;
+    private UIConfig uiConfig;
 
     private AdminConfig() {}
 
     public static synchronized AdminConfig getInstance() {
         if (instance == null) {
             instance = new AdminConfig();
-            instance.loadFromServer();
         }
         return instance;
     }
 
-    private void loadFromServer() {
+    public void loadFromServer() {
         if (isInitialized) return;
 
         try {
@@ -44,12 +44,17 @@ public class AdminConfig {
             JSONObject json = new JSONObject(response.toString());
             minWithdrawalLevel = json.getInt("min_withdrawal_level");
             withdrawalSchedule = json.getString("withdrawal_schedule");
-            // تحميل باقي الإعدادات...
+            
+            if (json.has("ui")) {
+                uiConfig = new UIConfig(json.getJSONObject("ui"));
+            } else {
+                uiConfig = new UIConfig(new JSONObject());
+            }
 
             isInitialized = true;
         } catch (Exception e) {
-            // استخدام الإعدادات الافتراضية في حال فشل التحميل
             isInitialized = true;
+            uiConfig = new UIConfig(new JSONObject());
         }
     }
 
@@ -58,11 +63,43 @@ public class AdminConfig {
         if (level < weeklyLimits.length) return weeklyLimits[level];
         return weeklyLimits[weeklyLimits.length - 1];
     }
-    public boolean isTodayWithdrawalDay() {
-        // منطق بسيط: إذا كان weekly → تحقق من اليوم
-        return true; // سيتم تحسينه لاحقًا
-    }
-    public String getNextWithdrawalDate() {
-        return "الاثنين القادم";
+    public boolean isTodayWithdrawalDay() { return true; }
+    public String getNextWithdrawalDate() { return "الاثنين القادم"; }
+    public UIConfig getUIConfig() { return uiConfig; }
+
+    public static class UIConfig {
+        private String popupBackgroundColor = "#1a1a2e";
+        private String popupTitleColor = "#4CAF50";
+        private String popupContentColor = "#ffffff";
+        private String popupButtonColor = "#FF5722";
+        private float popupTitleSize = 18f;
+        private float popupContentSize = 14f;
+        private float popupButtonSize = 16f;
+        private float popupWidthRatio = 0.9f;
+        private float popupHeightRatio = 0.7f;
+
+        public UIConfig(JSONObject json) {
+            if (json.length() > 0) {
+                popupBackgroundColor = json.optString("popup_bg", popupBackgroundColor);
+                popupTitleColor = json.optString("popup_title_color", popupTitleColor);
+                popupContentColor = json.optString("popup_content_color", popupContentColor);
+                popupButtonColor = json.optString("popup_button_color", popupButtonColor);
+                popupTitleSize = (float) json.optDouble("popup_title_size", popupTitleSize);
+                popupContentSize = (float) json.optDouble("popup_content_size", popupContentSize);
+                popupButtonSize = (float) json.optDouble("popup_button_size", popupButtonSize);
+                popupWidthRatio = (float) json.optDouble("popup_width_ratio", popupWidthRatio);
+                popupHeightRatio = (float) json.optDouble("popup_height_ratio", popupHeightRatio);
+            }
+        }
+
+        public String getPopupBackgroundColor() { return popupBackgroundColor; }
+        public String getPopupTitleColor() { return popupTitleColor; }
+        public String getPopupContentColor() { return popupContentColor; }
+        public String getPopupButtonColor() { return popupButtonColor; }
+        public float getPopupTitleSize() { return popupTitleSize; }
+        public float getPopupContentSize() { return popupContentSize; }
+        public float getPopupButtonSize() { return popupButtonSize; }
+        public float getPopupWidthRatio() { return popupWidthRatio; }
+        public float getPopupHeightRatio() { return popupHeightRatio; }
     }
 }
