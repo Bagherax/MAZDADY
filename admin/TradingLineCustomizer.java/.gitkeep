@@ -1,0 +1,19 @@
+package mazdady.admin;
+
+public class TradingLineCustomizer {
+    public void setLineColor(String color) {
+        System.out.println("تم تعيين لون خط التداول إلى: " + color);
+    }
+
+    public void setLineWidth(int width) {
+        System.out.println("تم تعيين عرض خط التداول إلى: " + width + " بكسل");
+    }
+
+    public void enableStarEffects(boolean enabled) {
+        System.out.println("تم " + (enabled ? "تفعيل" : "إيقاف") + " تأثيرات النجوم");
+    }
+
+    public void customizeUserAvatars(boolean enabled) {
+        System.out.println("تم " + (enabled ? "تفعيل" : "إيقاف") + " صور المستخدمين على الخط");
+    }
+}
