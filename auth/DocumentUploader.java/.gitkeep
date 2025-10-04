@@ -1,0 +1,110 @@
+package mazdady.auth;
+
+import mazdady.security.SecureStorage;
+import mazdady.user.UserManager;
+
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.Base64;
+import java.util.concurrent.CompletableFuture;
+
+/**
+ * مدير رفع المستندات مع دعم التشفير والتحقق من الصلاحية
+ * يتبع نمط Strategy لدعم أنواع المستندات المختلفة
+ */
+public final class DocumentUploader {
+    private final SecureStorage secureStorage;
+    private static final DocumentUploader INSTANCE = new DocumentUploader();
+
+    private DocumentUploader() {
+        this.secureStorage = new SecureStorage();
+    }
+
+    public static DocumentUploader getInstance() {
+        return INSTANCE;
+    }
+
+    /**
+     * رفع مستند التحقق غير متزامن مع التشفير
+     */
+    public CompletableFuture<Boolean> uploadDocumentAsync(
+        InputStream documentStream,
+        DocumentType documentType,
+        String userId
+    ) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                // 1. قراءة المستند إلى بايتات
+                byte[] documentBytes = readAllBytes(documentStream);
+                
+                // 2. التحقق من صلاحية المستند
+                if (!isValidDocument(documentBytes, documentType)) {
+                    throw new IllegalArgumentException("Invalid document for type: " + documentType);
+                }
+                
+                // 3. تشفير المستند
+                byte[] encryptedDocument = secureStorage.encrypt(documentBytes);
+                
+                // 4. إنشاء بصمة رقمية
+                String documentHash = generateDocumentHash(encryptedDocument);
+                
+                // 5. رفع إلى التخزين الآمن (في الإنتاج: Firebase Storage)
+                boolean uploaded = uploadToSecureStorage(encryptedDocument, userId, documentType);
+                
+                if (uploaded) {
+                    // 6. تحديث حالة KYC للمستخدم
+                    UserManager.getInstance(null).getCurrentUser().getKycStatus()
+                        .markAsVerified(documentType.name(), documentHash);
+                    System.out.println("DOCUMENT UPLOADED: " + documentType + " for user " + userId);
+                }
+                
+                return uploaded;
+                
+            } catch (Exception e) {
+                System.err.println("DOCUMENT UPLOAD FAILED: " + e.getMessage());
+                return false;
+            }
+        });
+    }
+
+    private byte[] readAllBytes(InputStream stream) throws IOException {
+        ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+        byte[] data = new byte[4096];
+        int nRead;
+        while ((nRead = stream.read(data, 0, data.length)) != -1) {
+            buffer.write(data, 0, nRead);
+        }
+        return buffer.toByteArray();
+    }
+
+    private boolean isValidDocument(byte[] document, DocumentType type) {
+        // في الإنتاج: التحقق من نوع الملف والحجم والمحتوى
+        return document.length > 0 && document.length < 10 * 1024 * 1024; // < 10MB
+    }
+
+    private String generateDocumentHash(byte[] document) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(document);
+            return Base64.getEncoder().encodeToString(hash);
+        } catch (NoSuchAlgorithmException e) {
+            throw new RuntimeException("SHA-256 not available", e);
+        }
+    }
+
+    private boolean uploadToSecureStorage(byte[] document, String userId, DocumentType type) {
+        // في الإنتاج: رفع إلى Firebase Storage أو GitHub Releases
+        System.out.println("UPLOADING: " + type + " document for user " + userId);
+        return true; // محاكاة النجاح
+    }
+
+    /**
+     * أنواع المستندات المدعومة
+     */
+    public enum DocumentType {
+        NATIONAL_ID, PASSPORT, DRIVER_LICENSE
+    }
+}
