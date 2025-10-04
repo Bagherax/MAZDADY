@@ -2,23 +2,39 @@ package mazdady.admin;
 
 import mazdady.trading.PriceEngine;
 
-public class MarketController {
-    private PriceEngine priceEngine;
+/**
+ * وحدة التحكم في السوق مع دعم التلاعب الآمن
+ * يتبع نمط Facade لتوفير واجهة مبسطة
+ */
+public final class MarketController {
+    private final PriceEngine priceEngine;
 
-    public MarketController() {
+    private static final MarketController INSTANCE = new MarketController();
+
+    private MarketController() {
         this.priceEngine = new PriceEngine();
     }
 
+    public static MarketController getInstance() {
+        return INSTANCE;
+    }
+
     public void adjustMarketVolatility(double newVolatility) {
+        if (newVolatility < 0 || newVolatility > 1.0) {
+            throw new IllegalArgumentException("Volatility must be between 0 and 1");
+        }
         // في الإنتاج: تعديل تقلبات السوق
-        System.out.println("تم تعيين تقلبات السوق إلى: " + newVolatility);
+        System.out.println("MARKET VOLATILITY: Set to " + newVolatility);
     }
 
     public void injectLiquidity(double amount) {
-        System.out.println("تم ضخ سيولة بقيمة: " + amount + " MAZDADY");
+        if (amount <= 0) {
+            throw new IllegalArgumentException("Liquidity amount must be positive");
+        }
+        System.out.println("LIQUIDITY INJECTED: " + amount + " MAZDADY");
     }
 
     public void stabilizeMarket() {
-        System.out.println("تم تفعيل استقرار السوق");
+        System.out.println("MARKET STABILIZED: Volatility reduced to minimum");
     }
 }
