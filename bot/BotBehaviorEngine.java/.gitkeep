@@ -1,0 +1,90 @@
+package mazdady.bot;
+
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.BiFunction;
+
+/**
+ * محرك سلوكيات البوتات مع دعم التعلم التكيفي
+ * يتبع نمط Strategy لإدارة سلوكيات متعددة
+ */
+public final class BotBehaviorEngine {
+    private final Map<String, BiFunction<TradingBot, BotContext, TradingBot.BotBehavior>> behaviorFactories;
+    private static final BotBehaviorEngine INSTANCE = new BotBehaviorEngine();
+
+    private BotBehaviorEngine() {
+        this.behaviorFactories = new ConcurrentHashMap<>();
+        initializeBehaviorFactories();
+    }
+
+    public static BotBehaviorEngine getInstance() {
+        return INSTANCE;
+    }
+
+    private void initializeBehaviorFactories() {
+        behaviorFactories.put("aggressive_trading", (bot, context) -> new AggressiveTradingBehavior(context));
+        behaviorFactories.put("conservative_trading", (bot, context) -> new ConservativeTradingBehavior(context));
+        behaviorFactories.put("balanced_liquidity", (bot, context) -> new BalancedLiquidityBehavior(context));
+        behaviorFactories.put("dynamic_spread", (bot, context) -> new DynamicSpreadBehavior(context));
+        behaviorFactories.put("volatility_control", (bot, context) -> new VolatilityControlBehavior(context));
+        behaviorFactories.put("adaptive_teaching", (bot, context) -> new AdaptiveTeachingBehavior(context));
+    }
+
+    public TradingBot.BotBehavior createBehavior(String behaviorType, TradingBot bot, BotContext context) {
+        BiFunction<TradingBot, BotContext, TradingBot.BotBehavior> factory = behaviorFactories.get(behaviorType);
+        if (factory == null) {
+            throw new IllegalArgumentException("Unsupported behavior type: " + behaviorType);
+        }
+        return factory.apply(bot, context);
+    }
+
+    /**
+     * سياق سلوك البوت
+     */
+    public static final class BotContext {
+        private final double marketPrice;
+        private final double marketTrend;
+        private final double volatility;
+        private final int userLevel;
+        private final double availableCapital;
+
+        public BotContext(double marketPrice, double marketTrend, double volatility, 
+                         int userLevel, double availableCapital) {
+            this.marketPrice = marketPrice;
+            this.marketTrend = marketTrend;
+            this.volatility = volatility;
+            this.userLevel = userLevel;
+            this.availableCapital = availableCapital;
+        }
+
+        // Getters
+        public double getMarketPrice() { return marketPrice; }
+        public double getMarketTrend() { return marketTrend; }
+        public double getVolatility() { return volatility; }
+        public int getUserLevel() { return userLevel; }
+        public double getAvailableCapital() { return availableCapital; }
+    }
+
+    // سلوكيات مخصصة (يمكن توسيعها حسب الحاجة)
+    private static final class AggressiveTradingBehavior implements TradingBot.BotBehavior {
+        private final BotContext context;
+        AggressiveTradingBehavior(BotContext context) { this.context = context; }
+        @Override public String getName() { return "AGGRESSIVE_TRADING"; }
+        @Override public void execute(TradingBot bot) {
+            // في الإنتاج: تنفيذ استراتيجية تداول عدوانية
+            bot.getClass().getSimpleName(); // placeholder
+        }
+    }
+
+    private static final class ConservativeTradingBehavior implements TradingBot.BotBehavior {
+        private final BotContext context;
+        ConservativeTradingBehavior(BotContext context) { this.context = context; }
+        @Override public String getName() { return "CONSERVATIVE_TRADING"; }
+        @Override public void execute(TradingBot bot) {
+            // في الإنتاج: تنفيذ استراتيجية تداول محافظة
+            bot.getClass().getSimpleName(); // placeholder
+        }
+    }
+
+    // ملاحظة: السلوكيات الأخرى مُضمنة في فئات البوتات الخاصة بها
+}
