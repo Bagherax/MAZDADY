@@ -1,0 +1,27 @@
+package mazdady.ad;
+
+public class AdRemovalEngine {
+    private AdMarketplace marketplace;
+    private AdDeliveryEngine deliveryEngine;
+
+    public AdRemovalEngine(AdMarketplace marketplace, AdDeliveryEngine deliveryEngine) {
+        this.marketplace = marketplace;
+        this.deliveryEngine = deliveryEngine;
+    }
+
+    public void removeCompletedCampaigns() {
+        // إزالة الحملات المكتملة من السوق
+        AdMarketplace.AdCampaign[] campaigns = marketplace.getAvailableCampaigns().toArray(new AdMarketplace.AdCampaign[0]);
+        for (AdMarketplace.AdCampaign campaign : campaigns) {
+            if (campaign.isCompleted()) {
+                marketplace.removeCampaign(campaign.getCampaignId());
+                System.out.println("تم إزالة الحملة المكتملة: " + campaign.getCampaignId());
+            }
+        }
+    }
+
+    public void forceRemoveCampaign(String campaignId) {
+        marketplace.removeCampaign(campaignId);
+        System.out.println("تم إزالة الحملة يدويًا: " + campaignId);
+    }
+}
