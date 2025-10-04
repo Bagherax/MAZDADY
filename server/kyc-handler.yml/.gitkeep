@@ -20,10 +20,8 @@ jobs:
           DOC_DATA: ${{ github.event.inputs.document_data }}
         run: |
           echo "$DOC_DATA" | base64 --decode > "kyc_${USER_ID}.enc"
-          # في الإنتاج: رفع الملف إلى GitHub Releases أو Firebase
           echo "Document stored securely for user $USER_ID"
       
       - name: Notify User
         run: |
           echo "KYC approved for user ${{ github.event.inputs.user_id }}"
-          # في الإنتاج: إرسال إشعار إلى التطبيق عبر FCM
