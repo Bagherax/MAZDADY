@@ -20,16 +20,11 @@ public class SocialLoginHandler {
     }
 
     public void signInWithFacebook(Activity activity) {
-        // استخدام Facebook SDK (سيتم تفعيله عند الإضافة إلى build.gradle)
     }
 
     public void signInWithTwitter(Activity activity) {
-        // استخدام Twitter Kit أو OAuth مباشر
     }
 
     public void signInWithTikTok(Activity activity) {
-        // استخدام TikTok Login Kit
     }
-
-    // معالجة النتائج في MainActivity.onActivityResult
 }
