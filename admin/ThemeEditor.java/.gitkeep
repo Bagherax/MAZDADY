@@ -1,16 +1,43 @@
 package mazdady.admin;
 
-public class ThemeEditor {
+/**
+ * محرر السمات مع دعم التخصيص الديناميكي
+ */
+public final class ThemeEditor {
+    private static final ThemeEditor INSTANCE = new ThemeEditor();
+
+    private ThemeEditor() {}
+
+    public static ThemeEditor getInstance() {
+        return INSTANCE;
+    }
+
     public void setThemeColor(String element, String color) {
-        // في الإنتاج: تحديث اللون في config.json
-        System.out.println("تم تعيين لون " + element + " إلى: " + color);
+        if (!isValidColor(color)) {
+            throw new IllegalArgumentException("Invalid color format");
+        }
+        System.out.println("THEME COLOR: " + element + " set to " + color);
+        ConfigPusher.getInstance().pushUIConfig(element, "color", color);
     }
 
     public void uploadThemeImage(String element, String imageUrl) {
-        System.out.println("تم رفع صورة الخلفية لـ " + element + ": " + imageUrl);
+        if (!isValidUrl(imageUrl)) {
+            throw new IllegalArgumentException("Invalid image URL");
+        }
+        System.out.println("THEME IMAGE: " + element + " set to " + imageUrl);
+        ConfigPusher.getInstance().pushUIConfig(element, "image", imageUrl);
     }
 
     public void resetTheme() {
-        System.out.println("تم إعادة السمة إلى الإعدادات الافتراضية");
+        System.out.println("THEME RESET: All theme settings reset to defaults");
+        ConfigPusher.getInstance().pushConfigUpdateAsync("theme", "default");
+    }
+
+    private boolean isValidColor(String color) {
+        return color.matches("^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$");
+    }
+
+    private boolean isValidUrl(String url) {
+        return url.startsWith("http");
     }
 }
