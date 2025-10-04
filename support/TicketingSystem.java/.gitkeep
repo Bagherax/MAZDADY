@@ -1,0 +1,65 @@
+package mazdady.support;
+
+import java.util.Date;
+import java.util.HashMap;
+import java.util.Map;
+
+public class TicketingSystem {
+    private Map<String, SupportTicket> tickets = new HashMap<>();
+    private static int nextTicketId = 1000;
+
+    public String createTicket(String userId, String subject, String description, String category) {
+        String ticketId = "TICKET-" + nextTicketId++;
+        SupportTicket ticket = new SupportTicket(ticketId, userId, subject, description, category);
+        tickets.put(ticketId, ticket);
+        
+        // في الإنتاج: إرسال إشعار لفريق الدعم
+        System.out.println("تم إنشاء تذكرة دعم جديدة: " + ticketId);
+        return ticketId;
+    }
+
+    public SupportTicket getTicket(String ticketId) {
+        return tickets.get(ticketId);
+    }
+
+    public void updateTicketStatus(String ticketId, String status) {
+        SupportTicket ticket = tickets.get(ticketId);
+        if (ticket != null) {
+            ticket.setStatus(status);
+            System.out.println("تم تحديث حالة التذكرة " + ticketId + " إلى: " + status);
+        }
+    }
+
+    public static class SupportTicket {
+        private String ticketId;
+        private String userId;
+        private String subject;
+        private String description;
+        private String category; // "payment", "kyc", "trading", "bug"
+        private String status; // "open", "in_progress", "resolved", "closed"
+        private Date createdAt;
+        private Date resolvedAt;
+
+        public SupportTicket(String ticketId, String userId, String subject, String description, String category) {
+            this.ticketId = ticketId;
+            this.userId = userId;
+            this.subject = subject;
+            this.description = description;
+            this.category = category;
+            this.status = "open";
+            this.createdAt = new Date();
+        }
+
+        // Getters and Setters
+        public String getTicketId() { return ticketId; }
+        public String getUserId() { return userId; }
+        public String getSubject() { return subject; }
+        public String getDescription() { return description; }
+        public String getCategory() { return category; }
+        public String getStatus() { return status; }
+        public void setStatus(String status) { this.status = status; }
+        public Date getCreatedAt() { return createdAt; }
+        public Date getResolvedAt() { return resolvedAt; }
+        public void setResolvedAt(Date resolvedAt) { this.resolvedAt = resolvedAt; }
+    }
+}
