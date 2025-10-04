@@ -1,0 +1,75 @@
+package mazdady.ctrl;
+
+import mazdady.user.UserManager;
+import mazdady.user.User;
+import mazdady.auth.LoginManager;
+import mazdady.auth.PhoneVerification;
+
+import java.util.concurrent.CompletableFuture;
+
+/**
+ * وحدة تحكم المستخدم مع دعم العمليات الآمنة
+ * يتبع نمط Facade لتوفير واجهة موحدة
+ */
+public final class UserController {
+    private static final UserController INSTANCE = new UserController();
+
+    private UserController() {}
+
+    public static UserController getInstance() {
+        return INSTANCE;
+    }
+
+    /**
+     * تسجيل الدخول غير المتزامن
+     */
+    public CompletableFuture<User> loginAsync(
+        LoginManager.LoginMethod method,
+        String identifier,
+        String credential
+    ) {
+        return CompletableFuture.supplyAsync(() -> {
+            LoginManager.LoginResult result = 
+                LoginManager.getInstance().login(method, identifier, credential);
+            
+            if (result.isSuccess()) {
+                System.out.println("USER: Login successful for " + result.getUser().getUserId());
+                return result.getUser();
+            } else {
+                throw new RuntimeException(result.getMessage());
+            }
+        });
+    }
+
+    /**
+     * التحقق من رقم الهاتف
+     */
+    public CompletableFuture<Boolean> verifyPhoneAsync(String phoneNumber, String code) {
+        return CompletableFuture.supplyAsync(() -> {
+            PhoneVerification.VerificationResult result = 
+                PhoneVerification.getInstance().verifyCode(phoneNumber, code);
+            
+            if (result.isSuccess()) {
+                System.out.println("USER: Phone verified for " + phoneNumber);
+                return true;
+            } else {
+                throw new RuntimeException(result.getMessage());
+            }
+        });
+    }
+
+    /**
+     * الحصول على المستخدم الحالي
+     */
+    public User getCurrentUser() {
+        return UserManager.getInstance(null).getCurrentUser();
+    }
+
+    /**
+     * تحديث رصيد المستخدم
+     */
+    public void updateBalance(double newBalance) {
+        UserManager.getInstance(null).updateBalance(newBalance);
+        System.out.println("USER: Balance updated to " + newBalance);
+    }
+}
