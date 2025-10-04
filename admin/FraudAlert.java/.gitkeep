@@ -1,0 +1,16 @@
+package mazdady.admin;
+
+public class FraudAlert {
+    public void triggerFraudAlert(String userId, String reason) {
+        System.out.println("🚨 تنبيه احتيال: " + reason + " للمستخدم: " + userId);
+        // في الإنتاج: إرسال تنبيه لفريق الأمن
+    }
+
+    public void investigateUser(String userId) {
+        System.out.println("بدء التحقيق مع المستخدم: " + userId);
+    }
+
+    public void banUserForFraud(String userId) {
+        System.out.println("تم حظر المستخدم " + userId + " بسبب الاحتيال");
+    }
+}
