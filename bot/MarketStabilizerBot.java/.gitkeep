@@ -1,0 +1,91 @@
+package mazdady.bot;
+
+import mazdady.trading.PriceEngine;
+import mazdady.trading.OrderBook;
+
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+
+/**
+ * بوت تثبيت السوق مع دعم التدخل التلقائي
+ * يتدخل عند اكتشاف تقلبات شديدة
+ */
+public final class MarketStabilizerBot extends TradingBot {
+    private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+    private double stabilizationFund = 20000.0; // صندوق التثبيت
+
+    public MarketStabilizerBot(String botId, PriceEngine priceEngine, OrderBook orderBook) {
+        super(botId, priceEngine, orderBook);
+        setBehavior(new VolatilityControlBehavior());
+    }
+
+    @Override
+    protected void executeTradingStrategy() {
+        scheduler.scheduleAtFixedRate(
+            this::monitorAndStabilize,
+            0,
+            10,
+            TimeUnit.SECONDS
+        );
+    }
+
+    private void monitorAndStabilize() {
+        if (!isActive()) return;
+        
+        BotBehavior behavior = currentBehavior.get();
+        if (behavior != null) {
+            behavior.execute(this);
+        }
+    }
+
+    private void intervene(double amount, boolean isBuy) {
+        if (stabilizationFund >= amount) {
+            if (isBuy) {
+                priceEngine.executeBuyOrder(botId, amount);
+                stabilizationFund -= amount;
+                logger.accept("STABILIZATION: BUY intervention of " + amount + " MAZDADY");
+            } else {
+                priceEngine.executeSellOrder(botId, amount);
+                logger.accept("STABILIZATION: SELL intervention of " + amount + " MAZDADY");
+            }
+        }
+    }
+
+    /**
+     * سلوك التحكم في التقلب
+     */
+    private final class VolatilityControlBehavior implements BotBehavior {
+        @Override
+        public String getName() {
+            return "VOLATILITY_CONTROL";
+        }
+
+        @Override
+        public void execute(TradingBot bot) {
+            double volatility = priceEngine.getVolatility();
+            double currentPrice = priceEngine.getCurrentPrice();
+            double trend = priceEngine.getMarketTrend();
+            
+            // التدخل عند التقلب الشديد
+            if (volatility > 0.8) {
+                double interventionAmount = 500.0 * volatility;
+                
+                if (trend > 0.5) {
+                    // سوق صاعد بسرعة - بيع لتثبيت السعر
+                    intervene(interventionAmount, false);
+                } else if (trend < -0.5) {
+                    // سوق هابط بسرعة - شراء لتثبيت السعر
+                    intervene(interventionAmount, true);
+                }
+            }
+            
+            // الحفاظ على نطاق سعري صحي
+            if (currentPrice > 120.0) {
+                intervene(300.0, false); // بيع عند الارتفاع المفرط
+            } else if (currentPrice < 80.0) {
+                intervene(300.0, true);  // شراء عند الانخفاض المفرط
+            }
+        }
+    }
+}
