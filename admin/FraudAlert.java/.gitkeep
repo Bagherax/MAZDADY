@@ -1,16 +1,37 @@
 package mazdady.admin;
 
-public class FraudAlert {
-    public void triggerFraudAlert(String userId, String reason) {
-        System.out.println("🚨 تنبيه احتيال: " + reason + " للمستخدم: " + userId);
-        // في الإنتاج: إرسال تنبيه لفريق الأمن
+import mazdady.user.User;
+
+import java.time.Instant;
+import java.util.concurrent.CompletableFuture;
+
+/**
+ * نظام تنبيهات الاحتيال مع دعم الكشف التلقائي
+ * يتبع نمط Observer لإعلام فريق الأمن
+ */
+public final class FraudAlert {
+    private static final FraudAlert INSTANCE = new FraudAlert();
+
+    private FraudAlert() {}
+
+    public static FraudAlert getInstance() {
+        return INSTANCE;
     }
 
-    public void investigateUser(String userId) {
-        System.out.println("بدء التحقيق مع المستخدم: " + userId);
+    public CompletableFuture<Void> triggerFraudAlertAsync(String userId, String reason) {
+        return CompletableFuture.runAsync(() -> {
+            System.out.println("🚨 FRAUD ALERT: " + reason + " for user " + userId + " at " + Instant.now());
+            investigateUser(userId);
+        });
+    }
+
+    private void investigateUser(String userId) {
+        // في الإنتاج: بدء عملية التحقيق التلقائية
+        System.out.println("INVESTIGATING: User " + userId + " under fraud investigation");
     }
 
     public void banUserForFraud(String userId) {
-        System.out.println("تم حظر المستخدم " + userId + " بسبب الاحتيال");
+        AccountFreezer.getInstance().freezeAccountAsync(userId, "Fraud detected");
+        System.out.println("BANNED: User " + userId + " banned for fraud");
     }
 }
