@@ -7,7 +7,7 @@ import java.util.concurrent.ThreadLocalRandom;
 
 public class SellingTeam {
     private final String teamId = "SELL_TEAM";
-    private double teamHoldings = 5000.0; // عدد العملات المحتفظ بها
+    private double teamHoldings = 5000.0;
     private final PriceEngine priceEngine;
 
     public SellingTeam(PriceEngine priceEngine) {
@@ -16,9 +16,8 @@ public class SellingTeam {
 
     public void executeTrades(List<User> realUsers) {
         double currentPrice = priceEngine.getCurrentPrice();
-        double volatility = priceEngine.getVolatility(); // 0 إلى 1
+        double volatility = priceEngine.getVolatility();
 
-        // إذا كان السوق متقلبًا، نبيع أكثر
         int tradeCount = (int) (3 + (volatility * 5));
         if (tradeCount < 1) tradeCount = 1;
 
