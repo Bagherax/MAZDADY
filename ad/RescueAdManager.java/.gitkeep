@@ -2,18 +2,39 @@ package mazdady.ad;
 
 import mazdady.user.UserManager;
 
-public class RescueAdManager {
-    public boolean offerRescueAd() {
-        // عرض إعلان إنقاذ عند خسارة كبيرة
-        if (UserManager.getInstance(null).getCurrentUser().getBalance() < 10) {
-            System.out.println("عرض إعلان إنقاذ: اربح 20 MAZDADY!");
-            return true;
-        }
-        return false;
+import java.util.function.Predicate;
+
+/**
+ * مدير إعلانات الإنقاذ مع دعم قواعد التفعيل الديناميكية
+ * يستخدم Functional Programming لتحديد شروط العرض
+ */
+public final class RescueAdManager {
+    private final Predicate<Double> rescueCondition = balance -> balance < 10.0;
+
+    public boolean shouldOfferRescueAd() {
+        double balance = UserManager.getInstance(null).getCurrentUser().getBalance();
+        return rescueCondition.test(balance);
+    }
+
+    public AdCampaign createRescueCampaign(String userId) {
+        return new AdCampaign.Builder()
+            .userId(userId)
+            .platform(AdCampaign.Platform.TIKTOK)
+            .contentUrl("https://tiktok.com/rescue")
+            .goal(AdCampaign.Goal.VIEWS)
+            .targetCount(100)
+            .budget(5.0)
+            .build();
     }
 
     public void activateRescueAd(String userId) {
-        // في الإنتاج: إنشاء حملة إنقاذ تلقائية
-        System.out.println("تم تفعيل إعلان الإنقاذ للمستخدم: " + userId);
+        AdCampaign rescueCampaign = createRescueCampaign(userId);
+        AdManager.getInstance().createCampaignAsync(
+            rescueCampaign.getPlatform(),
+            rescueCampaign.getContentUrl(),
+            rescueCampaign.getGoal(),
+            rescueCampaign.getTargetCount(),
+            rescueCampaign.getBudget()
+        );
     }
 }
