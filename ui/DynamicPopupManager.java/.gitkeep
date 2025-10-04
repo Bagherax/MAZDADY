@@ -49,3 +49,18 @@ public class DynamicPopupManager {
         dialog.show();
     }
 }
+// عند إنشاء حملة إعلانية
+AdManager adManager = AdManager.getInstance();
+boolean success = adManager.createCampaign(
+    "youtube", 
+    "https://youtube.com/watch?v=example", 
+    "views", 
+    1000, 
+    50.0 // 50 MAZDADY
+);
+
+if (success) {
+    showPopup("تم بدء حملتك الإعلانية!");
+} else {
+    showPopup("رصيدك غير كافٍ!");
+}
