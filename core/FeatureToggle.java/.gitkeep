@@ -1,0 +1,68 @@
+package mazdady.core;
+
+import mazdady.user.UserManager;
+
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Predicate;
+
+/**
+ * مدير تبديل الميزات مع دعم التقييم الديناميكي
+ * يتبع نمط Strategy لتحديد شروط التفعيل
+ */
+public final class FeatureToggle {
+    private final Map<String, Feature> features = new ConcurrentHashMap<>();
+    private static final FeatureToggle INSTANCE = new FeatureToggle();
+
+    private FeatureToggle() {
+        initializeDefaultFeatures();
+    }
+
+    public static FeatureToggle getInstance() {
+        return INSTANCE;
+    }
+
+    private void initializeDefaultFeatures() {
+        features.put("payment_tools", new Feature(true, user -> user.getLevel() >= 3));
+        features.put("advanced_analytics", new Feature(false, user -> user.hasActiveSubscription()));
+        features.put("floating_ad", new Feature(true, user -> true));
+        features.put("team_trading", new Feature(true, user -> true));
+    }
+
+    public boolean isEnabled(String feature) {
+        Feature f = features.get(feature);
+        return f != null && f.isEnabled();
+    }
+
+    public boolean isAvailableForUser(String feature) {
+        Feature f = features.get(feature);
+        return f != null && f.isAvailableForUser(UserManager.getInstance(null).getCurrentUser());
+    }
+
+    public void setFeature(String feature, boolean enabled) {
+        features.compute(feature, (k, v) -> 
+            v != null ? new Feature(enabled, v.userCondition) : new Feature(enabled, user -> true)
+        );
+    }
+
+    /**
+     * ميزة مع شرط المستخدم
+     */
+    private static final class Feature {
+        private final boolean enabled;
+        private final Predicate<mazdady.user.User> userCondition;
+
+        Feature(boolean enabled, Predicate<mazdady.user.User> userCondition) {
+            this.enabled = enabled;
+            this.userCondition = userCondition;
+        }
+
+        boolean isEnabled() {
+            return enabled;
+        }
+
+        boolean isAvailableForUser(mazdady.user.User user) {
+            return enabled && userCondition.test(user);
+        }
+    }
+}
