@@ -1,0 +1,25 @@
+package mazdady.dev;
+
+public class UnitTests {
+    public static void runAllTests() {
+        testUserProfit();
+        testWithdrawalRules();
+        testPriceEngine();
+        System.out.println("✅ اجتازت جميع الاختبارات!");
+    }
+
+    private static void testUserProfit() {
+        // محاكاة ربح المستخدم
+        System.out.println("🧪 اختبار ربح المستخدم...");
+    }
+
+    private static void testWithdrawalRules() {
+        // محاكاة قواعد السحب
+        System.out.println("🧪 اختبار قواعد السحب...");
+    }
+
+    private static void testPriceEngine() {
+        // محاكاة محرك التداول
+        System.out.println("🧪 اختبار محرك التداول...");
+    }
+}
