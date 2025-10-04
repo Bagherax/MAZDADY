@@ -1,0 +1,16 @@
+package mazdady.admin;
+
+public class ThemeEditor {
+    public void setThemeColor(String element, String color) {
+        // في الإنتاج: تحديث اللون في config.json
+        System.out.println("تم تعيين لون " + element + " إلى: " + color);
+    }
+
+    public void uploadThemeImage(String element, String imageUrl) {
+        System.out.println("تم رفع صورة الخلفية لـ " + element + ": " + imageUrl);
+    }
+
+    public void resetTheme() {
+        System.out.println("تم إعادة السمة إلى الإعدادات الافتراضية");
+    }
+}
