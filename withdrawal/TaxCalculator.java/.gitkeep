@@ -16,7 +16,6 @@ public class TaxCalculator {
 
     public WithdrawalResult calculate(double grossAmount, String method) {
         try {
-            // تحميل نسب الضرائب من السيرفر (مشفرة)
             String encryptedRates = config.getEncryptedTaxRates();
             String decryptedRates = secureStorage.decrypt(Base64.getDecoder().decode(encryptedRates));
             JSONObject rates = new JSONObject(decryptedRates);
@@ -27,7 +26,6 @@ public class TaxCalculator {
 
             return new WithdrawalResult(netAmount, taxAmount, taxRate);
         } catch (Exception e) {
-            // في حال الخطأ، استخدم نسب افتراضية آمنة
             double fallbackRate = 5.0;
             double taxAmount = grossAmount * (fallbackRate / 100);
             return new WithdrawalResult(grossAmount - taxAmount, taxAmount, fallbackRate);
