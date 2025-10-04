@@ -1,18 +1,44 @@
 package mazdady.admin;
 
-import mazdady.user.UserManager;
+import java.time.Duration;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
-public class FeatureGrantManager {
-    public void grantFeatureToUser(String userId, String feature, int durationHours) {
-        // في الإنتاج: منح ميزة مؤقتة للمستخدم
-        System.out.println("تم منح الميزة '" + feature + "' للمستخدم " + userId + 
-                          " لمدة " + durationHours + " ساعات");
-        
-        // مثال: رفع المستوى مؤقتًا
-        UserManager.getInstance(null).getCurrentUser().setLevel(10);
+/**
+ * مدير منح الميزات المؤقتة مع دعم الجدولة
+ * يستخدم ScheduledExecutorService للإنهاء التلقائي
+ */
+public final class FeatureGrantManager {
+    private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
+    private final FeatureFlags featureFlags = FeatureFlags.getInstance();
+
+    private static final FeatureGrantManager INSTANCE = new FeatureGrantManager();
+
+    private FeatureGrantManager() {}
+
+    public static FeatureGrantManager getInstance() {
+        return INSTANCE;
+    }
+
+    public void grantFeatureToUser(String userId, String feature, Duration duration) {
+        // تفعيل الميزة فورًا
+        featureFlags.setFlag(feature, true);
+        System.out.println("FEATURE GRANTED: " + feature + " to " + userId + " for " + duration);
+
+        // جدولة الإنهاء التلقائي
+        scheduler.schedule(
+            () -> {
+                featureFlags.setFlag(feature, false);
+                System.out.println("FEATURE EXPIRED: " + feature + " for " + userId);
+            },
+            duration.toMillis(),
+            TimeUnit.MILLISECONDS
+        );
     }
 
     public void revokeFeatureFromUser(String userId, String feature) {
-        System.out.println("تم سحب الميزة '" + feature + "' من المستخدم: " + userId);
+        featureFlags.setFlag(feature, false);
+        System.out.println("FEATURE REVOKED: " + feature + " from " + userId);
     }
 }
