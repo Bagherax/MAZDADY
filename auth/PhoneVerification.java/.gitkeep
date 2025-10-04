@@ -1,0 +1,144 @@
+package mazdady.auth;
+
+import mazdady.user.UserManager;
+
+import java.time.Instant;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
+
+/**
+ * مدير التحقق من رقم الهاتف مع دعم الحماية من الهجمات
+ * يتبع نمط Strategy لدعم مزودي الرسائل المختلفين
+ */
+public final class PhoneVerification {
+    private final Map<String, VerificationSession> activeSessions = new ConcurrentHashMap<>();
+    private final Supplier<String> codeGenerator;
+    private static final PhoneVerification INSTANCE = new PhoneVerification();
+
+    private PhoneVerification() {
+        this.codeGenerator = this::generateRandomCode;
+    }
+
+    public static PhoneVerification getInstance() {
+        return INSTANCE;
+    }
+
+    /**
+     * بدء جلسة تحقق جديدة
+     */
+    public VerificationResult startVerification(String phoneNumber) {
+        // التحقق من صحة الرقم
+        if (!isValidPhoneNumber(phoneNumber)) {
+            return VerificationResult.failure("Invalid phone number format");
+        }
+        
+        // التحقق من حدود المعدل (Rate Limiting)
+        if (isRateLimited(phoneNumber)) {
+            return VerificationResult.failure("Too many requests. Please try again later.");
+        }
+        
+        // إنشاء رمز تحقق
+        String verificationCode = codeGenerator.get();
+        
+        // حفظ الجلسة
+        VerificationSession session = new VerificationSession(verificationCode, phoneNumber);
+        activeSessions.put(phoneNumber, session);
+        
+        // إرسال الرمز (في الإنتاج: عبر SMS Gateway)
+        sendVerificationCode(phoneNumber, verificationCode);
+        
+        return VerificationResult.success("Verification code sent to " + phoneNumber);
+    }
+
+    /**
+     * التحقق من الرمز
+     */
+    public VerificationResult verifyCode(String phoneNumber, String code) {
+        VerificationSession session = activeSessions.get(phoneNumber);
+        if (session == null) {
+            return VerificationResult.failure("No active verification session");
+        }
+        
+        if (session.isExpired()) {
+            activeSessions.remove(phoneNumber);
+            return VerificationResult.failure("Verification code expired");
+        }
+        
+        if (session.verifyCode(code)) {
+            activeSessions.remove(phoneNumber);
+            // ربط الرقم بالمستخدم
+            UserManager.getInstance(null).getCurrentUser().setPhoneNumber(phoneNumber);
+            return VerificationResult.success("Phone number verified successfully");
+        }
+        
+        return VerificationResult.failure("Invalid verification code");
+    }
+
+    private boolean isValidPhoneNumber(String phoneNumber) {
+        return phoneNumber.matches("^\\+?[1-9]\\d{1,14}$");
+    }
+
+    private boolean isRateLimited(String phoneNumber) {
+        // في الإنتاج: استخدام Redis أو قاعدة بيانات للتحقق من الحدود
+        return false; // محاكاة عدم التقييد
+    }
+
+    private void sendVerificationCode(String phoneNumber, String code) {
+        System.out.println("SMS SENT: Verification code " + code + " sent to " + phoneNumber);
+        // في الإنتاج: إرسال عبر Twilio أو مزود SMS
+    }
+
+    private String generateRandomCode() {
+        return String.format("%06d", (int) (Math.random() * 1000000));
+    }
+
+    /**
+     * جلسة التحقق
+     */
+    private static final class VerificationSession {
+        private final String verificationCode;
+        private final String phoneNumber;
+        private final long createdAt;
+        private static final long EXPIRY_DURATION = TimeUnit.MINUTES.toMillis(10);
+
+        VerificationSession(String verificationCode, String phoneNumber) {
+            this.verificationCode = verificationCode;
+            this.phoneNumber = phoneNumber;
+            this.createdAt = System.currentTimeMillis();
+        }
+
+        boolean verifyCode(String code) {
+            return verificationCode.equals(code);
+        }
+
+        boolean isExpired() {
+            return System.currentTimeMillis() - createdAt > EXPIRY_DURATION;
+        }
+    }
+
+    /**
+     * نتيجة التحقق
+     */
+    public static final class VerificationResult {
+        private final boolean success;
+        private final String message;
+
+        private VerificationResult(boolean success, String message) {
+            this.success = success;
+            this.message = message;
+        }
+
+        public static VerificationResult success(String message) {
+            return new VerificationResult(true, message);
+        }
+
+        public static VerificationResult failure(String message) {
+            return new VerificationResult(false, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public String getMessage() { return message; }
+    }
+}
