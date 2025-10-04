@@ -1,0 +1,29 @@
+package mazdady.user;
+
+public class UserManager {
+    private static UserManager instance;
+    private User currentUser;
+
+    private UserManager() {
+        // تحميل المستخدم من التخزين الآمن
+    }
+
+    public static synchronized UserManager getInstance() {
+        if (instance == null) {
+            instance = new UserManager();
+        }
+        return instance;
+    }
+
+    public boolean isNewUser() {
+        return currentUser == null || currentUser.getRegistrationDate() == null;
+    }
+
+    public boolean hasActiveSubscription() {
+        return currentUser != null && currentUser.getSubscription().isActive();
+    }
+
+    public User getCurrentUser() {
+        return currentUser;
+    }
+}
