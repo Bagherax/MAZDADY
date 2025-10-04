@@ -1,0 +1,17 @@
+package mazdady.admin;
+
+public class PhoneLinker {
+    public void linkPhoneNumberToUser(String userId, String phoneNumber) {
+        // في الإنتاج: ربط الرقم بحساب المستخدم
+        System.out.println("تم ربط الرقم " + phoneNumber + " بالمستخدم: " + userId);
+    }
+
+    public void unlinkPhoneNumber(String userId) {
+        System.out.println("تم فصل الرقم عن المستخدم: " + userId);
+    }
+
+    public boolean isPhoneLinked(String phoneNumber) {
+        // في الإنتاج: التحقق من ربط الرقم
+        return true;
+    }
+}
