@@ -1,0 +1,31 @@
+package mazdady.admin;
+
+public class RevenueAnalyzer {
+    public double calculateTotalRevenue() {
+        // في الإنتاج: جمع الإيرادات من:
+        // - ضرائب السحب
+        // - اشتراكات Premium
+        // - رسوم الإعلانات
+        return 15750.25; // قيمة افتراضية
+    }
+
+    public double getWithdrawalTaxRevenue() {
+        return 8500.00;
+    }
+
+    public double getSubscriptionRevenue() {
+        return 4250.25;
+    }
+
+    public double getAdRevenue() {
+        return 3000.00;
+    }
+
+    public void generateRevenueReport() {
+        System.out.println("=== تقرير الإيرادات ===");
+        System.out.println("الإجمالي: " + calculateTotalRevenue() + " MAZDADY");
+        System.out.println("ضرائب السحب: " + getWithdrawalTaxRevenue());
+        System.out.println("الاشتراكات: " + getSubscriptionRevenue());
+        System.out.println("الإعلانات: " + getAdRevenue());
+    }
+}
