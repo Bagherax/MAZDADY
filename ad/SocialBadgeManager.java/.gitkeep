@@ -1,0 +1,20 @@
+package mazdady.ad;
+
+import mazdady.user.UserManager;
+
+public class SocialBadgeManager {
+    public void awardBadge(String userId, String badgeType) {
+        // في الإنتاج: منح شارة اجتماعية
+        System.out.println("تم منح الشارة '" + badgeType + "' للمستخدم: " + userId);
+        
+        // رفع مستوى المستخدم كمكافأة
+        UserManager.getInstance(null).getCurrentUser().setLevel(
+            UserManager.getInstance(null).getCurrentUser().getLevel() + 1
+        );
+    }
+
+    public boolean checkBadgeEligibility(String userId, String campaignType) {
+        // في الإنتاج: التحقق من الأهلية
+        return true;
+    }
+}
