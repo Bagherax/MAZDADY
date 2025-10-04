@@ -1,59 +1,136 @@
 package mazdady.ad;
 
-import java.util.Date;
+import mazdady.arch.ContractValidator;
+import mazdady.arch.ContractValidator.Validatable;
+import mazdady.arch.ContractValidator.ValidationErrorConsumer;
 
-public class AdCampaign {
-    private String campaignId;
-    private String userId;
-    private String platform; // "youtube", "tiktok", "instagram"
-    private String contentUrl; // رابط الفيديو
-    private String goal; // "views", "likes", "comments", "subscribers"
-    private int targetCount;
-    private double budget; // بالـ MAZDADY
-    private Date startDate;
-    private Date endDate;
-    private boolean isActive;
-    private int currentProgress;
+import java.time.Instant;
+import java.util.Objects;
+import java.util.UUID;
 
-    public AdCampaign(String userId, String platform, String contentUrl, 
-                     String goal, int targetCount, double budget) {
-        this.campaignId = "camp_" + System.currentTimeMillis();
-        this.userId = userId;
-        this.platform = platform;
-        this.contentUrl = contentUrl;
-        this.goal = goal;
-        this.targetCount = targetCount;
-        this.budget = budget;
-        this.startDate = new Date();
-        this.isActive = true;
-        this.currentProgress = 0;
+/**
+ * نموذج حملة إعلانية مع دعم العقود والتحقق الآلي
+ * يتبع مبادئ البرمجة الوظيفية والكائنات غير القابلة للتغيير
+ */
+public final class AdCampaign implements Validatable {
+    private final String id;
+    private final String userId;
+    private final Platform platform;
+    private final String contentUrl;
+    private final Goal goal;
+    private final int targetCount;
+    private final double budget;
+    private final Instant createdAt;
+    private final CampaignStatus status;
+
+    private AdCampaign(Builder builder) {
+        this.id = Objects.requireNonNull(builder.id, "ID cannot be null");
+        this.userId = Objects.requireNonNull(builder.userId, "User ID cannot be null");
+        this.platform = Objects.requireNonNull(builder.platform, "Platform cannot be null");
+        this.contentUrl = Objects.requireNonNull(builder.contentUrl, "Content URL cannot be null");
+        this.goal = Objects.requireNonNull(builder.goal, "Goal cannot be null");
+        this.targetCount = builder.targetCount;
+        this.budget = builder.budget;
+        this.createdAt = Instant.now();
+        this.status = CampaignStatus.ACTIVE;
+        
+        // التحقق من العقد
+        ContractValidator.getInstance().validateOrThrow(this);
     }
 
     // --- Business Logic ---
-    public boolean isCompleted() {
-        return currentProgress >= targetCount;
+    public boolean isCompleted(int currentProgress) {
+        return currentProgress >= targetCount || status == CampaignStatus.COMPLETED;
     }
 
     public double getCostPerAction() {
         return budget / targetCount;
     }
 
-    public void updateProgress(int newProgress) {
-        this.currentProgress = Math.min(newProgress, targetCount);
-        if (isCompleted()) {
-            this.isActive = false;
-        }
+    public AdCampaign complete() {
+        return new Builder(this).status(CampaignStatus.COMPLETED).build();
     }
 
     // --- Getters ---
-    public String getCampaignId() { return campaignId; }
+    public String getId() { return id; }
     public String getUserId() { return userId; }
-    public String getPlatform() { return platform; }
+    public Platform getPlatform() { return platform; }
     public String getContentUrl() { return contentUrl; }
-    public String getGoal() { return goal; }
+    public Goal getGoal() { return goal; }
     public int getTargetCount() { return targetCount; }
     public double getBudget() { return budget; }
-    public Date getStartDate() { return startDate; }
-    public boolean isActive() { return isActive; }
-    public int getCurrentProgress() { return currentProgress; }
+    public Instant getCreatedAt() { return createdAt; }
+    public CampaignStatus getStatus() { return status; }
+
+    @Override
+    public void validate(ValidationErrorConsumer errorConsumer) {
+        if (budget <= 0) {
+            errorConsumer.accept("Budget must be greater than zero");
+        }
+        if (targetCount <= 0) {
+            errorConsumer.accept("Target count must be greater than zero");
+        }
+        if (!platform.isValidUrl(contentUrl)) {
+            errorConsumer.accept("Invalid content URL for platform: " + platform);
+        }
+    }
+
+    // --- أنماط التصميم ---
+    public static class Builder {
+        private String id = UUID.randomUUID().toString();
+        private String userId;
+        private Platform platform;
+        private String contentUrl;
+        private Goal goal;
+        private int targetCount;
+        private double budget;
+        private CampaignStatus status = CampaignStatus.ACTIVE;
+
+        public Builder() {}
+
+        private Builder(AdCampaign campaign) {
+            this.id = campaign.id;
+            this.userId = campaign.userId;
+            this.platform = campaign.platform;
+            this.contentUrl = campaign.contentUrl;
+            this.goal = campaign.goal;
+            this.targetCount = campaign.targetCount;
+            this.budget = campaign.budget;
+            this.status = campaign.status;
+        }
+
+        public Builder userId(String userId) { this.userId = userId; return this; }
+        public Builder platform(Platform platform) { this.platform = platform; return this; }
+        public Builder contentUrl(String contentUrl) { this.contentUrl = contentUrl; return this; }
+        public Builder goal(Goal goal) { this.goal = goal; return this; }
+        public Builder targetCount(int targetCount) { this.targetCount = targetCount; return this; }
+        public Builder budget(double budget) { this.budget = budget; return this; }
+        public Builder status(CampaignStatus status) { this.status = status; return this; }
+
+        public AdCampaign build() {
+            return new AdCampaign(this);
+        }
+    }
+
+    // --- أنواع مخصصة ---
+    public enum Platform {
+        YOUTUBE, TIKTOK, INSTAGRAM, TWITTER;
+
+        public boolean isValidUrl(String url) {
+            return switch (this) {
+                case YOUTUBE -> url.contains("youtube.com/watch") || url.contains("youtu.be/");
+                case TIKTOK -> url.contains("tiktok.com/");
+                case INSTAGRAM -> url.contains("instagram.com/");
+                case TWITTER -> url.contains("twitter.com/") || url.contains("x.com/");
+            };
+        }
+    }
+
+    public enum Goal {
+        VIEWS, LIKES, COMMENTS, SUBSCRIBERS
+    }
+
+    public enum CampaignStatus {
+        ACTIVE, COMPLETED, CANCELLED, FAILED
+    }
 }
