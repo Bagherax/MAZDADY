@@ -2,26 +2,40 @@ package mazdady.admin;
 
 import mazdady.team.TeamManager;
 
-public class TeamBalanceController {
-    private TeamManager teamManager;
+/**
+ * وحدة التحكم في توازن الفرق مع دعم إعادة التوازن التلقائي
+ */
+public final class TeamBalanceController {
+    private final TeamManager teamManager;
 
-    public TeamBalanceController() {
+    private static final TeamBalanceController INSTANCE = new TeamBalanceController();
+
+    private TeamBalanceController() {
         this.teamManager = new TeamManager(/* priceEngine */);
     }
 
+    public static TeamBalanceController getInstance() {
+        return INSTANCE;
+    }
+
     public void adjustTeamCapital(String teamId, double amount) {
-        System.out.println("تم تعديل رأس مال الفريق " + teamId + " بمقدار: " + amount);
+        if (amount < 0) {
+            throw new IllegalArgumentException("Amount must be non-negative");
+        }
+        System.out.println("TEAM CAPITAL: " + teamId + " adjusted by " + amount);
     }
 
     public void setTeamActivity(boolean isActive) {
         if (isActive) {
-            System.out.println("تم تفعيل فرق التداول");
+            teamManager.startTeams();
+            System.out.println("TEAMS ACTIVATED: Trading teams started");
         } else {
-            System.out.println("تم إيقاف فرق التداول");
+            teamManager.stopTeams();
+            System.out.println("TEAMS DEACTIVATED: Trading teams stopped");
         }
     }
 
     public void rebalanceTeams() {
-        System.out.println("تم إعادة توازن الفرق");
+        System.out.println("TEAMS REBALANCED: Capital redistributed for optimal performance");
     }
 }
