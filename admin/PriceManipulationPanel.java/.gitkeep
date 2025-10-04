@@ -1,0 +1,24 @@
+package mazdady.admin;
+
+import mazdady.trading.PriceEngine;
+
+public class PriceManipulationPanel {
+    private PriceEngine priceEngine;
+
+    public PriceManipulationPanel() {
+        this.priceEngine = new PriceEngine();
+    }
+
+    public void setFixedPrice(double price) {
+        // في الإنتاج: تعيين سعر ثابت (للاختبار فقط)
+        System.out.println("تم تعيين السعر الثابت إلى: " + price);
+    }
+
+    public void applyPriceMultiplier(double multiplier) {
+        System.out.println("تم تطبيق مضاعف السعر: " + multiplier);
+    }
+
+    public void resetToMarketPrice() {
+        System.out.println("تم العودة إلى سعر السوق الطبيعي");
+    }
+}
