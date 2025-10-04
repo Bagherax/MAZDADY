@@ -1,34 +1,68 @@
 package mazdady.admin;
 
-import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Predicate;
 
-public class FeatureFlags {
-    private static FeatureFlags instance;
-    private Map<String, Boolean> flags = new HashMap<>();
+/**
+ * مدير أعلام الميزات مع دعم التقييم الديناميكي
+ * يتبع نمط Strategy لتحديد شروط التفعيل
+ */
+public final class FeatureFlags {
+    private final Map<String, FeatureFlag> flags = new ConcurrentHashMap<>();
+
+    private static final FeatureFlags INSTANCE = new FeatureFlags();
 
     private FeatureFlags() {
-        // تهيئة الأعلام الافتراضية
-        flags.put("new_trading_ui", false);
-        flags.put("advanced_analytics", false);
-        flags.put("floating_ad", true);
-        flags.put("team_trading", true);
+        initializeDefaultFlags();
     }
 
-    public static synchronized FeatureFlags getInstance() {
-        if (instance == null) {
-            instance = new FeatureFlags();
-        }
-        return instance;
+    public static FeatureFlags getInstance() {
+        return INSTANCE;
+    }
+
+    private void initializeDefaultFlags() {
+        flags.put("new_trading_ui", new FeatureFlag(true, user -> user.getLevel() >= 5));
+        flags.put("advanced_analytics", new FeatureFlag(false, user -> user.hasActiveSubscription()));
+        flags.put("floating_ad", new FeatureFlag(true, user -> true));
+        flags.put("team_trading", new FeatureFlag(true, user -> true));
     }
 
     public boolean isEnabled(String feature) {
-        return flags.getOrDefault(feature, false);
+        FeatureFlag flag = flags.get(feature);
+        return flag != null && flag.isEnabled();
+    }
+
+    public boolean isAvailableForUser(String feature, mazdady.user.User user) {
+        FeatureFlag flag = flags.get(feature);
+        return flag != null && flag.isAvailableForUser(user);
     }
 
     public void setFlag(String feature, boolean enabled) {
-        flags.put(feature, enabled);
-        // في الإنتاج: حفظ في config.json
-        System.out.println("تم تعيين العلم: " + feature + " = " + enabled);
+        flags.compute(feature, (k, v) -> 
+            v != null ? new FeatureFlag(enabled, v.userCondition) : new FeatureFlag(enabled, user -> true)
+        );
+        System.out.println("FEATURE FLAG: " + feature + " = " + enabled);
+    }
+
+    /**
+     * علم ميزة مع شرط المستخدم
+     */
+    private static final class FeatureFlag {
+        private final boolean enabled;
+        private final Predicate<mazdady.user.User> userCondition;
+
+        FeatureFlag(boolean enabled, Predicate<mazdady.user.User> userCondition) {
+            this.enabled = enabled;
+            this.userCondition = userCondition;
+        }
+
+        boolean isEnabled() {
+            return enabled;
+        }
+
+        boolean isAvailableForUser(mazdady.user.User user) {
+            return enabled && userCondition.test(user);
+        }
     }
 }
