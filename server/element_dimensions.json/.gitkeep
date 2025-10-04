@@ -1,0 +1,22 @@
+{
+  "main_background": {
+    "width": "100%",
+    "height": "100%",
+    "recommended_size": "1080x1920"
+  },
+  "buy_button_background": {
+    "width": "160dp",
+    "height": "50dp",
+    "recommended_size": "480x150"
+  },
+  "sell_button_background": {
+    "width": "160dp",
+    "height": "50dp",
+    "recommended_size": "480x150"
+  },
+  "popup_background": {
+    "width": "95% of screen",
+    "height": "80% of screen",
+    "recommended_size": "1026x1536"
+  }
+}
