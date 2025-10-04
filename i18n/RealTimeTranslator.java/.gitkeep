@@ -1,0 +1,133 @@
+package mazdady.i18n;
+
+import java.util.HashMap;
+import java.util.Locale;
+import java.util.Map;
+
+public class RealTimeTranslator {
+    private static RealTimeTranslator instance;
+    private String userLanguage;
+    private Map<String, Map<String, String>> translationCache = new HashMap<>();
+
+    private RealTimeTranslator() {
+        // اكتشاف لغة الجهاز تلقائيًا
+        this.userLanguage = Locale.getDefault().getLanguage();
+        
+        // تهيئة ذاكرة الترجمة الأساسية
+        initializeBasicTranslations();
+    }
+
+    public static synchronized RealTimeTranslator getInstance() {
+        if (instance == null) {
+            instance = new RealTimeTranslator();
+        }
+        return instance;
+    }
+
+    // --- الترجمة الفورية ---
+    public String translate(String text, String targetLanguage) {
+        // إذا كانت النص عربي والهدف لغة المستخدم
+        if (isArabic(text) && !targetLanguage.equals("ar")) {
+            return translateArabicTo(text, targetLanguage);
+        }
+        // إذا كانت النص بلغة المستخدم والهدف عربي
+        if (!isArabic(text) && targetLanguage.equals("ar")) {
+            return translateToArabic(text);
+        }
+        // إذا كانت نفس اللغة
+        if (detectLanguage(text).equals(targetLanguage)) {
+            return text;
+        }
+        // ترجمة عامة
+        return translateGeneral(text, targetLanguage);
+    }
+
+    public String translateToUserLanguage(String text) {
+        return translate(text, userLanguage);
+    }
+
+    public String translateToArabic(String text) {
+        return translate(text, "ar");
+    }
+
+    // --- طرق مساعدة ---
+    private boolean isArabic(String text) {
+        // التحقق إذا كان النص يحتوي على أحرف عربية
+        return text.matches(".*[\\u0600-\\u06FF]+.*");
+    }
+
+    private String detectLanguage(String text) {
+        if (isArabic(text)) return "ar";
+        // في الإنتاج: استخدام مكتبة كشف اللغة
+        return userLanguage;
+    }
+
+    private String translateArabicTo(String text, String targetLang) {
+        // في الإنتاج: استخدام Google Translate API أو مكتبة محلية
+        // هنا نستخدم ترجمة محاكاة
+        if ("en".equals(targetLang)) {
+            return mockArabicToEnglish(text);
+        }
+        return "[Translated to " + targetLang + "] " + text;
+    }
+
+    private String translateToArabic(String text) {
+        // في الإنتاج: استخدام Google Translate API
+        return "[مترجم إلى العربية] " + text;
+    }
+
+    private String translateGeneral(String text, String targetLang) {
+        return "[Translated] " + text;
+    }
+
+    // --- ترجمة محاكاة للعربية ↔ الإنجليزية ---
+    private String mockArabicToEnglish(String arabicText) {
+        Map<String, String> dictionary = new HashMap<>();
+        dictionary.put("مرحبا", "Hello");
+        dictionary.put("شكرا", "Thank you");
+        dictionary.put("الرصيد", "Balance");
+        dictionary.put("شراء", "Buy");
+        dictionary.put("بيع", "Sell");
+        dictionary.put("الاستثمار", "Investment");
+        dictionary.put("الوقت هو المال", "Time is money");
+        dictionary.put("تم السحب بنجاح", "Withdrawal successful");
+        dictionary.put("رصيدك غير كاف", "Insufficient balance");
+        dictionary.put("يرجى توثيق هويتك", "Please verify your identity");
+
+        // محاكاة الترجمة (في الإنتاج: استخدام NLP)
+        for (String key : dictionary.keySet()) {
+            if (arabicText.contains(key)) {
+                return dictionary.get(key);
+            }
+        }
+        return "Translated: " + arabicText;
+    }
+
+    // --- تهيئة الترجمات الأساسية ---
+    private void initializeBasicTranslations() {
+        // ترجمات عربية ← إنجليزية
+        Map<String, String> arToEn = new HashMap<>();
+        arToEn.put("الرئيسية", "Home");
+        arToEn.put("المحفظة", "Wallet");
+        arToEn.put("الإعلانات", "Ads");
+        arToEn.put("الدعم", "Support");
+        translationCache.put("ar-en", arToEn);
+
+        // ترجمات إنجليزية ← عربية
+        Map<String, String> enToAr = new HashMap<>();
+        enToAr.put("Home", "الرئيسية");
+        enToAr.put("Wallet", "المحفظة");
+        enToAr.put("Ads", "الإعلانات");
+        enToAr.put("Support", "الدعم");
+        translationCache.put("en-ar", enToAr);
+    }
+
+    // --- Getters ---
+    public String getUserLanguage() {
+        return userLanguage;
+    }
+
+    public void setUserLanguage(String language) {
+        this.userLanguage = language;
+    }
+}
