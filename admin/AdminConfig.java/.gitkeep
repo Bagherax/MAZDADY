@@ -103,3 +103,43 @@ public class AdminConfig {
         public float getPopupHeightRatio() { return popupHeightRatio; }
     }
 }
+// داخل فئة UIConfig
+public static class ButtonConfig {
+    private String pressColor = "#45a049"; // لون عند الضغط
+    private boolean glowEffectEnabled = true;
+    private String iconUrl = ""; // رابط أيقونة شفافة
+
+    public ButtonConfig(JSONObject json) {
+        if (json.length() > 0) {
+            pressColor = json.optString("press_color", pressColor);
+            glowEffectEnabled = json.optBoolean("glow_effect", glowEffectEnabled);
+            iconUrl = json.optString("icon_url", iconUrl);
+        }
+    }
+
+    // Getters
+    public String getPressColor() { return pressColor; }
+    public boolean isGlowEffectEnabled() { return glowEffectEnabled; }
+    public String getIconUrl() { return iconUrl; }
+}
+
+private Map<String, ButtonConfig> buttonConfigs = new HashMap<>();
+
+public UIConfig(JSONObject json) {
+    if (json.has("buttons")) {
+        JSONObject buttons = json.getJSONObject("buttons");
+        Iterator<String> keys = buttons.keys();
+        while (keys.hasNext()) {
+            String key = keys.next();
+            buttonConfigs.put(key, new ButtonConfig(buttons.getJSONObject(key)));
+        }
+    }
+    // تأكد من وجود إعدادات افتراضية
+    if (!buttonConfigs.containsKey("default")) {
+        buttonConfigs.put("default", new ButtonConfig(new JSONObject()));
+    }
+}
+
+public ButtonConfig getButtonConfig(String buttonId) {
+    return buttonConfigs.getOrDefault(buttonId, buttonConfigs.get("default"));
+}
