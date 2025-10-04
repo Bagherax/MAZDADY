@@ -1,0 +1,65 @@
+package mazdady.ctrl;
+
+import mazdady.ad.AdManager;
+import mazdady.ad.AdCampaign;
+import mazdady.user.UserManager;
+
+import java.util.concurrent.CompletableFuture;
+
+/**
+ * وحدة تحكم الترويج مع دعم الحملات المتقدمة
+ * يتبع نمط Facade لتوفير واجهة مبسطة
+ */
+public final class PromotionController {
+    private final AdManager adManager;
+    private static final PromotionController INSTANCE = new PromotionController();
+
+    private PromotionController() {
+        this.adManager = AdManager.getInstance();
+    }
+
+    public static PromotionController getInstance() {
+        return INSTANCE;
+    }
+
+    /**
+     * إنشاء حملة ترويجية غير متزامنة
+     */
+    public CompletableFuture<AdCampaign> createPromotionAsync(
+        String platform,
+        String contentUrl,
+        String goal,
+        int targetCount,
+        double budget
+    ) {
+        return adManager.createCampaignAsync(
+            AdCampaign.Platform.valueOf(platform.toUpperCase()),
+            contentUrl,
+            AdCampaign.Goal.valueOf(goal.toUpperCase()),
+            targetCount,
+            budget
+        );
+    }
+
+    /**
+     * إنشاء حملة ترويجية للمستخدم الحالي
+     */
+    public void createPromotionForCurrentUser(
+        String platform,
+        String contentUrl,
+        String goal,
+        int targetCount,
+        double budget
+    ) {
+        String userId = UserManager.getInstance(null).getCurrentUser().getUserId();
+        adManager.createCampaign(
+            AdCampaign.Platform.valueOf(platform.toUpperCase()),
+            contentUrl,
+            AdCampaign.Goal.valueOf(goal.toUpperCase()),
+            targetCount,
+            budget,
+            campaign -> System.out.println("PROMOTION: Campaign " + campaign.getCampaignId() + " created"),
+            error -> System.err.println("PROMOTION ERROR: " + error.getMessage())
+        );
+    }
+}
