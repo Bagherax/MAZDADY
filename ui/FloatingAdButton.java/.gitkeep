@@ -1,0 +1,100 @@
+package mazdady.ui;
+
+import android.content.Context;
+import android.graphics.drawable.AnimationDrawable;
+import android.os.Handler;
+import android.util.AttributeSet;
+import android.view.Gravity;
+import android.widget.FrameLayout;
+import android.widget.ImageView;
+import android.widget.TextView;
+import com.squareup.picasso.Picasso;
+
+public class FloatingAdButton extends FrameLayout {
+    private ImageView glowView;
+    private TextView countdownView;
+    private Handler handler = new Handler();
+    private Runnable hideRunnable;
+    private int displayDuration; // المدة قبل الاختفاء (ثواني)
+    private int hideDuration;    // المدة قبل الظهور مجددًا (ثواني)
+
+    public FloatingAdButton(Context context, AttributeSet attrs) {
+        super(context, attrs);
+        init();
+    }
+
+    private void init() {
+        // إنشاء خلفية اللمعان
+        glowView = new ImageView(getContext());
+        glowView.setImageResource(R.drawable.glow_animation); // ملف XML للتحريك
+        addView(glowView, new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT, Gravity.CENTER));
+
+        // إنشاء عداد التنازلي
+        countdownView = new TextView(getContext());
+        countdownView.setTextColor(0xFFFFFFFF);
+        countdownView.setTextSize(12);
+        LayoutParams params = new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+        params.bottomMargin = 10;
+        addView(countdownView, params);
+
+        // بدء تأثير اللمعان
+        if (glowView.getDrawable() instanceof AnimationDrawable) {
+            ((AnimationDrawable) glowView.getDrawable()).start();
+        }
+    }
+
+    public void configure(int displaySec, int hideSec, String adImageUrl) {
+        this.displayDuration = displaySec;
+        this.hideDuration = hideSec;
+
+        // تحميل صورة الإعلان
+        Picasso.get().load(adImageUrl).into(glowView);
+
+        // بدء العداد
+        startCountdown();
+    }
+
+    private void startCountdown() {
+        int secondsLeft = displayDuration;
+        countdownView.setText(String.valueOf(secondsLeft));
+
+        Runnable countdown = new Runnable() {
+            @Override
+            public void run() {
+                secondsLeft--;
+                if (secondsLeft > 0) {
+                    countdownView.setText(String.valueOf(secondsLeft));
+                    handler.postDelayed(this, 1000);
+                } else {
+                    hideAd();
+                }
+            }
+        };
+        handler.postDelayed(countdown, 1000);
+
+        // جدولة الإخفاء
+        hideRunnable = () -> {
+            setVisibility(GONE);
+            // جدولة الظهور مجددًا
+            handler.postDelayed(this::showAd, hideDuration * 1000L);
+        };
+        handler.postDelayed(hideRunnable, displayDuration * 1000L);
+    }
+
+    private void hideAd() {
+        setVisibility(GONE);
+        handler.postDelayed(this::showAd, hideDuration * 1000L);
+    }
+
+    private void showAd() {
+        setVisibility(VISIBLE);
+        startCountdown();
+    }
+
+    public void destroy() {
+        if (hideRunnable != null) {
+            handler.removeCallbacks(hideRunnable);
+        }
+        handler.removeCallbacksAndMessages(null);
+    }
+}
