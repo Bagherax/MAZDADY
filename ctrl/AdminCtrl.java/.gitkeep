@@ -1,0 +1,80 @@
+package mazdady.ctrl;
+
+import mazdady.admin.AdminDashboard;
+import mazdady.admin.AdminController;
+import mazdady.user.User;
+
+import java.util.concurrent.CompletableFuture;
+import java.util.function.Consumer;
+
+/**
+ * وحدة تحكم الإدارة المركزية مع دعم الأوامر المتقدمة
+ * يتبع نمط Command لفصل الأوامر عن التنفيذ
+ */
+public final class AdminCtrl {
+    private final AdminController adminController;
+    private static final AdminCtrl INSTANCE = new AdminCtrl();
+
+    private AdminCtrl() {
+        this.adminController = new AdminController();
+    }
+
+    public static AdminCtrl getInstance() {
+        return INSTANCE;
+    }
+
+    /**
+     * تفعيل ميزة إداريًا
+     */
+    public CompletableFuture<Boolean> enableFeatureAsync(String featureId) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                adminController.enablePaymentTools(); // مثال
+                System.out.println("ADMIN: Feature " + featureId + " enabled");
+                return true;
+            } catch (Exception e) {
+                System.err.println("ADMIN ERROR: " + e.getMessage());
+                return false;
+            }
+        });
+    }
+
+    /**
+     * تغيير ضريبة السحب
+     */
+    public void updateWithdrawalTax(String method, double rate) {
+        adminController.updateBankWithdrawalTax(rate);
+        System.out.println("ADMIN: Withdrawal tax for " + method + " set to " + rate + "%");
+    }
+
+    /**
+     * تغيير مستوى المستخدم
+     */
+    public void setUserLevel(String userId, int level) {
+        adminController.setUserLevel(userId, level);
+        System.out.println("ADMIN: User " + userId + " level set to " + level);
+    }
+
+    /**
+     * تجميد حساب المستخدم
+     */
+    public void freezeUserAccount(String userId) {
+        adminController.freezeUserAccount(userId);
+        System.out.println("ADMIN: Account " + userId + " frozen");
+    }
+
+    /**
+     * تنفيذ أمر إداري عام
+     */
+    public void executeAdminCommand(AdminCommand command) {
+        command.execute();
+    }
+
+    /**
+     * واجهة أمر إداري
+     */
+    @FunctionalInterface
+    public interface AdminCommand {
+        void execute();
+    }
+}
