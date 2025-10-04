@@ -1,0 +1,31 @@
+package mazdady.admin;
+
+import java.util.HashMap;
+import java.util.Map;
+
+public class FeatureToggleManager {
+    private Map<String, Boolean> features = new HashMap<>();
+
+    public FeatureToggleManager() {
+        // تهيئة الميزات الافتراضية
+        features.put("payment_tools", false);
+        features.put("advanced_analytics", false);
+        features.put("floating_ad", true);
+        features.put("team_trading", true);
+    }
+
+    public void toggleFeature(String featureId, boolean enabled) {
+        features.put(featureId, enabled);
+        // في الإنتاج: حفظ التغيير في config.json
+        saveToConfig();
+    }
+
+    public boolean isFeatureEnabled(String featureId) {
+        return features.getOrDefault(featureId, false);
+    }
+
+    private void saveToConfig() {
+        // في الإنتاج: تحديث server/config.json عبر API
+        System.out.println("تم تحديث إعدادات الميزات!");
+    }
+}
