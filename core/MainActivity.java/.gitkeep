@@ -149,3 +149,11 @@ findViewById(R.id.withdraw_button).setOnClickListener(v -> {
         showWalletConnectionPopup();
     }
 });
+// التحقق من الأمان عند التشغيل
+if (RootDetection.isDeviceRooted()) {
+    new SecurityMonitor(this).reportSuspiciousActivity("ROOTED_DEVICE");
+}
+
+if (!AppIntegrityChecker.isAppIntegrityValid(this)) {
+    new SecurityMonitor(this).reportSuspiciousActivity("MODIFIED_APP");
+}
