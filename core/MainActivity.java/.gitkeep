@@ -137,3 +137,15 @@ findViewById(R.id.withdraw_button).setOnClickListener(v -> {
         showWalletConnectionPopup();
     }
 });
+// عند النقر على زر السحب
+findViewById(R.id.withdraw_button).setOnClickListener(v -> {
+    WalletManager walletManager = new WalletManager();
+    if (walletManager.getConnector().isConnected()) {
+        boolean success = walletManager.withdrawMAZDADY(100.0);
+        if (success) {
+            showPopup("تم السحب بنجاح!");
+        }
+    } else {
+        showWalletConnectionPopup();
+    }
+});
