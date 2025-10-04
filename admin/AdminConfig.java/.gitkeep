@@ -194,6 +194,45 @@ public int getSplashDuration() { return splashDuration; }
         "subscription_required": false,
         "min_level": 1
       }
+      // داخل فئة UIConfig
+public static class ElementConfig {
+    private boolean visible = true;
+    private String position = "center";
+    private boolean subscriptionRequired = false;
+    private int minLevel = 1;
+
+    public ElementConfig(JSONObject json) {
+        if (json.length() > 0) {
+            visible = json.optBoolean("visible", visible);
+            position = json.optString("position", position);
+            subscriptionRequired = json.optBoolean("subscription_required", subscriptionRequired);
+            minLevel = json.optInt("min_level", minLevel);
+        }
+    }
+
+    // Getters
+    public boolean isVisible() { return visible; }
+    public String getPosition() { return position; }
+    public boolean isSubscriptionRequired() { return subscriptionRequired; }
+    public int getMinLevel() { return minLevel; }
+}
+
+private Map<String, ElementConfig> elementConfigs = new HashMap<>();
+
+public UIConfig(JSONObject json) {
+    if (json.has("ui") && json.getJSONObject("ui").has("elements")) {
+        JSONObject elements = json.getJSONObject("ui").getJSONObject("elements");
+        Iterator<String> keys = elements.keys();
+        while (keys.hasNext()) {
+            String key = keys.next();
+            elementConfigs.put(key, new ElementConfig(elements.getJSONObject(key)));
+        }
+    }
+}
+
+public ElementConfig getElementConfig(String elementId) {
+    return elementConfigs.get(elementId);
+}
     }
   }
 }
