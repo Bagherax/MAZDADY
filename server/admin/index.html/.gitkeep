@@ -127,6 +127,23 @@ function handleUpload() {
     const file = fileInput.files[0];
     uploadImage(file, element); // من upload.js
 }
+<div class="card">
+    <h2>الزر العائم للإعلانات</h2>
+    
+    <label>مفعل:</label>
+    <input type="checkbox" id="adEnabled" checked>
+    
+    <label>مدة العرض (ثواني):</label>
+    <input type="number" id="adDisplay" value="10" min="5" max="60">
+    
+    <label>مدة الإخفاء (ثواني):</label>
+    <input type="number" id="adHide" value="30" min="10" max="300">
+    
+    <label>رابط صورة الإعلان:</label>
+    <input type="url" id="adImageUrl" placeholder="https://example.com/ad.png">
+    
+    <button onclick="saveFloatingAd()">حفظ إعدادات الإعلان</button>
+</div>
 </script>
     </script>
 </body>
