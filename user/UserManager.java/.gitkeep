@@ -27,3 +27,85 @@ public class UserManager {
         return currentUser;
     }
 }
+package mazdady.user;
+
+import android.content.Context;
+import mazdady.security.SecureStorage;
+
+public class UserManager {
+    private static UserManager instance;
+    private User currentUser;
+    private final SecureStorage secureStorage;
+
+    private UserManager(Context context) {
+        this.secureStorage = new SecureStorage();
+        loadCurrentUser(context);
+    }
+
+    public static synchronized UserManager getInstance(Context context) {
+        if (instance == null) {
+            instance = new UserManager(context);
+        }
+        return instance;
+    }
+
+    private void loadCurrentUser(Context context) {
+        try {
+            // محاولة تحميل من التخزين الآمن
+            String userData = secureStorage.decrypt(loadFromStorage(context));
+            if (userData != null && !userData.isEmpty()) {
+                // في الإنتاج: تحويل من JSON إلى كائن User
+                currentUser = new User("loaded_user");
+            } else {
+                // مستخدم جديد
+                currentUser = new User(generateUserId());
+                saveCurrentUser(context);
+            }
+        } catch (Exception e) {
+            // إنشاء مستخدم جديد في حال الخطأ
+            currentUser = new User(generateUserId());
+            saveCurrentUser(context);
+        }
+    }
+
+    private String generateUserId() {
+        return "user_" + System.currentTimeMillis();
+    }
+
+    private byte[] loadFromStorage(Context context) {
+        // في الإنتاج: تحميل من EncryptedSharedPreferences
+        return new byte[0];
+    }
+
+    private void saveCurrentUser(Context context) {
+        try {
+            // في الإنتاج: تحويل currentUser إلى JSON وتخزينه مشفرًا
+            secureStorage.encrypt("user_data_placeholder");
+        } catch (Exception e) {
+            // تجاهل الخطأ (لا توقف التطبيق)
+        }
+    }
+
+    // --- Public Methods ---
+    public boolean isNewUser() {
+        return currentUser.isNewUser();
+    }
+
+    public boolean hasActiveSubscription() {
+        return currentUser.hasActiveSubscription();
+    }
+
+    public User getCurrentUser() {
+        return currentUser;
+    }
+
+    public void updateBalance(double newBalance) {
+        currentUser.setBalance(newBalance);
+        // حفظ التغييرات
+    }
+
+    public void recordProfit(double amount) {
+        currentUser.addProfit(amount);
+        // حفظ التغييرات
+    }
+}
