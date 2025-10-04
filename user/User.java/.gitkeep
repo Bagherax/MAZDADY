@@ -13,3 +13,83 @@ public class User {
         return kycStatus != null && kycStatus.isVerified();
     }
 }
+
+package mazdady.user;
+
+import java.util.Date;
+
+public class User {
+    private String userId;
+    private String phoneNumber;
+    private String email;
+    private String socialLoginId;
+    private int level = 1;
+    private double balance = 0.0;
+    private double weeklyWithdrawn = 0.0;
+    private Subscription subscription;
+    private KYCStatus kycStatus;
+    private Date registrationDate;
+    private boolean hasRecentProfit = false;
+    private int communityPoints = 0;
+
+    // --- Constructors ---
+    public User(String userId) {
+        this.userId = userId;
+        this.registrationDate = new Date();
+    }
+
+    // --- Business Logic ---
+    public boolean isKYCVerified() {
+        return kycStatus != null && kycStatus.isVerified();
+    }
+
+    public boolean hasActiveSubscription() {
+        return subscription != null && subscription.isActive();
+    }
+
+    public boolean isNewUser() {
+        return registrationDate != null && 
+               (System.currentTimeMillis() - registrationDate.getTime()) < 24 * 60 * 60 * 1000;
+    }
+
+    public void addProfit(double amount) {
+        this.balance += amount;
+        this.hasRecentProfit = true;
+        // إعادة تعيين العلم بعد 5 دقائق
+        resetProfitFlagAfterDelay();
+    }
+
+    private void resetProfitFlagAfterDelay() {
+        new Thread(() -> {
+            try {
+                Thread.sleep(5 * 60 * 1000); // 5 دقائق
+                hasRecentProfit = false;
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }).start();
+    }
+
+    // --- Getters and Setters ---
+    public String getUserId() { return userId; }
+    public int getLevel() { return level; }
+    public void setLevel(int level) { this.level = level; }
+    public double getBalance() { return balance; }
+    public void setBalance(double balance) { this.balance = balance; }
+    public double getWeeklyWithdrawn() { return weeklyWithdrawn; }
+    public void addWeeklyWithdrawn(double amount) { this.weeklyWithdrawn += amount; }
+    public Subscription getSubscription() { return subscription; }
+    public void setSubscription(Subscription subscription) { this.subscription = subscription; }
+    public KYCStatus getKycStatus() { return kycStatus; }
+    public void setKycStatus(KYCStatus kycStatus) { this.kycStatus = kycStatus; }
+    public Date getRegistrationDate() { return registrationDate; }
+    public boolean hasRecentProfit() { return hasRecentProfit; }
+    public int getCommunityPoints() { return communityPoints; }
+    public void addCommunityPoints(int points) { this.communityPoints += points; }
+    public String getPhoneNumber() { return phoneNumber; }
+    public void setPhoneNumber(String phoneNumber) { this.phoneNumber = phoneNumber; }
+    public String getEmail() { return email; }
+    public void setEmail(String email) { this.email = email; }
+    public String getSocialLoginId() { return socialLoginId; }
+    public void setSocialLoginId(String socialLoginId) { this.socialLoginId = socialLoginId; }
+}
