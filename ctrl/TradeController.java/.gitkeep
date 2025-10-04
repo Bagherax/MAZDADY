@@ -1,0 +1,75 @@
+package mazdady.ctrl;
+
+import mazdady.trading.PriceEngine;
+import mazdady.user.UserManager;
+import mazdady.wallet.WalletManager;
+
+import java.util.concurrent.CompletableFuture;
+
+/**
+ * وحدة تحكم التداول مع دعم الأوامر الآمنة
+ * يتبع نمط Command لفصل أوامر الشراء والبيع
+ */
+public final class TradeController {
+    private final PriceEngine priceEngine;
+    private final WalletManager walletManager;
+    private static final TradeController INSTANCE = new TradeController();
+
+    private TradeController() {
+        this.priceEngine = new PriceEngine();
+        this.walletManager = new WalletManager();
+    }
+
+    public static TradeController getInstance() {
+        return INSTANCE;
+    }
+
+    /**
+     * تنفيذ أمر شراء غير متزامن
+     */
+    public CompletableFuture<Boolean> executeBuyOrderAsync(double amount) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                // التحقق من الرصيد
+                if (walletManager.getBalance() < amount) {
+                    throw new IllegalStateException("Insufficient balance");
+                }
+                
+                // تنفيذ الشراء
+                priceEngine.executeBuyOrder(
+                    UserManager.getInstance(null).getCurrentUser().getUserId(),
+                    amount
+                );
+                
+                System.out.println("TRADE: BUY order executed for " + amount + " MAZDADY");
+                return true;
+                
+            } catch (Exception e) {
+                System.err.println("TRADE ERROR: " + e.getMessage());
+                return false;
+            }
+        });
+    }
+
+    /**
+     * تنفيذ أمر بيع غير متزامن
+     */
+    public CompletableFuture<Boolean> executeSellOrderAsync(double amount) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                // في الإنتاج: التحقق من وجود عملات للبيع
+                priceEngine.executeSellOrder(
+                    UserManager.getInstance(null).getCurrentUser().getUserId(),
+                    amount
+                );
+                
+                System.out.println("TRADE: SELL order executed for " + amount + " MAZDADY");
+                return true;
+                
+            } catch (Exception e) {
+                System.err.println("TRADE ERROR: " + e.getMessage());
+                return false;
+            }
+        });
+    }
+}
