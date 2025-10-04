@@ -1,13 +1,28 @@
 package mazdady.admin;
 
-public class LayoutSizer {
+/**
+ * مدير تحجيم العناصر مع دعم النسب الديناميكية
+ * يتبع نمط Command لتنفيذ التغييرات
+ */
+public final class LayoutSizer {
+    private static final LayoutSizer INSTANCE = new LayoutSizer();
+
+    private LayoutSizer() {}
+
+    public static LayoutSizer getInstance() {
+        return INSTANCE;
+    }
+
     public void setElementSize(String elementId, float widthRatio, float heightRatio) {
-        // في الإنتاج: تحديث الإعدادات في config.json
-        System.out.println("تم تعيين حجم العنصر " + elementId + 
-                          ": العرض = " + widthRatio + ", الارتفاع = " + heightRatio);
+        if (widthRatio <= 0 || widthRatio > 1.0f || heightRatio <= 0 || heightRatio > 1.0f) {
+            throw new IllegalArgumentException("Ratios must be between 0 and 1");
+        }
+        System.out.println("LAYOUT SIZE: " + elementId + " = (" + widthRatio + ", " + heightRatio + ")");
+        ConfigPusher.getInstance().pushUIConfig(elementId, "size", widthRatio + "," + heightRatio);
     }
 
     public void resetToDefaultSize(String elementId) {
-        System.out.println("تم إعادة حجم العنصر " + elementId + " إلى الافتراضي");
+        System.out.println("LAYOUT RESET: " + elementId + " reset to default size");
+        ConfigPusher.getInstance().pushUIConfig(elementId, "size", "default");
     }
 }
