@@ -1,0 +1,48 @@
+package mazdady.wallet;
+
+import android.content.Context;
+import mazdady.user.UserManager;
+
+public class WalletConnector {
+    private String walletAddress;
+    private String blockchainNetwork; // "ETH", "BSC", "SOL"
+    private boolean isConnected = false;
+
+    public WalletConnector() {}
+
+    public void connectWallet(String address, String network) {
+        if (isValidAddress(address, network)) {
+            this.walletAddress = address;
+            this.blockchainNetwork = network;
+            this.isConnected = true;
+            
+            // ربط بالمستخدم الحالي
+            UserManager.getInstance(null).getCurrentUser()
+                      .setWalletAddress(address);
+        }
+    }
+
+    private boolean isValidAddress(String address, String network) {
+        switch (network.toUpperCase()) {
+            case "ETH":
+            case "BSC":
+                return address.matches("^0x[a-fA-F0-9]{40}$");
+            case "SOL":
+                return address.length() == 44;
+            default:
+                return false;
+        }
+    }
+
+    public boolean isConnected() {
+        return isConnected && walletAddress != null;
+    }
+
+    public String getWalletAddress() {
+        return walletAddress;
+    }
+
+    public String getBlockchainNetwork() {
+        return blockchainNetwork;
+    }
+}
