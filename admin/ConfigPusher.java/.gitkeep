@@ -1,0 +1,16 @@
+package mazdady.admin;
+
+public class ConfigPusher {
+    public void pushConfigUpdate(String configKey, Object value) {
+        // في الإنتاج: دفع التحديث إلى server/config.json
+        System.out.println("تم دفع التحديث: " + configKey + " = " + value);
+    }
+
+    public void pushUIConfig(String elementId, String property, String value) {
+        System.out.println("تم تحديث واجهة العنصر " + elementId + ": " + property + " = " + value);
+    }
+
+    public void broadcastConfigUpdate() {
+        System.out.println("تم بث تحديث الإعدادات لجميع المستخدمين");
+    }
+}
