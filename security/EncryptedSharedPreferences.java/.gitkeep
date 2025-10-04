@@ -1,0 +1,46 @@
+package mazdady.security;
+
+import android.content.Context;
+import android.content.SharedPreferences;
+import androidx.security.crypto.EncryptedSharedPreferences;
+import androidx.security.crypto.MasterKey;
+
+public class EncryptedSharedPreferences {
+    private static final String FILE_NAME = "mazdady_secure_prefs";
+    private SharedPreferences sharedPreferences;
+
+    public EncryptedSharedPreferences(Context context) {
+        try {
+            MasterKey masterKey = new MasterKey.Builder(context)
+                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                .build();
+
+            sharedPreferences = EncryptedSharedPreferences.create(
+                context,
+                FILE_NAME,
+                masterKey,
+                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+            );
+        } catch (Exception e) {
+            // في حال الفشل، استخدام SharedPreferences عادي (غير آمن)
+            sharedPreferences = context.getSharedPreferences(FILE_NAME + "_fallback", Context.MODE_PRIVATE);
+        }
+    }
+
+    public void putString(String key, String value) {
+        sharedPreferences.edit().putString(key, value).apply();
+    }
+
+    public String getString(String key, String defaultValue) {
+        return sharedPreferences.getString(key, defaultValue);
+    }
+
+    public void putBoolean(String key, boolean value) {
+        sharedPreferences.edit().putBoolean(key, value).apply();
+    }
+
+    public boolean getBoolean(String key, boolean defaultValue) {
+        return sharedPreferences.getBoolean(key, defaultValue);
+    }
+}
