@@ -25,3 +25,7 @@ jobs:
       - name: Notify User
         run: |
           echo "KYC approved for user ${{ github.event.inputs.user_id }}"
+          
+          env:
+  GH_TOKEN: ${{ secrets.GH_TOKEN }}
+  }
