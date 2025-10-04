@@ -1,10 +1,27 @@
 package mazdady.ad;
 
-import java.util.HashMap;
+import java.time.Instant;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.BiConsumer;
 
-public class AdAnalytics {
-    private Map<String, AdMetrics> campaignMetrics = new HashMap<>();
+/**
+ * محرك تحليلات الإعلانات مع دعم التجميع الزمني
+ * يستخدم هياكل بيانات آمنة متعددة الخيوط
+ */
+public final class AdAnalytics {
+    private final Map<String, CampaignMetrics> metrics = new ConcurrentHashMap<>();
+
+    private AdAnalytics() {}
+
+    private static class Holder {
+        static final AdAnalytics INSTANCE = new AdAnalytics();
+    }
+
+    public static AdAnalytics getInstance() {
+        return Holder.INSTANCE;
+    }
 
     public void trackImpression(String campaignId) {
         getMetrics(campaignId).incrementImpressions();
@@ -18,24 +35,42 @@ public class AdAnalytics {
         getMetrics(campaignId).addConversion(conversionType);
     }
 
-    public AdMetrics getMetrics(String campaignId) {
-        return campaignMetrics.computeIfAbsent(campaignId, k -> new AdMetrics());
+    public CampaignMetrics getMetrics(String campaignId) {
+        return metrics.computeIfAbsent(campaignId, k -> new CampaignMetrics());
     }
 
-    public static class AdMetrics {
-        private int impressions = 0;
-        private int clicks = 0;
-        private Map<String, Integer> conversions = new HashMap<>();
+    public void forEachMetric(BiConsumer<String, CampaignMetrics> action) {
+        metrics.forEach(action);
+    }
 
-        public void incrementImpressions() { impressions++; }
-        public void incrementClicks() { clicks++; }
+    /**
+     * مقاييس الحملة مع دعم العمليات الذرية
+     */
+    public static final class CampaignMetrics {
+        private final AtomicInteger impressions = new AtomicInteger(0);
+        private final AtomicInteger clicks = new AtomicInteger(0);
+        private final Map<String, AtomicInteger> conversions = new ConcurrentHashMap<>();
+        private final Instant createdAt = Instant.now();
+
+        public void incrementImpressions() { impressions.incrementAndGet(); }
+        public void incrementClicks() { clicks.incrementAndGet(); }
         public void addConversion(String type) {
-            conversions.put(type, conversions.getOrDefault(type, 0) + 1);
+            conversions.computeIfAbsent(type, k -> new AtomicInteger(0)).incrementAndGet();
         }
 
-        public int getImpressions() { return impressions; }
-        public int getClicks() { return clicks; }
-        public double getCTR() { return impressions > 0 ? (clicks * 100.0 / impressions) : 0; }
-        public Map<String, Integer> getConversions() { return new HashMap<>(conversions); }
+        public int getImpressions() { return impressions.get(); }
+        public int getClicks() { return clicks.get(); }
+        public double getCTR() { 
+            int imp = impressions.get();
+            return imp > 0 ? (clicks.get() * 100.0 / imp) : 0.0; 
+        }
+        public Map<String, Integer> getConversions() {
+            return conversions.entrySet().stream()
+                .collect(java.util.stream.Collectors.toMap(
+                    Map.Entry::getKey,
+                    e -> e.getValue().get()
+                ));
+        }
+        public Instant getCreatedAt() { return createdAt; }
     }
 }
