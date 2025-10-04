@@ -1,0 +1,34 @@
+package mazdady.i18n;
+
+import android.app.Activity;
+import android.content.res.Configuration;
+import android.os.Build;
+import java.util.Locale;
+
+public class RTLController {
+    public static void setLocale(Activity activity, String languageCode) {
+        Locale locale = new Locale(languageCode);
+        Locale.setDefault(locale);
+        
+        Configuration config = activity.getResources().getConfiguration();
+        config.setLocale(locale);
+        
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            activity.createConfigurationContext(config);
+        } else {
+            activity.getResources().updateConfiguration(config, 
+                activity.getResources().getDisplayMetrics());
+        }
+        
+        // تفعيل دعم RTL للعربية
+        if ("ar".equals(languageCode)) {
+            forceRTLIfSupported(activity);
+        }
+    }
+
+    private static void forceRTLIfSupported(Activity activity) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1) {
+            activity.getWindow().getDecorView().setLayoutDirection(android.view.View.LAYOUT_DIRECTION_RTL);
+        }
+    }
+}
