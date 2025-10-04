@@ -1,16 +1,29 @@
 package mazdady.admin;
 
-public class UIHider {
+/**
+ * مدير إخفاء العناصر مع دعم التحكم الديناميكي
+ */
+public final class UIHider {
+    private static final UIHider INSTANCE = new UIHider();
+
+    private UIHider() {}
+
+    public static UIHider getInstance() {
+        return INSTANCE;
+    }
+
     public void hideElement(String elementId) {
-        // في الإنتاج: تحديث الإعدادات في config.json
-        System.out.println("تم إخفاء العنصر: " + elementId);
+        System.out.println("UI HIDDEN: Element " + elementId + " hidden");
+        ConfigPusher.getInstance().pushUIConfig(elementId, "visible", "false");
     }
 
     public void showElement(String elementId) {
-        System.out.println("تم إظهار العنصر: " + elementId);
+        System.out.println("UI SHOWN: Element " + elementId + " shown");
+        ConfigPusher.getInstance().pushUIConfig(elementId, "visible", "true");
     }
 
     public void toggleElement(String elementId) {
-        System.out.println("تم تبديل حالة العنصر: " + elementId);
+        System.out.println("UI TOGGLED: Element " + elementId + " toggled");
+        ConfigPusher.getInstance().pushUIConfig(elementId, "toggle", "true");
     }
 }
