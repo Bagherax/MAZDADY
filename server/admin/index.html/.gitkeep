@@ -143,6 +143,59 @@ function handleUpload() {
     <input type="url" id="adImageUrl" placeholder="https://example.com/ad.png">
     
     <button onclick="saveFloatingAd()">حفظ إعدادات الإعلان</button>
+    <div class="card">
+    <h2>إدارة العناصر</h2>
+    
+    <div class="element-control" data-element="buy_button">
+        <h3>زر الشراء</h3>
+        <label>مرئي: <input type="checkbox" class="visible" checked></label>
+        <label>الموضع:
+            <select class="position">
+                <option value="bottom_left">أسفل يسار</option>
+                <option value="bottom_right" selected>أسفل يمين</option>
+                <option value="center">الوسط</option>
+            </select>
+        </label>
+        <label>يتطلب اشتراك: <input type="checkbox" class="subscription"></label>
+        <label>الحد الأدنى للمستوى: <input type="number" class="min-level" value="1"></label>
+    </div>
+
+    <div class="element-control" data-element="payment_tools">
+        <h3>أدوات الدفع</h3>
+        <label>مرئي: <input type="checkbox" class="visible"></label>
+        <label>الموضع:
+            <select class="position">
+                <option value="sidebar" selected>شريط جانبي</option>
+                <option value="bottom_center">أسفل الوسط</option>
+            </select>
+        </label>
+        <label>يتطلب اشتراك: <input type="checkbox" class="subscription" checked></label>
+        <label>الحد الأدنى للمستوى: <input type="number" class="min-level" value="3"></label>
+    </div>
+
+    <!-- كرر لنفس العناصر الأخرى -->
+
+    <button onclick="saveElementSettings()">حفظ إعدادات العناصر</button>
+</div>
+
+<script>
+function saveElementSettings() {
+    const elements = {};
+    document.querySelectorAll('.element-control').forEach(div => {
+        const elementId = div.dataset.element;
+        elements[elementId] = {
+            visible: div.querySelector('.visible').checked,
+            position: div.querySelector('.position').value,
+            subscription_required: div.querySelector('.subscription').checked,
+            min_level: parseInt(div.querySelector('.min-level').value)
+        };
+    });
+
+    // تحديث config.json
+    updateConfigElements(elements);
+    alert('✅ تم حفظ إعدادات العناصر!');
+}
+</script>
 </div>
 </script>
     </script>
