@@ -1,0 +1,19 @@
+package mazdady.admin;
+
+public class RealTimeActivity {
+    public void monitorUserActivity() {
+        // في الإنتاج: مراقبة نشاط المستخدمين في الوقت الحقيقي
+        System.out.println("مراقبة النشاط الفعلي...");
+        System.out.println("- 125 مستخدم نشط");
+        System.out.println("- 42 صفقة تداول");
+        System.out.println("- 8 حملات إعلانية");
+    }
+
+    public void getUserDetails(String userId) {
+        System.out.println("تفاصيل المستخدم " + userId + ": ...");
+    }
+
+    public void sendAdminMessage(String userId, String message) {
+        System.out.println("تم إرسال رسالة إدارية إلى " + userId + ": " + message);
+    }
+}
