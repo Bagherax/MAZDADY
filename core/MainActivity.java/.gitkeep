@@ -112,3 +112,16 @@ protected void onCreate(Bundle savedInstanceState) {
     AdminConfig.getInstance().loadFromServer();
     new DynamicLayoutManager((ViewGroup) findViewById(android.R.id.content)).applyLayout();
 }
+// تحميل حالة المستخدم
+UserManager userManager = UserManager.getInstance(this);
+User user = userManager.getCurrentUser();
+
+// التحقق من الميزات
+if (LevelManager.canAccessFeature("payment_tools", user.getLevel())) {
+    findViewById(R.id.payment_tools).setVisibility(View.VISIBLE);
+}
+
+// التحقق من الاشتراك
+if (userManager.hasActiveSubscription()) {
+    // إظهار ميزات Premium
+}
