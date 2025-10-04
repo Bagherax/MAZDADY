@@ -1,0 +1,101 @@
+package mazdady.bot;
+
+import mazdady.trading.PriceEngine;
+import mazdady.trading.OrderBook;
+import mazdady.user.User;
+
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+
+/**
+ * بوت تعليمي مع دعم التفاعل الذكي
+ * يساعد المستخدمين على تعلم التداول
+ */
+public final class TeachingBot extends TradingBot {
+    private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+    private final User targetUser;
+
+    public TeachingBot(String botId, PriceEngine priceEngine, OrderBook orderBook, User targetUser) {
+        super(botId, priceEngine, orderBook);
+        this.targetUser = targetUser;
+        setBehavior(new AdaptiveTeachingBehavior());
+    }
+
+    @Override
+    protected void executeTradingStrategy() {
+        scheduler.scheduleAtFixedRate(
+            this::provideEducationalInsights,
+            0,
+            60,
+            TimeUnit.SECONDS
+        );
+    }
+
+    private void provideEducationalInsights() {
+        if (!isActive()) return;
+        
+        BotBehavior behavior = currentBehavior.get();
+        if (behavior != null) {
+            behavior.execute(this);
+        }
+    }
+
+    private void sendInsight(String insight) {
+        // في الإنتاج: إرسال إشعار للمستخدم
+        logger.accept("TEACHING: " + insight);
+    }
+
+    /**
+     * سلوك التعليم التكيفي
+     */
+    private final class AdaptiveTeachingBehavior implements BotBehavior {
+        @Override
+        public String getName() {
+            return "ADAPTIVE_TEACHING";
+        }
+
+        @Override
+        public void execute(TradingBot bot) {
+            double currentPrice = priceEngine.getCurrentPrice();
+            double trend = priceEngine.getMarketTrend();
+            double volatility = priceEngine.getVolatility();
+            
+            String insight;
+            
+            if (targetUser.getLevel() <= 2) {
+                // مستخدم مبتدئ
+                insight = generateBeginnerInsight(currentPrice, trend, volatility);
+            } else if (targetUser.getLevel() <= 5) {
+                // مستخدم متوسط
+                insight = generateIntermediateInsight(currentPrice, trend, volatility);
+            } else {
+                // مستخدم متقدم
+                insight = generateAdvancedInsight(currentPrice, trend, volatility);
+            }
+            
+            sendInsight(insight);
+        }
+
+        private String generateBeginnerInsight(double price, double trend, double volatility) {
+            if (trend > 0) {
+                return "السوق صاعد! السعر الحالي: " + String.format("%.2f", price) + " MAZDADY";
+            } else {
+                return "السوق هابط! السعر الحالي: " + String.format("%.2f", price) + " MAZDADY";
+            }
+        }
+
+        private String generateIntermediateInsight(double price, double trend, double volatility) {
+            return "التقلب: " + String.format("%.1f", volatility * 100) + "% | الاتجاه: " + 
+                   (trend > 0 ? "صاعد" : "هابط") + " | السعر: " + String.format("%.2f", price);
+        }
+
+        private String generateAdvancedInsight(double price, double trend, double volatility) {
+            double support = price * 0.95;
+            double resistance = price * 1.05;
+            return "تحليل متقدم: الدعم = " + String.format("%.2f", support) + 
+                   ", المقاومة = " + String.format("%.2f", resistance) + 
+                   ", التقلب = " + String.format("%.1f", volatility * 100) + "%";
+        }
+    }
+}
