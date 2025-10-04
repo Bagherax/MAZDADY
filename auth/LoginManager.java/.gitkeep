@@ -1,0 +1,106 @@
+package mazdady.auth;
+
+import mazdady.user.UserManager;
+import mazdady.user.User;
+
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.BiFunction;
+
+/**
+ * مدير تسجيل الدخول مع دعم استراتيجيات متعددة
+ * يتبع نمط Strategy لفصل طرق المصادقة
+ */
+public final class LoginManager {
+    private final Map<LoginMethod, BiFunction<String, String, LoginResult>> loginStrategies;
+    private static final LoginManager INSTANCE = new LoginManager();
+
+    private LoginManager() {
+        this.loginStrategies = new ConcurrentHashMap<>();
+        initializeStrategies();
+    }
+
+    public static LoginManager getInstance() {
+        return INSTANCE;
+    }
+
+    private void initializeStrategies() {
+        loginStrategies.put(LoginMethod.PHONE, this::loginWithPhone);
+        loginStrategies.put(LoginMethod.EMAIL, this::loginWithEmail);
+        loginStrategies.put(LoginMethod.SOCIAL, this::loginWithSocial);
+    }
+
+    /**
+     * تسجيل الدخول باستخدام الطريقة المحددة
+     */
+    public LoginResult login(LoginMethod method, String identifier, String credential) {
+        BiFunction<String, String, LoginResult> strategy = loginStrategies.get(method);
+        if (strategy == null) {
+            return LoginResult.failure("Unsupported login method: " + method);
+        }
+        return strategy.apply(identifier, credential);
+    }
+
+    private LoginResult loginWithPhone(String phoneNumber, String verificationCode) {
+        PhoneVerification.VerificationResult result = 
+            PhoneVerification.getInstance().verifyCode(phoneNumber, verificationCode);
+        
+        if (result.isSuccess()) {
+            User user = UserManager.getInstance(null).getCurrentUser();
+            user.setPhoneNumber(phoneNumber);
+            return LoginResult.success(user);
+        }
+        return LoginResult.failure(result.getMessage());
+    }
+
+    private LoginResult loginWithEmail(String email, String password) {
+        // في الإنتاج: التحقق من البريد وكلمة المرور
+        if ("user@example.com".equals(email) && "password123".equals(password)) {
+            User user = UserManager.getInstance(null).getCurrentUser();
+            user.setEmail(email);
+            return LoginResult.success(user);
+        }
+        return LoginResult.failure("Invalid email or password");
+    }
+
+    private LoginResult loginWithSocial(String socialId, String provider) {
+        // في الإنتاج: التحقق من رمز OAuth
+        User user = UserManager.getInstance(null).getCurrentUser();
+        user.setSocialLoginId(socialId);
+        return LoginResult.success(user);
+    }
+
+    /**
+     * طرق تسجيل الدخول المدعومة
+     */
+    public enum LoginMethod {
+        PHONE, EMAIL, SOCIAL
+    }
+
+    /**
+     * نتيجة تسجيل الدخول
+     */
+    public static final class LoginResult {
+        private final boolean success;
+        private final User user;
+        private final String message;
+
+        private LoginResult(boolean success, User user, String message) {
+            this.success = success;
+            this.user = user;
+            this.message = message;
+        }
+
+        public static LoginResult success(User user) {
+            return new LoginResult(true, user, "Login successful");
+        }
+
+        public static LoginResult failure(String message) {
+            return new LoginResult(false, null, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public User getUser() { return user; }
+        public String getMessage() { return message; }
+    }
+}
