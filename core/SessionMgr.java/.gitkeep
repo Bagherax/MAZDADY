@@ -1,0 +1,86 @@
+package mazdady.core;
+
+import mazdady.security.EncryptedSharedPreferences;
+import mazdady.user.UserManager;
+
+import android.content.Context;
+
+import java.time.Instant;
+
+/**
+ * مدير الجلسات مع دعم التشفير والتحقق
+ * يتبع نمط Singleton مع تهيئة آمنة
+ */
+public final class SessionMgr {
+    private final EncryptedSharedPreferences prefs;
+    private static SessionMgr instance;
+
+    private SessionMgr(Context context) {
+        this.prefs = new EncryptedSharedPreferences(context);
+    }
+
+    public static synchronized SessionMgr getInstance(Context context) {
+        if (instance == null) {
+            instance = new SessionMgr(context.getApplicationContext());
+        }
+        return instance;
+    }
+
+    /**
+     * بدء جلسة جديدة
+     */
+    public void startSession(String userId) {
+        prefs.putString("session_user_id", userId);
+        prefs.putLong("session_start_time", System.currentTimeMillis());
+        prefs.putBoolean("session_active", true);
+        System.out.println("SESSION STARTED: " + userId + " at " + Instant.now());
+    }
+
+    /**
+     * إنهاء الجلسة الحالية
+     */
+    public void endSession() {
+        prefs.putBoolean("session_active", false);
+        System.out.println("SESSION ENDED at " + Instant.now());
+    }
+
+    /**
+     * التحقق من صلاحية الجلسة
+     */
+    public boolean isSessionValid() {
+        if (!prefs.getBoolean("session_active", false)) {
+            return false;
+        }
+        
+        long startTime = prefs.getLong("session_start_time", 0);
+        long currentTime = System.currentTimeMillis();
+        long sessionDuration = currentTime - startTime;
+        
+        // انتهاء الجلسة بعد 24 ساعة
+        return sessionDuration < 24 * 60 * 60 * 1000;
+    }
+
+    /**
+     * الحصول على معرف المستخدم الحالي
+     */
+    public String getCurrentUserId() {
+        return prefs.getString("session_user_id", null);
+    }
+
+    /**
+     * التحقق من تسجيل الدخول
+     */
+    public boolean isLoggedIn() {
+        return isSessionValid() && getCurrentUserId() != null;
+    }
+
+    /**
+     * تجديد الجلسة
+     */
+    public void renewSession() {
+        if (isLoggedIn()) {
+            prefs.putLong("session_start_time", System.currentTimeMillis());
+            System.out.println("SESSION RENEWED at " + Instant.now());
+        }
+    }
+}
