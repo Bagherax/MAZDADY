@@ -1,0 +1,65 @@
+package mazdady.wallet;
+
+import mazdady.user.UserManager;
+import mazdady.withdrawal.WithdrawalRulesEngine;
+
+public class WalletManager {
+    private final WalletConnector connector;
+    private double mazdadyBalance;
+
+    public WalletManager() {
+        this.connector = new WalletConnector();
+        this.mazdadyBalance = UserManager.getInstance(null).getCurrentUser().getBalance();
+    }
+
+    public void depositMAZDADY(double amount) {
+        if (amount > 0) {
+            this.mazdadyBalance += amount;
+            updateBalanceInUser();
+        }
+    }
+
+    public boolean withdrawMAZDADY(double amount) {
+        WithdrawalRulesEngine rulesEngine = new WithdrawalRulesEngine();
+        var result = rulesEngine.canWithdraw(
+            UserManager.getInstance(null).getCurrentUser(), 
+            amount
+        );
+        
+        if (result.isAllowed()) {
+            // خصم الضريبة
+            double netAmount = applyTax(amount);
+            this.mazdadyBalance -= amount;
+            updateBalanceInUser();
+            
+            // إرسال إلى المحفظة الخارجية
+            sendToExternalWallet(netAmount);
+            return true;
+        }
+        return false;
+    }
+
+    private double applyTax(double grossAmount) {
+        // في الإنتاج: استخدام TaxCalculator
+        return grossAmount * 0.95; // 5% ضريبة افتراضية
+    }
+
+    private void sendToExternalWallet(double amount) {
+        if (connector.isConnected()) {
+            // في الإنتاج: إرسال عبر Web3
+            System.out.println("تم إرسال " + amount + " MAZDADY إلى " + connector.getWalletAddress());
+        }
+    }
+
+    private void updateBalanceInUser() {
+        UserManager.getInstance(null).updateBalance(mazdadyBalance);
+    }
+
+    public double getBalance() {
+        return mazdadyBalance;
+    }
+
+    public WalletConnector getConnector() {
+        return connector;
+    }
+}
