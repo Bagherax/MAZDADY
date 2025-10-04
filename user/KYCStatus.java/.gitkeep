@@ -1,0 +1,24 @@
+package mazdady.user;
+
+public class KYCStatus {
+    private boolean verified = false;
+    private String documentType; // "national_id", "passport", etc.
+    private String documentId;
+    private long verificationDate;
+
+    public boolean isVerified() {
+        return verified;
+    }
+
+    public void markAsVerified(String documentType, String documentId) {
+        this.verified = true;
+        this.documentType = documentType;
+        this.documentId = documentId;
+        this.verificationDate = System.currentTimeMillis();
+    }
+
+    // Getters
+    public String getDocumentType() { return documentType; }
+    public String getDocumentId() { return documentId; }
+    public long getVerificationDate() { return verificationDate; }
+}
