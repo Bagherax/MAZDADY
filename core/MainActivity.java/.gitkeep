@@ -55,3 +55,33 @@ public class MainActivity extends AppCompatActivity {
         popupManager.showScrollablePopup("بيع MAZDADY", content);
     }
 }
+@Override
+protected void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
+    setContentView(R.layout.activity_main);
+
+    // ... (الكود السابق)
+
+    // إضافة الزر العائم
+    setupFloatingAdButton();
+}
+
+private void setupFloatingAdButton() {
+    AdminConfig.UIConfig uiConfig = AdminConfig.getInstance().getUIConfig();
+    if (!uiConfig.getFloatingAdConfig().isEnabled()) return;
+
+    FloatingAdButton adButton = new FloatingAdButton(this, null);
+    adButton.configure(
+        uiConfig.getFloatingAdConfig().getDisplayDuration(),
+        uiConfig.getFloatingAdConfig().getHideDuration(),
+        uiConfig.getFloatingAdConfig().getAdImageUrl()
+    );
+
+    FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
+        120, 120, Gravity.BOTTOM | Gravity.END
+    );
+    params.rightMargin = 20;
+    params.bottomMargin = 20;
+
+    ((ViewGroup) findViewById(android.R.id.content)).addView(adButton, params);
+}
