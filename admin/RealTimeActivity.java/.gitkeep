@@ -1,19 +1,42 @@
 package mazdady.admin;
 
-public class RealTimeActivity {
-    public void monitorUserActivity() {
-        // في الإنتاج: مراقبة نشاط المستخدمين في الوقت الحقيقي
-        System.out.println("مراقبة النشاط الفعلي...");
-        System.out.println("- 125 مستخدم نشط");
-        System.out.println("- 42 صفقة تداول");
-        System.out.println("- 8 حملات إعلانية");
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.Consumer;
+
+/**
+ * مراقب النشاط الفعلي مع دعم البث الحي
+ * يستخدم Observer Pattern لإعلام المستمعين
+ */
+public final class RealTimeActivity {
+    private final CopyOnWriteArrayList<Consumer<String>> listeners = new CopyOnWriteArrayList<>();
+
+    private static final RealTimeActivity INSTANCE = new RealTimeActivity();
+
+    private RealTimeActivity() {}
+
+    public static RealTimeActivity getInstance() {
+        return INSTANCE;
     }
 
-    public void getUserDetails(String userId) {
-        System.out.println("تفاصيل المستخدم " + userId + ": ...");
+    public void addListener(Consumer<String> listener) {
+        listeners.add(listener);
+    }
+
+    public void removeListener(Consumer<String> listener) {
+        listeners.remove(listener);
+    }
+
+    public void broadcastActivity(String activity) {
+        listeners.forEach(listener -> listener.accept(activity));
+        System.out.println("ACTIVITY: " + activity);
+    }
+
+    public void monitorUserActivity() {
+        // في الإنتاج: جلب البيانات من قاعدة البيانات
+        broadcastActivity("125 active users, 42 trades, 8 ad campaigns");
     }
 
     public void sendAdminMessage(String userId, String message) {
-        System.out.println("تم إرسال رسالة إدارية إلى " + userId + ": " + message);
+        broadcastActivity("ADMIN MESSAGE to " + userId + ": " + message);
     }
 }
