@@ -1,0 +1,33 @@
+package mazdady.support;
+
+import java.util.HashMap;
+import java.util.Map;
+
+public class AIHelpdesk {
+    private Map<String, String> knowledgeBase = new HashMap<>();
+
+    public AIHelpdesk() {
+        // تهيئة قاعدة المعرفة
+        knowledgeBase.put("كيف أربط محفظتي؟", 
+            "اذهب إلى المحفظة → اختر 'ربط محفظة خارجية' → أدخل عنوان محفظتك.");
+        knowledgeBase.put("ما هي ضريبة السحب؟", 
+            "تتراوح بين 1% إلى 8% حسب طريقة السحب. يمكنك رؤية التفاصيل في صفحة السحب.");
+        knowledgeBase.put("كيف أتحقق من هويتي؟", 
+            "في صفحة السحب، اضغط على 'توثيق الهوية' → التقط صورة لبطاقتك → أرسل.");
+        knowledgeBase.put("ما هو المستوى المطلوب للسحب؟", 
+            "المستوى 5 على الأقل. يمكنك رفع مستواك بالتداول.");
+    }
+
+    public String getAnswer(String question) {
+        // في الإنتاج: استخدام NLP لتحليل السؤال
+        String normalizedQuestion = question.toLowerCase();
+        
+        for (String key : knowledgeBase.keySet()) {
+            if (normalizedQuestion.contains(key.toLowerCase().replace("؟", ""))) {
+                return knowledgeBase.get(key);
+            }
+        }
+        
+        return "عذرًا، لم أفهم سؤالك. هل يمكنك طرح سؤال آخر أو التواصل مع فريق الدعم البشري؟";
+    }
+}
