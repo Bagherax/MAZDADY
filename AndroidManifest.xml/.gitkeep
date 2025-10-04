@@ -47,6 +47,16 @@
         <activity android:name=".auth.LoginActivity" />
         <activity android:name=".withdrawal.WithdrawalActivity" />
         -->
+        <activity
+    android:name=".core.VideoSplashActivity"
+    android:exported="true"
+    android:theme="@style/Theme.MAZDADYSplash"
+    android:screenOrientation="portrait">
+    <intent-filter>
+        <action android:name="android.intent.action.MAIN" />
+        <category android:name="android.intent.category.LAUNCHER" />
+    </intent-filter>
+</activity>
 
     </application>
 
