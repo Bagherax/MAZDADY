@@ -1,0 +1,29 @@
+package mazdady.ad;
+
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+
+public class AdScheduler {
+    private ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
+    private AdMarketplace marketplace;
+    private AdDeliveryEngine deliveryEngine;
+
+    public AdScheduler(AdMarketplace marketplace, AdDeliveryEngine deliveryEngine) {
+        this.marketplace = marketplace;
+        this.deliveryEngine = deliveryEngine;
+    }
+
+    public void scheduleCampaign(AdCampaign campaign, long delaySeconds) {
+        scheduler.schedule(() -> {
+            marketplace.publishCampaign(campaign);
+            deliveryEngine.deliverAd(campaign);
+        }, delaySeconds, TimeUnit.SECONDS);
+    }
+
+    public void scheduleRecurringCleanup() {
+        scheduler.scheduleAtFixedRate(() -> {
+            new AdRemovalEngine(marketplace, deliveryEngine).removeCompletedCampaigns();
+        }, 0, 30, TimeUnit.MINUTES);
+    }
+}
