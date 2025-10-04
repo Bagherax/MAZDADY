@@ -1,0 +1,26 @@
+package mazdady.admin;
+
+import mazdady.bot.BotManager;
+
+public class BotController {
+    private BotManager botManager;
+
+    public BotController() {
+        this.botManager = new BotManager();
+    }
+
+    public void activateTradingBots() {
+        botManager.startAllBots();
+        System.out.println("تم تفعيل جميع البوتات التداولية");
+    }
+
+    public void deactivateTradingBots() {
+        botManager.stopAllBots();
+        System.out.println("تم إيقاف جميع البوتات التداولية");
+    }
+
+    public void setBotBehavior(String botType, String behavior) {
+        // في الإنتاج: تعديل سلوك البوت
+        System.out.println("تم تغيير سلوك " + botType + " إلى: " + behavior);
+    }
+}
