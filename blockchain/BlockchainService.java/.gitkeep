@@ -1,0 +1,19 @@
+package mazdady.blockchain;
+
+public class BlockchainService {
+    public boolean sendMAZDADY(String fromAddress, String toAddress, double amount) {
+        // في الإنتاج: إرسال عبر شبكة MAZDADY
+        System.out.println("تم إرسال " + amount + " MAZDADY من " + fromAddress + " إلى " + toAddress);
+        return true;
+    }
+
+    public double getBalance(String address) {
+        // في الإنتاج: جلب الرصيد من البلوك تشين
+        return 1000.0; // قيمة افتراضية
+    }
+
+    public boolean isValidAddress(String address) {
+        // في الإنتاج: التحقق من صحة عنوان MAZDADY
+        return address.startsWith("MZD") && address.length() == 42;
+    }
+}
