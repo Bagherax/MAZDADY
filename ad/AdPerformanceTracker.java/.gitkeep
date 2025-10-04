@@ -1,40 +1,32 @@
 package mazdady.ad;
 
-import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Consumer;
 
-public class AdPerformanceTracker {
-    private Map<String, AdCampaign> activeCampaigns = new HashMap<>();
-    private ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
+/**
+ * متتبع أداء الحملات مع دعم المراقبة الزمنية
+ * يستخدم Observer Pattern لإعلام المستمعين بالتغيرات
+ */
+public final class AdPerformanceTracker {
+    private final Map<String, AdCampaign> activeCampaigns = new ConcurrentHashMap<>();
+    private final Consumer<AdCampaign> onCompletion;
+
+    public AdPerformanceTracker(Consumer<AdCampaign> onCompletion) {
+        this.onCompletion = onCompletion;
+    }
 
     public void startTracking(AdCampaign campaign) {
-        activeCampaigns.put(campaign.getCampaignId(), campaign);
-        
-        // تحديث التقدم كل 30 ثانية (في الإنتاج: من API خارجي)
-        scheduler.scheduleAtFixedRate(() -> {
-            simulateProgress(campaign);
-        }, 0, 30, TimeUnit.SECONDS);
+        activeCampaigns.put(campaign.getId(), campaign);
+        // في الإنتاج: بدء جدولة المراقبة
     }
 
-    private void simulateProgress(AdCampaign campaign) {
-        if (!campaign.isActive()) return;
-        
-        // في الإنتاج: جلب البيانات من YouTube/TikTok API
-        int newProgress = campaign.getCurrentProgress() + 5;
-        campaign.updateProgress(newProgress);
-        
-        if (campaign.isCompleted()) {
-            activeCampaigns.remove(campaign.getCampaignId());
-            notifyCampaignCompleted(campaign);
+    public void updateProgress(String campaignId, int progress) {
+        AdCampaign campaign = activeCampaigns.get(campaignId);
+        if (campaign != null && campaign.isCompleted(progress)) {
+            activeCampaigns.remove(campaignId);
+            onCompletion.accept(campaign);
         }
-    }
-
-    private void notifyCampaignCompleted(AdCampaign campaign) {
-        // إرسال إشعار للمستخدم
-        System.out.println("تم الانتهاء من حملتك! 🎉");
     }
 
     public AdCampaign getCampaign(String campaignId) {
