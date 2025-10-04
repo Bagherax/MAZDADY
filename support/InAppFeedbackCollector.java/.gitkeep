@@ -1,0 +1,19 @@
+package mazdady.support;
+
+public class InAppFeedbackCollector {
+    public void showFeedbackForm() {
+        // في الإنتاج: عرض نموذج PopUp لجمع التغذية الراجعة
+        System.out.println("تم عرض نموذج التغذية الراجعة");
+    }
+
+    public void submitFeedback(String userId, int rating, String comments) {
+        // في الإنتاج: إرسال التغذية الراجعة إلى السيرفر
+        System.out.println("تم إرسال التغذية الراجعة من المستخدم " + userId + 
+                          " (التقييم: " + rating + ")");
+        
+        // مكافأة المستخدم (في الإنتاج)
+        if (rating >= 4) {
+            System.out.println("شكرًا لتقييمك! لقد حصلت على 10 MAZDADY كهدية.");
+        }
+    }
+}
