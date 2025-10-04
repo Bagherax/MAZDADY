@@ -1,0 +1,59 @@
+package mazdady.ad;
+
+import java.util.Date;
+
+public class AdCampaign {
+    private String campaignId;
+    private String userId;
+    private String platform; // "youtube", "tiktok", "instagram"
+    private String contentUrl; // رابط الفيديو
+    private String goal; // "views", "likes", "comments", "subscribers"
+    private int targetCount;
+    private double budget; // بالـ MAZDADY
+    private Date startDate;
+    private Date endDate;
+    private boolean isActive;
+    private int currentProgress;
+
+    public AdCampaign(String userId, String platform, String contentUrl, 
+                     String goal, int targetCount, double budget) {
+        this.campaignId = "camp_" + System.currentTimeMillis();
+        this.userId = userId;
+        this.platform = platform;
+        this.contentUrl = contentUrl;
+        this.goal = goal;
+        this.targetCount = targetCount;
+        this.budget = budget;
+        this.startDate = new Date();
+        this.isActive = true;
+        this.currentProgress = 0;
+    }
+
+    // --- Business Logic ---
+    public boolean isCompleted() {
+        return currentProgress >= targetCount;
+    }
+
+    public double getCostPerAction() {
+        return budget / targetCount;
+    }
+
+    public void updateProgress(int newProgress) {
+        this.currentProgress = Math.min(newProgress, targetCount);
+        if (isCompleted()) {
+            this.isActive = false;
+        }
+    }
+
+    // --- Getters ---
+    public String getCampaignId() { return campaignId; }
+    public String getUserId() { return userId; }
+    public String getPlatform() { return platform; }
+    public String getContentUrl() { return contentUrl; }
+    public String getGoal() { return goal; }
+    public int getTargetCount() { return targetCount; }
+    public double getBudget() { return budget; }
+    public Date getStartDate() { return startDate; }
+    public boolean isActive() { return isActive; }
+    public int getCurrentProgress() { return currentProgress; }
+}
