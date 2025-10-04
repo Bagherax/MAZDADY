@@ -1,0 +1,31 @@
+package mazdady.security;
+
+import android.content.Context;
+
+public class SecurityMonitor {
+    private Context context;
+    private int suspiciousActivityCount = 0;
+    private static final int MAX_SUSPICIOUS_ACTIVITIES = 3;
+
+    public SecurityMonitor(Context context) {
+        this.context = context;
+    }
+
+    public void reportSuspiciousActivity(String activityType) {
+        suspiciousActivityCount++;
+        System.out.println("نشاط مشبوه: " + activityType + " (العدد: " + suspiciousActivityCount + ")");
+
+        if (suspiciousActivityCount >= MAX_SUSPICIOUS_ACTIVITIES) {
+            triggerSecurityLockdown();
+        }
+    }
+
+    private void triggerSecurityLockdown() {
+        // في الإنتاج: تجميد الحساب، إرسال تنبيه للادمن
+        System.out.println("🚨 تم تفعيل قفل الأمان! الحساب مجمد مؤقتًا.");
+    }
+
+    public void resetSuspiciousCount() {
+        suspiciousActivityCount = 0;
+    }
+}
