@@ -1,0 +1,59 @@
+package mazdady.arch;
+
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.function.Consumer;
+
+/**
+ * منفذ حالات الاستخدام مع دعم الخيوط والأخطاء
+ * يتبع نمط Observer لفصل التنفيذ عن النتائج
+ */
+public final class UseCaseExecutor {
+    private final ExecutorService backgroundExecutor;
+    private final ExecutorService mainThreadExecutor;
+
+    private UseCaseExecutor() {
+        this.backgroundExecutor = Executors.newCachedThreadPool();
+        this.mainThreadExecutor = Executors.newSingleThreadExecutor();
+    }
+
+    private static class Holder {
+        static final UseCaseExecutor INSTANCE = new UseCaseExecutor();
+    }
+
+    public static UseCaseExecutor getInstance() {
+        return Holder.INSTANCE;
+    }
+
+    /**
+     * تنفيذ حالة استخدام في الخلفية مع معالجة النتائج في الواجهة
+     */
+    public <T, E extends Exception> void execute(
+        UseCase<T, E> useCase,
+        Consumer<T> onSuccess,
+        Consumer<E> onError
+    ) {
+        backgroundExecutor.execute(() -> {
+            try {
+                T result = useCase.execute();
+                postToMainThread(() -> onSuccess.accept(result));
+            } catch (Exception e) {
+                @SuppressWarnings("unchecked")
+                E exception = (E) e;
+                postToMainThread(() -> onError.accept(exception));
+            }
+        });
+    }
+
+    private void postToMainThread(Runnable runnable) {
+        mainThreadExecutor.execute(runnable);
+    }
+
+    /**
+     * واجهة عامة لحالات الاستخدام
+     */
+    @FunctionalInterface
+    public interface UseCase<T, E extends Exception> {
+        T execute() throws E;
+    }
+}
