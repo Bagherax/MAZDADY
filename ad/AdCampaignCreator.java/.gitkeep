@@ -1,33 +1,54 @@
 package mazdady.ad;
 
+import mazdady.arch.BusinessInteractor;
 import mazdady.user.UserManager;
 import mazdady.wallet.WalletManager;
 
-public class AdCampaignCreator {
-    public AdCampaign createCampaign(String platform, String contentUrl, 
-                                   String goal, int targetCount, double budget) {
-        // التحقق من صحة المدخلات
-        if (!SocialPromotion.isValidPlatform(platform)) {
-            throw new IllegalArgumentException("منصة غير مدعومة");
-        }
-        if (!SocialPromotion.isValidUrl(contentUrl, platform)) {
-            throw new IllegalArgumentException("رابط غير صالح");
-        }
-        if (budget <= 0 || targetCount <= 0) {
-            throw new IllegalArgumentException("الميزانية والهدف يجب أن يكونا أكبر من الصفر");
-        }
+/**
+ * منشئ الحملات كمنفذ للمنطق التجاري
+ * يتبع نمط Template Method مع التحقق من الصلاحيات
+ */
+public final class AdCampaignCreator extends BusinessInteractor<AdCampaignCreator.Request, AdCampaign> {
 
-        // التحقق من الرصيد
-        WalletManager wallet = new WalletManager();
-        if (wallet.getBalance() < budget) {
-            throw new IllegalStateException("رصيد غير كافٍ");
-        }
-
-        // خصم الميزانية
-        wallet.withdrawMAZDADY(budget);
-
-        // إنشاء الحملة
-        String userId = UserManager.getInstance(null).getCurrentUser().getUserId();
-        return new AdCampaign(userId, platform, contentUrl, goal, targetCount, budget);
+    @Override
+    protected boolean hasPermission(Request request) {
+        return UserManager.getInstance(null).getCurrentUser().getUserId().equals(request.userId());
     }
+
+    @Override
+    protected AdCampaign performBusinessLogic(Request request) {
+        // 1. التحقق من رصيد المستخدم
+        WalletManager wallet = new WalletManager();
+        if (wallet.getBalance() < request.budget()) {
+            throw new IllegalStateException("Insufficient balance for campaign");
+        }
+
+        // 2. خصم الميزانية
+        boolean withdrawn = wallet.withdrawMAZDADY(request.budget());
+        if (!withdrawn) {
+            throw new IllegalStateException("Failed to withdraw campaign budget");
+        }
+
+        // 3. إنشاء الحملة
+        return new AdCampaign.Builder()
+            .userId(request.userId())
+            .platform(request.platform())
+            .contentUrl(request.contentUrl())
+            .goal(request.goal())
+            .targetCount(request.targetCount())
+            .budget(request.budget())
+            .build();
+    }
+
+    /**
+     * طلب إنشاء حملة (كائن غير قابل للتغيير)
+     */
+    public record Request(
+        String userId,
+        AdCampaign.Platform platform,
+        String contentUrl,
+        AdCampaign.Goal goal,
+        int targetCount,
+        double budget
+    ) {}
 }
