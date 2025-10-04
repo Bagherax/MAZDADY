@@ -1,0 +1,125 @@
+package mazdady.core;
+
+import android.animation.Animator;
+import android.animation.AnimatorSet;
+import android.animation.ObjectAnimator;
+import android.content.Intent;
+import android.os.Bundle;
+import android.view.View;
+import android.view.animation.AccelerateDecelerateInterpolator;
+import android.widget.ImageView;
+import android.widget.ProgressBar;
+import android.widget.TextView;
+import androidx.appcompat.app.AppCompatActivity;
+import mazdady.user.UserManager;
+
+public class SplashActivity extends AppCompatActivity {
+    private ImageView logoView;
+    private TextView sloganView;
+    private ProgressBar loadingBar;
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_splash);
+
+        logoView = findViewById(R.id.splash_logo);
+        sloganView = findViewById(R.id.splash_slogan);
+        loadingBar = findViewById(R.id.splash_loading);
+
+        // إخفاء العناصر في البداية
+        logoView.setAlpha(0f);
+        sloganView.setAlpha(0f);
+        loadingBar.setVisibility(View.GONE);
+
+        // بدء التأثيرات بعد تأخير قصير
+        logoView.postDelayed(this::animateLogo, 500);
+    }
+
+    private void animateLogo() {
+        // 1. ظهور الشعار من الظلام (ضباب → نور)
+        ObjectAnimator fadeIn = ObjectAnimator.ofFloat(logoView, "alpha", 0f, 1f);
+        fadeIn.setDuration(1500);
+        fadeIn.setInterpolator(new AccelerateDecelerateInterpolator());
+
+        // 2. تأثير "الضباب" باستخدام تكبير/تصغير
+        ObjectAnimator scaleUp = ObjectAnimator.ofFloat(logoView, "scaleX", 0.8f, 1.1f);
+        ObjectAnimator scaleDown = ObjectAnimator.ofFloat(logoView, "scaleX", 1.1f, 1f);
+        ObjectAnimator scaleY = ObjectAnimator.ofFloat(logoView, "scaleY", 0.8f, 1f);
+
+        AnimatorSet logoAnimation = new AnimatorSet();
+        logoAnimation.play(fadeIn).with(scaleUp).before(scaleDown).with(scaleY);
+        logoAnimation.start();
+
+        // 3. ظهور الشعار النصي بعد الشعار
+        fadeIn.addListener(new Animator.AnimatorListener() {
+            @Override
+            public void onAnimationEnd(Animator animation) {
+                animateSlogan();
+            }
+            @Override public void onAnimationStart(Animator animation) {}
+            @Override public void onAnimationCancel(Animator animation) {}
+            @Override public void onAnimationRepeat(Animator animation) {}
+        });
+    }
+
+    private void animateSlogan() {
+        sloganView.setAlpha(0f);
+        sloganView.setVisibility(View.VISIBLE);
+
+        ObjectAnimator sloganFade = ObjectAnimator.ofFloat(sloganView, "alpha", 0f, 1f);
+        sloganFade.setDuration(1000);
+        sloganFade.start();
+
+        // 4. بدء شريط التحميل بعد ظهور الشعار النصي
+        sloganFade.addListener(new Animator.AnimatorListener() {
+            @Override
+            public void onAnimationEnd(Animator animation) {
+                startLoadingAnimation();
+            }
+            @Override public void onAnimationStart(Animator animation) {}
+            @Override public void onAnimationCancel(Animator animation) {}
+            @Override public void onAnimationRepeat(Animator animation) {}
+        });
+    }
+
+    private void startLoadingAnimation() {
+        loadingBar.setVisibility(View.VISIBLE);
+        loadingBar.setProgress(0);
+
+        // محاكاة التحميل (في الواقع: تحقق من الاتصال، تحميل الإعدادات، إلخ.)
+        new Thread(() -> {
+            try {
+                for (int i = 0; i <= 100; i += 5) {
+                    final int progress = i;
+                    runOnUiThread(() -> loadingBar.setProgress(progress));
+                    Thread.sleep(80); // سرعة التحميل
+                }
+
+                // بعد الانتهاء
+                runOnUiThread(this::navigateToMain);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }).start();
+    }
+
+    private void navigateToMain() {
+        boolean isNewUser = UserManager.getInstance().isNewUser();
+        
+        if (isNewUser) {
+            // فتح Popup التسجيل
+            startActivity(new Intent(this, MainActivity.class));
+            overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out);
+            showSignUpPopup();
+        } else {
+            // الذهاب مباشرة للواجهة الرئيسية
+            startActivity(new Intent(this, MainActivity.class));
+            finish();
+        }
+    }
+
+    private void showSignUpPopup() {
+        // سيتم تنفيذه في MainActivity
+    }
+}
