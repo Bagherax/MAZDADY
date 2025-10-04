@@ -7,28 +7,24 @@ public class WithdrawalRulesEngine {
     private AdminConfig config;
 
     public WithdrawalRulesEngine() {
-        this.config = AdminConfig.getInstance(); // يحمل الإعدادات من server/config.json
+        this.config = AdminConfig.getInstance();
     }
 
     public WithdrawalResult canWithdraw(User user, double amount) {
-        // 1. التحقق من المستوى
         if (user.getLevel() < config.getMinWithdrawalLevel()) {
             return new WithdrawalResult(false, "يجب أن تكون في المستوى " + config.getMinWithdrawalLevel() + " على الأقل.");
         }
 
-        // 2. التحقق من الحد الأسبوعي
         double weeklyLimit = config.getWeeklyLimitForLevel(user.getLevel());
         if (user.getWeeklyWithdrawn() + amount > weeklyLimit) {
             double remaining = weeklyLimit - user.getWeeklyWithdrawn();
             return new WithdrawalResult(false, "الحد الأسبوعي المتبقي: " + remaining + " MAZDADY");
         }
 
-        // 3. التحقق من جدولة السحب
         if (!config.isTodayWithdrawalDay()) {
             return new WithdrawalResult(false, "يوم السحب القادم: " + config.getNextWithdrawalDate());
         }
 
-        // 4. التحقق من KYC
         if (!user.isKYCVerified()) {
             return new WithdrawalResult(false, "يجب توثيق هويتك قبل السحب.");
         }
@@ -36,7 +32,6 @@ public class WithdrawalRulesEngine {
         return new WithdrawalResult(true, "يمكنك السحب.");
     }
 
-    // فئة داخلية لنتائج التحقق
     public static class WithdrawalResult {
         private final boolean allowed;
         private final String message;
