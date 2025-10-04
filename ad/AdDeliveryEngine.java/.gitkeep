@@ -1,0 +1,40 @@
+package mazdady.ad;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+
+public class AdDeliveryEngine {
+    private List<AdCampaign> activeCampaigns = new ArrayList<>();
+    private ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(2);
+
+    public void deliverAd(AdCampaign campaign) {
+        activeCampaigns.add(campaign);
+        
+        // بدء عرض الإعلان فورًا
+        showAdToUsers(campaign);
+        
+        // جدولة إزالة الإعلان بعد اكتمال الهدف
+        scheduler.schedule(() -> {
+            if (campaign.isCompleted()) {
+                removeAd(campaign);
+            }
+        }, 1, TimeUnit.HOURS); // مراقبة كل ساعة
+    }
+
+    private void showAdToUsers(AdCampaign campaign) {
+        System.out.println("جارٍ عرض الإعلان: " + campaign.getContentUrl());
+        // في الإنتاج: عرض الإعلان على تطبيقات المستخدمين
+    }
+
+    private void removeAd(AdCampaign campaign) {
+        activeCampaigns.remove(campaign);
+        System.out.println("تم إزالة الإعلان: " + campaign.getCampaignId());
+    }
+
+    public List<AdCampaign> getActiveCampaigns() {
+        return new ArrayList<>(activeCampaigns);
+    }
+}
