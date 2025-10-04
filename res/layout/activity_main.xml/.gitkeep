@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#0f0f1b">
+
+    <!-- الشريط العلوي -->
+    <LinearLayout
+        android:id="@+id/top_bar"
+        android:layout_width="match_parent"
+        android:layout_height="60dp"
+        android:background="#1a1a2e"
+        android:orientation="horizontal">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:text="الرصيد: $9891.26"
+            android:textColor="#FFA726"
+            android:gravity="center"
+            android:textSize="18sp" />
+
+        <ImageView
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:src="@drawable/ic_menu"
+            android:layout_gravity="center"
+            android:layout_marginEnd="10dp" />
+
+    </LinearLayout>
+
+    <!-- خط التداول -->
+    <com.github.mikephil.charting.charts.LineChart
+        android:id="@+id/trading_line"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_below="@id/top_bar"
+        android:layout_above="@+id/bottom_controls" />
+
+    <!-- الأزرار السفلية -->
+    <LinearLayout
+        android:id="@+id/bottom_controls"
+        android:layout_width="match_parent"
+        android:layout_height="120dp"
+        android:layout_alignParentBottom="true"
+        android:background="#1a1a2e"
+        android:orientation="vertical">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:padding="10dp">
+
+            <Button
+                android:id="@+id/buy_button"
+                android:layout_width="0dp"
+                android:layout_height="50dp"
+                android:layout_weight="1"
+                android:text="شراء"
+                android:textColor="#ffffff"
+                android:backgroundTint="#4CAF50" />
+
+            <Button
+                android:id="@+id/sell_button"
+                android:layout_width="0dp"
+                android:layout_height="50dp"
+                android:layout_weight="1"
+                android:text="بيع"
+                android:textColor="#ffffff"
+                android:backgroundTint="#F44336" />
+
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="الاستثمار: $1"
+            android:gravity="center"
+            android:textColor="#ffffff"
+            android:padding="5dp" />
+
+    </LinearLayout>
+
+</RelativeLayout>
