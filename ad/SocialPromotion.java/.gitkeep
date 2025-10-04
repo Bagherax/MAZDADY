@@ -1,0 +1,35 @@
+package mazdady.ad;
+
+public class SocialPromotion {
+    public static boolean isValidPlatform(String platform) {
+        return "youtube".equals(platform) || 
+               "tiktok".equals(platform) || 
+               "instagram".equals(platform) ||
+               "twitter".equals(platform);
+    }
+
+    public static boolean isValidUrl(String url, String platform) {
+        switch (platform.toLowerCase()) {
+            case "youtube":
+                return url.contains("youtube.com/watch") || url.contains("youtu.be/");
+            case "tiktok":
+                return url.contains("tiktok.com/");
+            case "instagram":
+                return url.contains("instagram.com/");
+            case "twitter":
+                return url.contains("twitter.com/") || url.contains("x.com/");
+            default:
+                return false;
+        }
+    }
+
+    public static String getGoalLabel(String goal) {
+        switch (goal) {
+            case "views": return "مشاهدات";
+            case "likes": return "إعجابات";
+            case "comments": return "تعليقات";
+            case "subscribers": return "متابعين";
+            default: return goal;
+        }
+    }
+}
