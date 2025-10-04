@@ -1,0 +1,79 @@
+package mazdady.bot;
+
+import mazdady.trading.PriceEngine;
+import mazdady.trading.OrderBook;
+
+import java.time.Instant;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
+
+/**
+ * بوت تداول أساسي مع دعم السلوكيات الديناميكية
+ * يتبع نمط Strategy لفصل سلوك التداول
+ */
+public abstract class TradingBot {
+    protected final String botId;
+    protected final PriceEngine priceEngine;
+    protected final OrderBook orderBook;
+    protected final AtomicBoolean isActive = new AtomicBoolean(false);
+    protected final AtomicReference<BotBehavior> currentBehavior = new AtomicReference<>();
+    protected final Consumer<String> logger;
+
+    protected TradingBot(String botId, PriceEngine priceEngine, OrderBook orderBook) {
+        this.botId = botId;
+        this.priceEngine = priceEngine;
+        this.orderBook = orderBook;
+        this.logger = message -> System.out.println("[" + Instant.now() + "] BOT " + botId + ": " + message);
+    }
+
+    /**
+     * بدء تشغيل البوت
+     */
+    public void start() {
+        if (isActive.compareAndSet(false, true)) {
+            logger.accept("Started with behavior: " + getCurrentBehaviorName());
+            executeTradingStrategy();
+        }
+    }
+
+    /**
+     * إيقاف تشغيل البوت
+     */
+    public void stop() {
+        if (isActive.compareAndSet(true, false)) {
+            logger.accept("Stopped");
+        }
+    }
+
+    /**
+     * تنفيذ استراتيجية التداول (يتم تطبيقها في الفئات الفرعية)
+     */
+    protected abstract void executeTradingStrategy();
+
+    /**
+     * تعيين سلوك جديد للبوت
+     */
+    public void setBehavior(BotBehavior behavior) {
+        this.currentBehavior.set(behavior);
+        logger.accept("Behavior changed to: " + behavior.getName());
+    }
+
+    protected String getCurrentBehaviorName() {
+        BotBehavior behavior = currentBehavior.get();
+        return behavior != null ? behavior.getName() : "DEFAULT";
+    }
+
+    protected boolean isActive() {
+        return isActive.get();
+    }
+
+    /**
+     * واجهة سلوك البوت
+     */
+    @FunctionalInterface
+    public interface BotBehavior {
+        String getName();
+        void execute(TradingBot bot);
+    }
+}
