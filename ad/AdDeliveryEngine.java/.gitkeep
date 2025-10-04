@@ -1,40 +1,46 @@
 package mazdady.ad;
 
-import java.util.ArrayList;
-import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 
-public class AdDeliveryEngine {
-    private List<AdCampaign> activeCampaigns = new ArrayList<>();
-    private ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(2);
+/**
+ * محرك توصيل الإعلانات مع دعم الجدولة الديناميكية
+ * يستخدم ScheduledExecutorService للجدولة الدقيقة
+ */
+public final class AdDeliveryEngine {
+    private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(2);
+    private final AdAnalytics analytics = AdAnalytics.getInstance();
 
-    public void deliverAd(AdCampaign campaign) {
-        activeCampaigns.add(campaign);
+    public void deliverAd(AdCampaign campaign, Consumer<AdCampaign> onDelivered) {
+        // تسجيل العرض فورًا
+        analytics.trackImpression(campaign.getId());
         
-        // بدء عرض الإعلان فورًا
-        showAdToUsers(campaign);
+        // جدولة المراقبة
+        scheduler.scheduleAtFixedRate(
+            () -> monitorCampaign(campaign),
+            0,
+            30,
+            TimeUnit.SECONDS
+        );
         
-        // جدولة إزالة الإعلان بعد اكتمال الهدف
-        scheduler.schedule(() -> {
-            if (campaign.isCompleted()) {
-                removeAd(campaign);
-            }
-        }, 1, TimeUnit.HOURS); // مراقبة كل ساعة
+        onDelivered.accept(campaign);
     }
 
-    private void showAdToUsers(AdCampaign campaign) {
-        System.out.println("جارٍ عرض الإعلان: " + campaign.getContentUrl());
-        // في الإنتاج: عرض الإعلان على تطبيقات المستخدمين
+    private void monitorCampaign(AdCampaign campaign) {
+        // في الإنتاج: جلب البيانات الفعلية من منصات التواصل
+        int currentProgress = (int) (Math.random() * campaign.getTargetCount() * 1.2);
+        
+        if (campaign.isCompleted(currentProgress)) {
+            // إكمال الحملة
+            AdCampaign completed = campaign.complete();
+            analytics.trackConversion(campaign.getId(), "completed");
+            // إيقاف الجدولة (في الإنتاج: استخدام Future)
+        }
     }
 
-    private void removeAd(AdCampaign campaign) {
-        activeCampaigns.remove(campaign);
-        System.out.println("تم إزالة الإعلان: " + campaign.getCampaignId());
-    }
-
-    public List<AdCampaign> getActiveCampaigns() {
-        return new ArrayList<>(activeCampaigns);
+    public void shutdown() {
+        scheduler.shutdown();
     }
 }
