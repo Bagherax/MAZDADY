@@ -1,30 +1,43 @@
 package mazdady.ad;
 
-import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.Predicate;
+import java.util.stream.Collectors;
 
-public class AdMarketplace {
-    private List<AdCampaign> availableCampaigns = new ArrayList<>();
+/**
+ * سوق الإعلانات مع دعم العمليات الآمنة متعددة الخيوط
+ * يدعم التصفية والبحث باستخدام التعبيرات الوظيفية
+ */
+public final class AdMarketplace {
+    private final List<AdCampaign> campaigns = new CopyOnWriteArrayList<>();
 
     public void publishCampaign(AdCampaign campaign) {
-        availableCampaigns.add(campaign);
-        System.out.println("تم نشر الحملة في السوق: " + campaign.getCampaignId());
+        campaigns.add(campaign);
     }
 
-    public List<AdCampaign> getAvailableCampaigns() {
-        return new ArrayList<>(availableCampaigns);
+    public List<AdCampaign> findCampaigns(Predicate<AdCampaign> filter) {
+        return campaigns.stream()
+            .filter(filter)
+            .collect(Collectors.toList());
     }
 
-    public AdCampaign findCampaignById(String campaignId) {
-        for (AdCampaign campaign : availableCampaigns) {
-            if (campaign.getCampaignId().equals(campaignId)) {
-                return campaign;
-            }
-        }
-        return null;
+    public List<AdCampaign> getActiveCampaigns() {
+        return findCampaigns(camp -> camp.getStatus() == AdCampaign.CampaignStatus.ACTIVE);
+    }
+
+    public AdCampaign findById(String campaignId) {
+        return campaigns.stream()
+            .filter(camp -> camp.getId().equals(campaignId))
+            .findFirst()
+            .orElse(null);
     }
 
     public void removeCampaign(String campaignId) {
-        availableCampaigns.removeIf(camp -> camp.getCampaignId().equals(campaignId));
+        campaigns.removeIf(camp -> camp.getId().equals(campaignId));
+    }
+
+    public int size() {
+        return campaigns.size();
     }
 }
