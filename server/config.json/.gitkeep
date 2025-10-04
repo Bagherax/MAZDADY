@@ -70,5 +70,12 @@
         "icon_url": "https://your-cdn.com/icons/sell_icon.png"
       }
     }
+    {
+  "ui": {
+    "splash_video_url": "https://your-firebase-url.com/intro.mp4",
+    "splash_fallback_image": "https://your-cdn.com/fallback.jpg",
+    "splash_duration": 5000
+  }
+}
   }
 }
