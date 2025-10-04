@@ -1,0 +1,117 @@
+package mazdady.core;
+
+import android.app.Application;
+import android.content.ComponentCallbacks2;
+import android.content.res.Configuration;
+import android.os.Bundle;
+
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.Consumer;
+
+/**
+ * مدير دورة حياة التطبيق مع دعم الأحداث المتقدمة
+ * يتبع نمط Observer لإعلام المكونات بالتغيرات
+ */
+public final class AppLifecycle implements Application.ActivityLifecycleCallbacks, ComponentCallbacks2 {
+    private final CopyOnWriteArrayList<Consumer<LifecycleEvent>> listeners = new CopyOnWriteArrayList<>();
+    private static final AppLifecycle INSTANCE = new AppLifecycle();
+
+    private AppLifecycle() {}
+
+    public static AppLifecycle getInstance() {
+        return INSTANCE;
+    }
+
+    public void addListener(Consumer<LifecycleEvent> listener) {
+        listeners.add(listener);
+    }
+
+    public void removeListener(Consumer<LifecycleEvent> listener) {
+        listeners.remove(listener);
+    }
+
+    private void notifyListeners(LifecycleEvent event) {
+        listeners.forEach(listener -> listener.accept(event));
+    }
+
+    // --- Application.ActivityLifecycleCallbacks ---
+    @Override
+    public void onActivityCreated(android.app.Activity activity, Bundle savedInstanceState) {
+        notifyListeners(new LifecycleEvent(LifecycleEvent.Type.ACTIVITY_CREATED, activity.getClass().getSimpleName()));
+    }
+
+    @Override
+    public void onActivityStarted(android.app.Activity activity) {
+        notifyListeners(new LifecycleEvent(LifecycleEvent.Type.ACTIVITY_STARTED, activity.getClass().getSimpleName()));
+    }
+
+    @Override
+    public void onActivityResumed(android.app.Activity activity) {
+        notifyListeners(new LifecycleEvent(LifecycleEvent.Type.ACTIVITY_RESUMED, activity.getClass().getSimpleName()));
+    }
+
+    @Override
+    public void onActivityPaused(android.app.Activity activity) {
+        notifyListeners(new LifecycleEvent(LifecycleEvent.Type.ACTIVITY_PAUSED, activity.getClass().getSimpleName()));
+    }
+
+    @Override
+    public void onActivityStopped(android.app.Activity activity) {
+        notifyListeners(new LifecycleEvent(LifecycleEvent.Type.ACTIVITY_STOPPED, activity.getClass().getSimpleName()));
+    }
+
+    @Override
+    public void onActivitySaveInstanceState(android.app.Activity activity, Bundle outState) {
+        notifyListeners(new LifecycleEvent(LifecycleEvent.Type.ACTIVITY_SAVE_INSTANCE, activity.getClass().getSimpleName()));
+    }
+
+    @Override
+    public void onActivityDestroyed(android.app.Activity activity) {
+        notifyListeners(new LifecycleEvent(LifecycleEvent.Type.ACTIVITY_DESTROYED, activity.getClass().getSimpleName()));
+    }
+
+    // --- ComponentCallbacks2 ---
+    @Override
+    public void onConfigurationChanged(Configuration newConfig) {
+        notifyListeners(new LifecycleEvent(LifecycleEvent.Type.CONFIGURATION_CHANGED, newConfig.toString()));
+    }
+
+    @Override
+    public void onLowMemory() {
+        notifyListeners(new LifecycleEvent(LifecycleEvent.Type.LOW_MEMORY, "Memory critical"));
+    }
+
+    @Override
+    public void onTrimMemory(int level) {
+        notifyListeners(new LifecycleEvent(LifecycleEvent.Type.TRIM_MEMORY, "Level: " + level));
+    }
+
+    /**
+     * حدث دورة الحياة
+     */
+    public static final class LifecycleEvent {
+        private final Type type;
+        private final String data;
+
+        public LifecycleEvent(Type type, String data) {
+            this.type = type;
+            this.data = data;
+        }
+
+        public Type getType() { return type; }
+        public String getData() { return data; }
+
+        public enum Type {
+            ACTIVITY_CREATED,
+            ACTIVITY_STARTED,
+            ACTIVITY_RESUMED,
+            ACTIVITY_PAUSED,
+            ACTIVITY_STOPPED,
+            ACTIVITY_SAVE_INSTANCE,
+            ACTIVITY_DESTROYED,
+            CONFIGURATION_CHANGED,
+            LOW_MEMORY,
+            TRIM_MEMORY
+        }
+    }
+}
