@@ -25,7 +25,6 @@ public class DeviceFingerprint {
             cachedFingerprint = sha256(rawId);
             return cachedFingerprint;
         } catch (Exception e) {
-            // Fallback: استخدم وقت التثبيت كـ ID مؤقت
             return "fallback_" + System.currentTimeMillis();
         }
     }
@@ -37,7 +36,6 @@ public class DeviceFingerprint {
                 return tm.getDeviceId();
             }
         } catch (SecurityException e) {
-            // إذن الهاتف غير ممنوح — نستخدم بديلًا
         }
         return "no_telephony";
     }
