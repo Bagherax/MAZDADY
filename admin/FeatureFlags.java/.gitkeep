@@ -1,0 +1,34 @@
+package mazdady.admin;
+
+import java.util.HashMap;
+import java.util.Map;
+
+public class FeatureFlags {
+    private static FeatureFlags instance;
+    private Map<String, Boolean> flags = new HashMap<>();
+
+    private FeatureFlags() {
+        // تهيئة الأعلام الافتراضية
+        flags.put("new_trading_ui", false);
+        flags.put("advanced_analytics", false);
+        flags.put("floating_ad", true);
+        flags.put("team_trading", true);
+    }
+
+    public static synchronized FeatureFlags getInstance() {
+        if (instance == null) {
+            instance = new FeatureFlags();
+        }
+        return instance;
+    }
+
+    public boolean isEnabled(String feature) {
+        return flags.getOrDefault(feature, false);
+    }
+
+    public void setFlag(String feature, boolean enabled) {
+        flags.put(feature, enabled);
+        // في الإنتاج: حفظ في config.json
+        System.out.println("تم تعيين العلم: " + feature + " = " + enabled);
+    }
+}
