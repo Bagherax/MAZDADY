@@ -1,0 +1,44 @@
+// server/admin/upload.js
+async function uploadImage(file, elementName) {
+    // 1. تحويل الصورة إلى Base64
+    const base64 = await toBase64(file);
+    
+    // 2. إنشاء اسم فريد للصورة
+    const fileName = `${elementName}_${Date.now()}.png`;
+    
+    // 3. رفع إلى GitHub Releases عبر API
+    const response = await fetch('https://api.github.com/repos/BAGHERAX/MAZDADY/releases/assets', {
+        method: 'POST',
+        headers: {
+            'Authorization': 'token YOUR_GITHUB_TOKEN', // سيتم تخزينه في Secrets
+            'Content-Type': 'application/octet-stream',
+            'Content-Length': base64.length
+        },
+        body: base64
+    });
+    
+    if (response.ok) {
+        const asset = await response.json();
+        const imageUrl = asset.browser_download_url;
+        
+        // 4. تحديث config.json تلقائيًا
+        await updateConfigImage(elementName, imageUrl);
+        alert('✅ تم رفع الصورة بنجاح!');
+    } else {
+        alert('❌ فشل الرفع. تأكد من صلاحيات الـ Token.');
+    }
+}
+
+function toBase64(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = () => resolve(reader.result.split(',')[1]);
+        reader.onerror = error => reject(error);
+    });
+}
+
+async function updateConfigImage(elementName, url) {
+    // هنا سيتم تحديث config.json عبر GitHub API
+    // (سيتم تنفيذه عبر GitHub Action لاحقًا)
+}
