@@ -161,3 +161,39 @@ public String getSplashVideoUrl() { return splashVideoUrl; }
 public String getSplashFallbackImage() { return splashFallbackImage; }
 public int getSplashDuration() { return splashDuration; }
 }
+{
+  "ui": {
+    "elements": {
+      "buy_button": {
+        "visible": true,
+        "position": "bottom_left",
+        "subscription_required": false,
+        "min_level": 1
+      },
+      "sell_button": {
+        "visible": true,
+        "position": "bottom_right",
+        "subscription_required": false,
+        "min_level": 1
+      },
+      "ad_banner": {
+        "visible": true,
+        "position": "top_center",
+        "subscription_required": false,
+        "min_level": 1
+      },
+      "payment_tools": {
+        "visible": false,
+        "position": "sidebar",
+        "subscription_required": true,
+        "min_level": 3
+      },
+      "sign_popup": {
+        "visible": true,
+        "position": "center",
+        "subscription_required": false,
+        "min_level": 1
+      }
+    }
+  }
+}
