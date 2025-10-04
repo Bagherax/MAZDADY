@@ -1,58 +1,91 @@
 package mazdady.auth;
 
-import android.net.Uri;
+import mazdady.user.UserManager;
+import mazdady.user.KYCStatus;
+
 import java.util.concurrent.CompletableFuture;
 
-public class KYCValidator {
-    private String userId;
-    private String phoneNumber;
-    private boolean isPhoneVerified = false;
-    private boolean isDocumentUploaded = false;
+/**
+ * مُحقّق KYC مع دعم التحقق المتعدد الخطوات
+ * يتبع نمط State لتمثيل مراحل التحقق
+ */
+public final class KYCValidator {
+    private static final KYCValidator INSTANCE = new KYCValidator();
 
-    public KYCValidator(String userId) {
-        this.userId = userId;
+    private KYCValidator() {}
+
+    public static KYCValidator getInstance() {
+        return INSTANCE;
     }
 
-    public void setPhoneNumber(String phone) {
-        this.phoneNumber = phone;
-    }
-
-    public CompletableFuture<Boolean> verifyPhoneNumber(String code) {
-        return CompletableFuture.supplyAsync(() -> {
-            boolean isValid = code.equals("123456");
-            if (isValid) isPhoneVerified = true;
-            return isValid;
-        });
-    }
-
-    public CompletableFuture<Boolean> uploadDocument(Uri documentUri) {
+    /**
+     * بدء عملية التحقق من الهوية
+     */
+    public CompletableFuture<KYCResult> startKYCVerificationAsync(String userId) {
         return CompletableFuture.supplyAsync(() -> {
             try {
-                byte[] encryptedDoc = encryptDocument(documentUri);
-                boolean uploaded = uploadToSecureStorage(encryptedDoc, userId);
-                if (uploaded) {
-                    isDocumentUploaded = true;
-                    broadcastKYCStatus(true);
+                // 1. التحقق من رقم الهاتف
+                if (!isPhoneVerified(userId)) {
+                    return KYCResult.failure("Phone number not verified");
                 }
-                return uploaded;
+                
+                // 2. التحقق من وجود مستندات
+                if (!areDocumentsUploaded(userId)) {
+                    return KYCResult.failure("Required documents not uploaded");
+                }
+                
+                // 3. التحقق من صحة المستندات (في الإنتاج: عبر AI)
+                if (!validateDocuments(userId)) {
+                    return KYCResult.failure("Document validation failed");
+                }
+                
+                // 4. تفعيل حالة KYC
+                KYCStatus kycStatus = UserManager.getInstance(null).getCurrentUser().getKycStatus();
+                kycStatus.markAsVerified("NATIONAL_ID", "verified_hash");
+                
+                return KYCResult.success("KYC verification completed successfully");
+                
             } catch (Exception e) {
-                return false;
+                return KYCResult.failure("KYC verification failed: " + e.getMessage());
             }
         });
     }
 
-    public boolean isFullyVerified() {
-        return isPhoneVerified && isDocumentUploaded;
+    private boolean isPhoneVerified(String userId) {
+        return UserManager.getInstance(null).getCurrentUser().getPhoneNumber() != null;
     }
 
-    private byte[] encryptDocument(Uri uri) {
-        return new byte[0];
+    private boolean areDocumentsUploaded(String userId) {
+        KYCStatus status = UserManager.getInstance(null).getCurrentUser().getKycStatus();
+        return status != null && status.isVerified();
     }
 
-    private boolean uploadToSecureStorage(byte[] data, String userId) {
-        return true;
+    private boolean validateDocuments(String userId) {
+        // في الإنتاج: استخدام خدمات AI للتحقق من المستندات
+        return true; // محاكاة النجاح
     }
 
-    private void broadcastKYCStatus(boolean verified) {
+    /**
+     * نتيجة التحقق من الهوية
+     */
+    public static final class KYCResult {
+        private final boolean success;
+        private final String message;
+
+        private KYCResult(boolean success, String message) {
+            this.success = success;
+            this.message = message;
+        }
+
+        public static KYCResult success(String message) {
+            return new KYCResult(true, message);
+        }
+
+        public static KYCResult failure(String message) {
+            return new KYCResult(false, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public String getMessage() { return message; }
     }
 }
