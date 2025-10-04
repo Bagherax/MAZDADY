@@ -49,3 +49,26 @@
   
   "last_updated": "2025-04-05T12:00:00Z"
 }
+{
+  "ui": {
+    "floating_ad": {
+      "enabled": true,
+      "display_duration": 10,
+      "hide_duration": 30,
+      "ad_image_url": "https://your-cdn.com/ads/special_offer.png",
+      "position": "bottom_right"
+    },
+    "buttons": {
+      "buy_button": {
+        "press_color": "#45a049",
+        "glow_effect": true,
+        "icon_url": "https://your-cdn.com/icons/buy_icon.png"
+      },
+      "sell_button": {
+        "press_color": "#d32f2f",
+        "glow_effect": true,
+        "icon_url": "https://your-cdn.com/icons/sell_icon.png"
+      }
+    }
+  }
+}
