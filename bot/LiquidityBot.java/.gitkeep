@@ -1,0 +1,89 @@
+package mazdady.bot;
+
+import mazdady.trading.PriceEngine;
+import mazdady.trading.OrderBook;
+
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+
+/**
+ * بوت السيولة مع دعم إدارة العمق السوقي
+ * يحافظ على توازن أوامر الشراء والبيع
+ */
+public final class LiquidityBot extends TradingBot {
+    private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+    private double liquidityPool = 10000.0; // رأس مال السيولة
+
+    public LiquidityBot(String botId, PriceEngine priceEngine, OrderBook orderBook) {
+        super(botId, priceEngine, orderBook);
+        setBehavior(new BalancedLiquidityBehavior());
+    }
+
+    @Override
+    protected void executeTradingStrategy() {
+        // جدولة تحديث السيولة كل 30 ثانية
+        scheduler.scheduleAtFixedRate(
+            this::provideLiquidity,
+            0,
+            30,
+            TimeUnit.SECONDS
+        );
+    }
+
+    private void provideLiquidity() {
+        if (!isActive()) return;
+        
+        BotBehavior behavior = currentBehavior.get();
+        if (behavior != null) {
+            behavior.execute(this);
+        }
+    }
+
+    private void placeBuyOrder(double amount) {
+        if (liquidityPool >= amount) {
+            priceEngine.executeBuyOrder(botId, amount);
+            liquidityPool -= amount;
+            logger.accept("Placed BUY order: " + amount + " MAZDADY");
+        }
+    }
+
+    private void placeSellOrder(double amount) {
+        // في الإنتاج: التحقق من وجود عملات للبيع
+        priceEngine.executeSellOrder(botId, amount);
+        logger.accept("Placed SELL order: " + amount + " MAZDADY");
+    }
+
+    /**
+     * سلوك السيولة المتوازن
+     */
+    private final class BalancedLiquidityBehavior implements BotBehavior {
+        @Override
+        public String getName() {
+            return "BALANCED_LIQUIDITY";
+        }
+
+        @Override
+        public void execute(TradingBot bot) {
+            double currentPrice = priceEngine.getCurrentPrice();
+            double volatility = priceEngine.getVolatility();
+            
+            // توفير سيولة إضافية في أوقات التقلب
+            double baseAmount = 50.0 * (1 + volatility);
+            
+            // أوامر شراء عند انخفاض السعر
+            if (currentPrice < 95.0) {
+                placeBuyOrder(baseAmount * 1.5);
+            }
+            
+            // أوامر بيع عند ارتفاع السعر
+            if (currentPrice > 105.0) {
+                placeSellOrder(baseAmount * 1.5);
+            }
+            
+            // أوامر عادية للحفاظ على العمق
+            placeBuyOrder(baseAmount);
+            placeSellOrder(baseAmount);
+        }
+    }
+}
