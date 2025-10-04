@@ -1,0 +1,18 @@
+package mazdady.admin;
+
+public class CrashViewer {
+    public void viewCrashReports() {
+        // في الإنتاج: جلب تقارير الأعطال من السيرفر
+        System.out.println("عرض تقارير الأعطال...");
+        System.out.println("- تقرير 1: NullPointerException في MainActivity");
+        System.out.println("- تقرير 2: OutOfMemoryError في TradingLineView");
+    }
+
+    public void getCrashDetails(String reportId) {
+        System.out.println("تفاصيل التقرير " + reportId + ": ...");
+    }
+
+    public void resolveCrash(String reportId) {
+        System.out.println("تم وضع علامة 'تم الحل' على التقرير: " + reportId);
+    }
+}
