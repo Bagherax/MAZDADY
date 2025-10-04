@@ -20,26 +20,20 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        // تحميل الإعدادات من السيرفر (يتم مرة واحدة)
         AdminConfig.getInstance().loadFromServer();
 
-        // ربط العناصر من التخطيط
         balanceView = findViewById(R.id.balance_view);
         buyButton = findViewById(R.id.buy_button);
         sellButton = findViewById(R.id.sell_button);
 
-        // تهيئة مدير الـ Popups
         popupManager = new DynamicPopupManager(this);
 
-        // تحميل رصيد المستخدم
         double balance = UserManager.getInstance().getCurrentUser().getBalance();
         balanceView.setText("الرصيد: " + String.format("%.2f", balance) + " MAZDADY");
 
-        // إعداد أحداث النقر
         buyButton.setOnClickListener(v -> showBuyPopup());
         sellButton.setOnClickListener(v -> showSellPopup());
 
-        // عرض تأثير النجوم إذا كان هناك ربح حديث
         if (UserManager.getInstance().getCurrentUser().hasRecentProfit()) {
             StarEffectManager.showStar(this, findViewById(R.id.main_container));
         }
