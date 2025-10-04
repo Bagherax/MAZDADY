@@ -1,0 +1,34 @@
+package mazdady.admin;
+
+public class AdminController {
+    private AdminDashboard dashboard;
+
+    public AdminController() {
+        this.dashboard = AdminDashboard.getInstance();
+    }
+
+    // --- وظائف التحكم التي تُستدعى من واجهة الادمن ---
+    public void enablePaymentTools() {
+        dashboard.toggleFeature("payment_tools", true);
+    }
+
+    public void disablePaymentTools() {
+        dashboard.toggleFeature("payment_tools", false);
+    }
+
+    public void updateBankWithdrawalTax(double rate) {
+        dashboard.setWithdrawalTax("bank_transfer", rate);
+    }
+
+    public void generateRevenueReport() {
+        dashboard.getRevenueAnalyzer().generateRevenueReport();
+    }
+
+    public void setUserLevel(String userId, int level) {
+        dashboard.setUserLevel(userId, level);
+    }
+
+    public void freezeUserAccount(String userId) {
+        dashboard.getUserInspector().freezeUserAccount(userId);
+    }
+}
