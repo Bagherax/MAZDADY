@@ -1,0 +1,63 @@
+package mazdady.arch;
+
+import mazdady.user.UserManager;
+import mazdady.security.SecurityMonitor;
+
+/**
+ * منفذ المنطق التجاري مع التحقق من الصلاحيات والعقود
+ * يستخدم نمط Template Method لفصل الخطوات الأساسية
+ */
+public abstract class BusinessInteractor<T, R> {
+    private final SecurityMonitor securityMonitor;
+    private final ContractValidator validator;
+
+    protected BusinessInteractor() {
+        this.securityMonitor = new SecurityMonitor(UserManager.getInstance(null));
+        this.validator = ContractValidator.getInstance();
+    }
+
+    /**
+     * القالب الأساسي لتنفيذ العملية التجارية
+     */
+    public final R execute(T request) {
+        try {
+            // 1. التحقق من الصلاحيات
+            if (!hasPermission(request)) {
+                securityMonitor.reportSuspiciousActivity("UNAUTHORIZED_ACCESS");
+                throw new SecurityException("الوصول غير مصرح به");
+            }
+
+            // 2. التحقق من صحة المدخلات
+            validator.validate(request);
+
+            // 3. تنفيذ المنطق التجاري
+            return performBusinessLogic(request);
+
+        } catch (IllegalArgumentException e) {
+            throw new BusinessException("بيانات غير صالحة: " + e.getMessage(), e);
+        } catch (SecurityException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new BusinessException("فشل في تنفيذ العملية", e);
+        }
+    }
+
+    /**
+     * التحقق من صلاحيات المستخدم للعملية
+     */
+    protected abstract boolean hasPermission(T request);
+
+    /**
+     * تنفيذ المنطق التجاري المحدد
+     */
+    protected abstract R performBusinessLogic(T request);
+
+    /**
+     * استثناء مخصص للأخطاء التجارية
+     */
+    public static class BusinessException extends RuntimeException {
+        public BusinessException(String message, Throwable cause) {
+            super(message, cause);
+        }
+    }
+}
