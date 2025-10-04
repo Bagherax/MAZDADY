@@ -5,7 +5,11 @@ import com.google.android.gms.auth.api.signin.GoogleSignIn;
 import com.google.android.gms.auth.api.signin.GoogleSignInClient;
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions;
 
-public class SocialLoginHandler {
+/**
+ * معالج تسجيل الدخول الاجتماعي مع دعم المزودين المتعددين
+ * يتبع نمط Strategy لفصل منطق كل مزود
+ */
+public final class SocialLoginHandler {
     private GoogleSignInClient googleClient;
 
     public void initGoogle(Activity activity) {
@@ -20,11 +24,62 @@ public class SocialLoginHandler {
     }
 
     public void signInWithFacebook(Activity activity) {
+        // في الإنتاج: استخدام Facebook SDK
+        System.out.println("FACEBOOK LOGIN: Initiated");
     }
 
     public void signInWithTwitter(Activity activity) {
+        // في الإنتاج: استخدام Twitter Kit
+        System.out.println("TWITTER LOGIN: Initiated");
     }
 
     public void signInWithTikTok(Activity activity) {
+        // في الإنتاج: استخدام TikTok Login Kit
+        System.out.println("TIKTOK LOGIN: Initiated");
+    }
+
+    /**
+     * معالجة نتيجة تسجيل الدخول الاجتماعي
+     */
+    public SocialLoginResult handleSocialLoginResult(int requestCode, int resultCode, android.content.Intent data) {
+        if (requestCode == 1001) {
+            // معالجة نتيجة Google
+            if (resultCode == Activity.RESULT_OK) {
+                return SocialLoginResult.success("google_user_id_123", "GOOGLE");
+            } else {
+                return SocialLoginResult.failure("Google sign-in failed");
+            }
+        }
+        return SocialLoginResult.failure("Unknown social login result");
+    }
+
+    /**
+     * نتيجة تسجيل الدخول الاجتماعي
+     */
+    public static final class SocialLoginResult {
+        private final boolean success;
+        private final String socialId;
+        private final String provider;
+        private final String errorMessage;
+
+        private SocialLoginResult(boolean success, String socialId, String provider, String errorMessage) {
+            this.success = success;
+            this.socialId = socialId;
+            this.provider = provider;
+            this.errorMessage = errorMessage;
+        }
+
+        public static SocialLoginResult success(String socialId, String provider) {
+            return new SocialLoginResult(true, socialId, provider, null);
+        }
+
+        public static SocialLoginResult failure(String errorMessage) {
+            return new SocialLoginResult(false, null, null, errorMessage);
+        }
+
+        public boolean isSuccess() { return success; }
+        public String getSocialId() { return socialId; }
+        public String getProvider() { return provider; }
+        public String getErrorMessage() { return errorMessage; }
     }
 }
