@@ -1,0 +1,50 @@
+<div class="card">
+    <h2>فيديو الافتتاح</h2>
+    
+    <label>رابط الفيديو الحالي:</label>
+    <input type="url" id="currentVideoUrl" value="" readonly>
+    
+    <label>رفع فيديو جديد (MP4):</label>
+    <input type="file" id="videoUpload" accept="video/mp4">
+    
+    <button onclick="uploadVideo()">رفع الفيديو</button>
+    <div id="videoStatus" class="status" style="display:none;"></div>
+</div>
+
+<script>
+async function uploadVideo() {
+    const fileInput = document.getElementById('videoUpload');
+    if (fileInput.files.length === 0) {
+        alert('يرجى اختيار فيديو!');
+        return;
+    }
+
+    const file = fileInput.files[0];
+    if (file.size > 10 * 1024 * 1024) { // 10MB كحد أقصى
+        alert('حجم الفيديو كبير جدًّا! الحد الأقصى: 10MB');
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append('video', file);
+    
+    // رفع إلى Firebase Storage عبر Cloud Function
+    const response = await fetch('/upload-video', {
+        method: 'POST',
+        body: formData
+    });
+    
+    if (response.ok) {
+        const result = await response.json();
+        document.getElementById('currentVideoUrl').value = result.url;
+        updateConfigVideo(result.url);
+        showStatus('✅ تم رفع الفيديو بنجاح!', 'success');
+    } else {
+        showStatus('❌ فشل الرفع', 'error');
+    }
+}
+
+async function updateConfigVideo(url) {
+    // تحديث config.json تلقائيًا
+}
+</script>
