@@ -1,0 +1,42 @@
+package mazdady.wallet;
+
+import java.math.BigInteger;
+import java.security.MessageDigest;
+import java.util.Arrays;
+
+public class CryptoAddressValidator {
+    
+    public static boolean isValidEthereumAddress(String address) {
+        if (address == null || !address.startsWith("0x") || address.length() != 42) {
+            return false;
+        }
+        
+        String addressNoPrefix = address.substring(2).toLowerCase();
+        try {
+            // التحقق من التنسيق البسيط
+            new BigInteger(addressNoPrefix, 16);
+            return true;
+        } catch (NumberFormatException e) {
+            return false;
+        }
+    }
+    
+    public static boolean isValidSolanaAddress(String address) {
+        if (address == null || address.length() != 44) {
+            return false;
+        }
+        // Solana تستخدم Base58 — التحقق الأساسي بالطول
+        return address.matches("^[1-9A-HJ-NP-Za-km-z]+$");
+    }
+    
+    public static boolean isValidBitcoinAddress(String address) {
+        if (address == null) return false;
+        if (address.startsWith("1") || address.startsWith("3")) {
+            return address.length() >= 26 && address.length() <= 35;
+        }
+        if (address.startsWith("bc1")) {
+            return address.length() >= 42 && address.length() <= 62;
+        }
+        return false;
+    }
+}
