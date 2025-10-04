@@ -1,18 +1,78 @@
 package mazdady.admin;
 
-public class CrashViewer {
-    public void viewCrashReports() {
-        // في الإنتاج: جلب تقارير الأعطال من السيرفر
-        System.out.println("عرض تقارير الأعطال...");
-        System.out.println("- تقرير 1: NullPointerException في MainActivity");
-        System.out.println("- تقرير 2: OutOfMemoryError في TradingLineView");
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.Predicate;
+
+/**
+ * عارض الأعطال مع دعم التصفية والتحليل المتقدم
+ * يستخدم هياكل بيانات آمنة متعددة الخيوط
+ */
+public final class CrashViewer {
+    private final List<CrashReport> crashReports = new CopyOnWriteArrayList<>();
+
+    private static final CrashViewer INSTANCE = new CrashViewer();
+
+    private CrashViewer() {}
+
+    public static CrashViewer getInstance() {
+        return INSTANCE;
     }
 
-    public void getCrashDetails(String reportId) {
-        System.out.println("تفاصيل التقرير " + reportId + ": ...");
+    public void addCrashReport(CrashReport report) {
+        crashReports.add(report);
+        System.out.println("CRASH REPORTED: " + report.getExceptionType() + " in " + report.getClassName());
     }
 
-    public void resolveCrash(String reportId) {
-        System.out.println("تم وضع علامة 'تم الحل' على التقرير: " + reportId);
+    public List<CrashReport> findReports(Predicate<CrashReport> filter) {
+        return crashReports.stream()
+            .filter(filter)
+            .toList();
+    }
+
+    public List<CrashReport> getRecentReports(int limit) {
+        return crashReports.stream()
+            .limit(limit)
+            .toList();
+    }
+
+    public void resolveReport(String reportId) {
+        crashReports.stream()
+            .filter(report -> report.getId().equals(reportId))
+            .findFirst()
+            .ifPresent(report -> report.setResolved(true));
+    }
+
+    /**
+     * نموذج تقرير العطل
+     */
+    public static final class CrashReport {
+        private final String id;
+        private final String className;
+        private final String methodName;
+        private final String exceptionType;
+        private final String message;
+        private final long timestamp;
+        private boolean resolved = false;
+
+        public CrashReport(String id, String className, String methodName, 
+                          String exceptionType, String message) {
+            this.id = id;
+            this.className = className;
+            this.methodName = methodName;
+            this.exceptionType = exceptionType;
+            this.message = message;
+            this.timestamp = System.currentTimeMillis();
+        }
+
+        // Getters
+        public String getId() { return id; }
+        public String getClassName() { return className; }
+        public String getMethodName() { return methodName; }
+        public String getExceptionType() { return exceptionType; }
+        public String getMessage() { return message; }
+        public long getTimestamp() { return timestamp; }
+        public boolean isResolved() { return resolved; }
+        public void setResolved(boolean resolved) { this.resolved = resolved; }
     }
 }
