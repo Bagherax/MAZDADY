@@ -1,0 +1,15 @@
+package mazdady.admin;
+
+import mazdady.user.UserManager;
+
+public class LevelOverride {
+    public void overrideUserLevel(String userId, int level) {
+        // في الإنتاج: تحديث المستوى في قاعدة البيانات
+        UserManager.getInstance(null).getCurrentUser().setLevel(level);
+        System.out.println("تم تغيير مستوى المستخدم " + userId + " إلى: " + level);
+    }
+
+    public void resetUserLevel(String userId) {
+        System.out.println("تم إعادة مستوى المستخدم " + userId + " إلى الطبيعي");
+    }
+}
