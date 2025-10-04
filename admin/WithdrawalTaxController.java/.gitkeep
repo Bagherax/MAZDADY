@@ -1,21 +1,42 @@
-{
-  "wallet_crypto": 5,
-  "bank_transfer": 8,
-  "internal_transfer": 1,
-  "mobile_wallet": 6
-}
 package mazdady.admin;
 
-public class WithdrawalTaxController {
-    public void setTaxRate(String method, double rate) {
-        // في الإنتاج: تحديث الضريبة في config.json
-        System.out.println("تم تعيين ضريبة السحب لـ " + method + " إلى: " + rate + "%");
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+
+/**
+ * وحدة التحكم في ضرائب السحب مع دعم التحديث الديناميكي
+ */
+public final class WithdrawalTaxController {
+    private final Map<String, Double> taxRates = new ConcurrentHashMap<>();
+
+    private static final WithdrawalTaxController INSTANCE = new WithdrawalTaxController();
+
+    private WithdrawalTaxController() {
+        initializeDefaultRates();
     }
 
-    public void setTaxRates(java.util.Map<String, Double> rates) {
-        for (String method : rates.keySet()) {
-            setTaxRate(method, rates.get(method));
+    public static WithdrawalTaxController getInstance() {
+        return INSTANCE;
+    }
+
+    private void initializeDefaultRates() {
+        taxRates.put("wallet_crypto", 5.0);
+        taxRates.put("bank_transfer", 8.0);
+        taxRates.put("internal_transfer", 1.0);
+        taxRates.put("mobile_wallet", 6.0);
+    }
+
+    public void setTaxRate(String method, double rate) {
+        if (rate < 0 || rate > 100) {
+            throw new IllegalArgumentException("Tax rate must be between 0 and 100");
         }
+        taxRates.put(method, rate);
+        System.out.println("TAX RATE: " + method + " set to " + rate + "%");
+        ConfigPusher.getInstance().pushConfigUpdateAsync("tax_rates." + method, rate);
+    }
+
+    public void setTaxRates(Map<String, Double> rates) {
+        rates.forEach(this::setTaxRate);
     }
 
     public void disableTaxForMethod(String method) {
@@ -23,6 +44,11 @@ public class WithdrawalTaxController {
     }
 
     public void enableDynamicTax(boolean enabled) {
-        System.out.println("تم " + (enabled ? "تفعيل" : "إيقاف") + " الضريبة الديناميكية");
+        System.out.println("DYNAMIC TAX: " + (enabled ? "Enabled" : "Disabled"));
+        ConfigPusher.getInstance().pushConfigUpdateAsync("dynamic_tax_enabled", enabled);
+    }
+
+    public Map<String, Double> getTaxRates() {
+        return new ConcurrentHashMap<>(taxRates);
     }
 }
