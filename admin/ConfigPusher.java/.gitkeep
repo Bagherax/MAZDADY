@@ -1,16 +1,44 @@
 package mazdady.admin;
 
-public class ConfigPusher {
-    public void pushConfigUpdate(String configKey, Object value) {
-        // في الإنتاج: دفع التحديث إلى server/config.json
-        System.out.println("تم دفع التحديث: " + configKey + " = " + value);
+import mazdady.arch.UseCaseExecutor;
+
+import java.util.concurrent.CompletableFuture;
+import java.util.function.Consumer;
+
+/**
+ * دافع الإعدادات مع دعم التنفيذ غير المتزامن
+ * يتبع نمط Observer لإعلام المكونات بالتغيرات
+ */
+public final class ConfigPusher {
+    private static final ConfigPusher INSTANCE = new ConfigPusher();
+
+    private ConfigPusher() {}
+
+    public static ConfigPusher getInstance() {
+        return INSTANCE;
+    }
+
+    public CompletableFuture<Void> pushConfigUpdateAsync(String configKey, Object value) {
+        return CompletableFuture.runAsync(() -> {
+            // في الإنتاج: دفع التحديث إلى server/config.json عبر API
+            System.out.println("CONFIG PUSHED: " + configKey + " = " + value);
+            broadcastConfigUpdate();
+        });
     }
 
     public void pushUIConfig(String elementId, String property, String value) {
-        System.out.println("تم تحديث واجهة العنصر " + elementId + ": " + property + " = " + value);
+        UseCaseExecutor.getInstance().execute(
+            () -> {
+                // في الإنتاج: تحديث الإعدادات في السيرفر
+                return "UI config updated: " + elementId + "." + property + " = " + value;
+            },
+            result -> System.out.println(result),
+            error -> System.err.println("CONFIG ERROR: " + error.getMessage())
+        );
     }
 
-    public void broadcastConfigUpdate() {
-        System.out.println("تم بث تحديث الإعدادات لجميع المستخدمين");
+    private void broadcastConfigUpdate() {
+        // في الإنتاج: إرسال إشعار لجميع التطبيقات
+        System.out.println("BROADCAST: Config update broadcasted to all clients");
     }
 }
