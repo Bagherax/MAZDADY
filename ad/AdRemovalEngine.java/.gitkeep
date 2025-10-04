@@ -1,8 +1,14 @@
 package mazdady.ad;
 
-public class AdRemovalEngine {
-    private AdMarketplace marketplace;
-    private AdDeliveryEngine deliveryEngine;
+import java.util.function.Predicate;
+
+/**
+ * محرك إزالة الإعلانات مع دعم القواعد الديناميكية
+ * يتبع نمط Strategy لتحديد شروط الإزالة
+ */
+public final class AdRemovalEngine {
+    private final AdMarketplace marketplace;
+    private final AdDeliveryEngine deliveryEngine;
 
     public AdRemovalEngine(AdMarketplace marketplace, AdDeliveryEngine deliveryEngine) {
         this.marketplace = marketplace;
@@ -10,18 +16,22 @@ public class AdRemovalEngine {
     }
 
     public void removeCompletedCampaigns() {
-        // إزالة الحملات المكتملة من السوق
-        AdMarketplace.AdCampaign[] campaigns = marketplace.getAvailableCampaigns().toArray(new AdMarketplace.AdCampaign[0]);
-        for (AdMarketplace.AdCampaign campaign : campaigns) {
-            if (campaign.isCompleted()) {
-                marketplace.removeCampaign(campaign.getCampaignId());
-                System.out.println("تم إزالة الحملة المكتملة: " + campaign.getCampaignId());
-            }
-        }
+        removeCampaignsByRule(camp -> camp.getStatus() == AdCampaign.CampaignStatus.COMPLETED);
+    }
+
+    public void removeExpiredCampaigns() {
+        // في الإنتاج: التحقق من انتهاء المدة
+        removeCampaignsByRule(camp -> false);
+    }
+
+    public void removeCampaignsByRule(Predicate<AdCampaign> removalRule) {
+        marketplace.findCampaigns(removalRule).forEach(camp -> {
+            marketplace.removeCampaign(camp.getId());
+            System.out.println("Removed campaign: " + camp.getId());
+        });
     }
 
     public void forceRemoveCampaign(String campaignId) {
         marketplace.removeCampaign(campaignId);
-        System.out.println("تم إزالة الحملة يدويًا: " + campaignId);
     }
 }
