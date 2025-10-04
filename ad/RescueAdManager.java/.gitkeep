@@ -1,0 +1,19 @@
+package mazdady.ad;
+
+import mazdady.user.UserManager;
+
+public class RescueAdManager {
+    public boolean offerRescueAd() {
+        // عرض إعلان إنقاذ عند خسارة كبيرة
+        if (UserManager.getInstance(null).getCurrentUser().getBalance() < 10) {
+            System.out.println("عرض إعلان إنقاذ: اربح 20 MAZDADY!");
+            return true;
+        }
+        return false;
+    }
+
+    public void activateRescueAd(String userId) {
+        // في الإنتاج: إنشاء حملة إنقاذ تلقائية
+        System.out.println("تم تفعيل إعلان الإنقاذ للمستخدم: " + userId);
+    }
+}
