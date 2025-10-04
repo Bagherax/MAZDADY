@@ -1,0 +1,82 @@
+package mazdady.core;
+
+import android.media.MediaPlayer;
+import android.net.Uri;
+import android.os.Bundle;
+import android.view.View;
+import android.widget.VideoView;
+import androidx.appcompat.app.AppCompatActivity;
+import mazdady.admin.AdminConfig;
+import mazdady.user.UserManager;
+
+public class VideoSplashActivity extends AppCompatActivity {
+    private VideoView videoView;
+    private boolean isVideoPlayed = false;
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_video_splash);
+
+        videoView = findViewById(R.id.splash_video);
+        videoView.setZOrderOnTop(true); // لضمان ظهور الفيديو فوق كل شيء
+
+        // تحميل رابط الفيديو من الإعدادات
+        String videoUrl = AdminConfig.getInstance().getUIConfig().getSplashVideoUrl();
+        
+        if (videoUrl != null && !videoUrl.isEmpty()) {
+            loadAndPlayVideo(videoUrl);
+        } else {
+            // احتياطي: الانتقال الفوري
+            navigateToMain();
+        }
+    }
+
+    private void loadAndPlayVideo(String videoUrl) {
+        try {
+            Uri uri = Uri.parse(videoUrl);
+            videoView.setVideoURI(uri);
+
+            videoView.setOnPreparedListener(mp -> {
+                mp.setLooping(false); // تشغيل مرة واحدة فقط
+                videoView.start();
+            });
+
+            videoView.setOnCompletionListener(mp -> {
+                if (!isVideoPlayed) {
+                    isVideoPlayed = true;
+                    // تجميد الفيديو على آخر إطار
+                    videoView.seekTo(videoView.getDuration());
+                    videoView.pause();
+                    
+                    // الانتقال بعد تأخير قصير
+                    videoView.postDelayed(this::navigateToMain, 1000);
+                }
+            });
+
+            // معالجة الأخطاء
+            videoView.setOnErrorListener((mp, what, extra) -> {
+                navigateToMain(); // الانتقال في حال فشل الفيديو
+                return true;
+            });
+
+        } catch (Exception e) {
+            navigateToMain();
+        }
+    }
+
+    private void navigateToMain() {
+        boolean isNewUser = UserManager.getInstance().isNewUser();
+        if (isNewUser) {
+            startActivity(new Intent(this, MainActivity.class));
+            showSignUpPopup();
+        } else {
+            startActivity(new Intent(this, MainActivity.class));
+        }
+        finish();
+    }
+
+    private void showSignUpPopup() {
+        // سيتم تنفيذه في MainActivity
+    }
+}
