@@ -1,0 +1,33 @@
+package mazdady.ad;
+
+import mazdady.user.UserManager;
+import mazdady.wallet.WalletManager;
+
+public class AdCampaignCreator {
+    public AdCampaign createCampaign(String platform, String contentUrl, 
+                                   String goal, int targetCount, double budget) {
+        // التحقق من صحة المدخلات
+        if (!SocialPromotion.isValidPlatform(platform)) {
+            throw new IllegalArgumentException("منصة غير مدعومة");
+        }
+        if (!SocialPromotion.isValidUrl(contentUrl, platform)) {
+            throw new IllegalArgumentException("رابط غير صالح");
+        }
+        if (budget <= 0 || targetCount <= 0) {
+            throw new IllegalArgumentException("الميزانية والهدف يجب أن يكونا أكبر من الصفر");
+        }
+
+        // التحقق من الرصيد
+        WalletManager wallet = new WalletManager();
+        if (wallet.getBalance() < budget) {
+            throw new IllegalStateException("رصيد غير كافٍ");
+        }
+
+        // خصم الميزانية
+        wallet.withdrawMAZDADY(budget);
+
+        // إنشاء الحملة
+        String userId = UserManager.getInstance(null).getCurrentUser().getUserId();
+        return new AdCampaign(userId, platform, contentUrl, goal, targetCount, budget);
+    }
+}
