@@ -2,19 +2,52 @@ package mazdady.ad;
 
 import mazdady.user.UserManager;
 
-public class SocialBadgeManager {
-    public void awardBadge(String userId, String badgeType) {
-        // في الإنتاج: منح شارة اجتماعية
-        System.out.println("تم منح الشارة '" + badgeType + "' للمستخدم: " + userId);
-        
-        // رفع مستوى المستخدم كمكافأة
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.BiFunction;
+
+/**
+ * مدير الشارات الاجتماعية مع دعم المكافآت الديناميكية
+ * يستخدم Strategy Pattern لتحديد مكافآت كل شارة
+ */
+public final class SocialBadgeManager {
+    private final Map<String, BiFunction<String, AdCampaign, Void>> badgeStrategies = new ConcurrentHashMap<>();
+
+    private SocialBadgeManager() {
+        badgeStrategies.put("premium_advertiser", this::awardPremiumAdvertiser);
+        badgeStrategies.put("viral_creator", this::awardViralCreator);
+    }
+
+    private static class Holder {
+        static final SocialBadgeManager INSTANCE = new SocialBadgeManager();
+    }
+
+    public static SocialBadgeManager getInstance() {
+        return Holder.INSTANCE;
+    }
+
+    public void awardBadge(String userId, String badgeType, AdCampaign campaign) {
+        BiFunction<String, AdCampaign, Void> strategy = badgeStrategies.get(badgeType);
+        if (strategy != null) {
+            strategy.apply(userId, campaign);
+        }
+    }
+
+    private Void awardPremiumAdvertiser(String userId, AdCampaign campaign) {
+        // رفع المستوى كمكافأة
         UserManager.getInstance(null).getCurrentUser().setLevel(
             UserManager.getInstance(null).getCurrentUser().getLevel() + 1
         );
+        System.out.println("Awarded PREMIUM_ADVERTISER badge to: " + userId);
+        return null;
     }
 
-    public boolean checkBadgeEligibility(String userId, String campaignType) {
-        // في الإنتاج: التحقق من الأهلية
-        return true;
+    private Void awardViralCreator(String userId, AdCampaign campaign) {
+        // منح رصيد إضافي
+        UserManager.getInstance(null).getCurrentUser().setBalance(
+            UserManager.getInstance(null).getCurrentUser().getBalance() + 20.0
+        );
+        System.out.println("Awarded VIRAL_CREATOR badge to: " + userId);
+        return null;
     }
 }
