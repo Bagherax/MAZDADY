@@ -1,0 +1,34 @@
+package mazdady.team;
+
+import mazdady.trading.PriceEngine;
+import mazdady.user.User;
+import java.util.List;
+
+public class TeamManager {
+    private BuyingTeam buyingTeam;
+    private SellingTeam sellingTeam;
+    private PriceEngine priceEngine;
+
+    public TeamManager(PriceEngine priceEngine) {
+        this.priceEngine = priceEngine;
+        this.buyingTeam = new BuyingTeam(priceEngine);
+        this.sellingTeam = new SellingTeam(priceEngine);
+    }
+
+    public void executeMatch(List<User> realUsers) {
+        // تشغيل الفريقين في نفس الوقت
+        buyingTeam.executeTrades(realUsers);
+        sellingTeam.executeTrades(realUsers);
+        
+        // توزيع الأرباح بعد كل جولة
+        distributeProfits();
+    }
+
+    private void distributeProfits() {
+        double totalProfit = priceEngine.getSystemTreasury();
+        if (totalProfit > 0) {
+            // 70% للفريق الفائز، 30% للخزينة
+            priceEngine.resetSystemTreasury();
+        }
+    }
+}
