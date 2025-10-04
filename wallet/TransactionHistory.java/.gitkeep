@@ -1,0 +1,52 @@
+package mazdady.wallet;
+
+import java.util.ArrayList;
+import java.util.List;
+
+public class TransactionHistory {
+    private List<Transaction> transactions = new ArrayList<>();
+
+    public void addTransaction(Transaction transaction) {
+        transactions.add(transaction);
+    }
+
+    public List<Transaction> getTransactions() {
+        return new ArrayList<>(transactions);
+    }
+
+    public List<Transaction> getWithdrawals() {
+        List<Transaction> withdrawals = new ArrayList<>();
+        for (Transaction t : transactions) {
+            if ("WITHDRAWAL".equals(t.getType())) {
+                withdrawals.add(t);
+            }
+        }
+        return withdrawals;
+    }
+
+    public static class Transaction {
+        private String id;
+        private String type; // "DEPOSIT", "WITHDRAWAL", "TRADE"
+        private double amount;
+        private String status; // "PENDING", "COMPLETED", "FAILED"
+        private long timestamp;
+        private String details;
+
+        public Transaction(String id, String type, double amount, String status, String details) {
+            this.id = id;
+            this.type = type;
+            this.amount = amount;
+            this.status = status;
+            this.details = details;
+            this.timestamp = System.currentTimeMillis();
+        }
+
+        // Getters
+        public String getId() { return id; }
+        public String getType() { return type; }
+        public double getAmount() { return amount; }
+        public String getStatus() { return status; }
+        public long getTimestamp() { return timestamp; }
+        public String getDetails() { return details; }
+    }
+}
