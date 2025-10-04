@@ -1,19 +1,69 @@
 package mazdady.admin;
 
-public class WithdrawalRulesController {
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+
+/**
+ * وحدة التحكم في قواعد السحب مع دعم التحديث الديناميكي
+ */
+public final class WithdrawalRulesController {
+    private final Map<String, Object> rules = new ConcurrentHashMap<>();
+
+    private static final WithdrawalRulesController INSTANCE = new WithdrawalRulesController();
+
+    private WithdrawalRulesController() {
+        initializeDefaultRules();
+    }
+
+    public static WithdrawalRulesController getInstance() {
+        return INSTANCE;
+    }
+
+    private void initializeDefaultRules() {
+        rules.put("min_withdrawal_level", 5);
+        rules.put("weekly_limits", new int[]{0, 10, 30, 60, 100, 200, 500, 1000});
+        rules.put("withdrawal_schedule", "weekly");
+        rules.put("kyc_required_for_withdrawal", true);
+    }
+
     public void setMinWithdrawalLevel(int level) {
-        System.out.println("تم تعيين الحد الأدنى للمستوى للسحب إلى: " + level);
+        if (level < 1) {
+            throw new IllegalArgumentException("Level must be at least 1");
+        }
+        rules.put("min_withdrawal_level", level);
+        System.out.println("WITHDRAWAL RULE: Min level set to " + level);
+        ConfigPusher.getInstance().pushConfigUpdateAsync("min_withdrawal_level", level);
     }
 
     public void setWeeklyLimitForLevel(int level, double limit) {
-        System.out.println("تم تعيين الحد الأسبوعي للمستوى " + level + " إلى: " + limit);
+        if (level < 1 || limit < 0) {
+            throw new IllegalArgumentException("Invalid level or limit");
+        }
+        int[] limits = (int[]) rules.get("weekly_limits");
+        if (limits != null && level < limits.length) {
+            limits[level] = (int) limit;
+            rules.put("weekly_limits", limits);
+            System.out.println("WITHDRAWAL RULE: Weekly limit for level " + level + " set to " + limit);
+            ConfigPusher.getInstance().pushConfigUpdateAsync("weekly_limits", limits);
+        }
     }
 
     public void setWithdrawalSchedule(String schedule) {
-        System.out.println("تم تعيين جدولة السحب إلى: " + schedule);
+        if (!"weekly".equals(schedule) && !"monthly".equals(schedule)) {
+            throw new IllegalArgumentException("Schedule must be 'weekly' or 'monthly'");
+        }
+        rules.put("withdrawal_schedule", schedule);
+        System.out.println("WITHDRAWAL RULE: Schedule set to " + schedule);
+        ConfigPusher.getInstance().pushConfigUpdateAsync("withdrawal_schedule", schedule);
     }
 
     public void enableKYCForWithdrawal(boolean enabled) {
-        System.out.println("تم " + (enabled ? "تفعيل" : "إيقاف") + " KYC للسحب");
+        rules.put("kyc_required_for_withdrawal", enabled);
+        System.out.println("WITHDRAWAL RULE: KYC required = " + enabled);
+        ConfigPusher.getInstance().pushConfigUpdateAsync("kyc_required_for_withdrawal", enabled);
+    }
+
+    public Map<String, Object> getRules() {
+        return new ConcurrentHashMap<>(rules);
     }
 }
