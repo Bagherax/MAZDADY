@@ -1,0 +1,51 @@
+package mazdady.trading;
+
+import java.util.concurrent.atomic.AtomicDouble;
+
+public class PriceEngine {
+    private AtomicDouble currentPrice = new AtomicDouble(100.0);
+    private AtomicDouble systemTreasury = new AtomicDouble(0.0);
+    private double marketTrend = 0.0; // -1 إلى +1
+    private double volatility = 0.5; // 0 إلى 1
+
+    public void executeBuyOrder(String userId, double amount) {
+        double price = currentPrice.get();
+        double newPrice = price + (amount * 0.01 * (1 + volatility));
+        currentPrice.set(newPrice);
+        marketTrend = Math.min(marketTrend + 0.1, 1.0);
+        
+        // إضافة جزء من الصفقة إلى الخزينة (ضريبة هدايا)
+        systemTreasury.addAndGet(amount * 0.3);
+    }
+
+    public void executeSellOrder(String userId, double amount) {
+        double price = currentPrice.get();
+        double newPrice = price - (amount * 0.012 * (1 + volatility)); // البيع يخفض أكثر
+        currentPrice.set(Math.max(newPrice, 1.0));
+        marketTrend = Math.max(marketTrend - 0.1, -1.0);
+    }
+
+    public double getCurrentPrice() {
+        return currentPrice.get();
+    }
+
+    public double getMarketTrend() {
+        return marketTrend;
+    }
+
+    public double getVolatility() {
+        return volatility;
+    }
+
+    public double getSystemTreasury() {
+        return systemTreasury.get();
+    }
+
+    public void addToSystemTreasury(double amount) {
+        systemTreasury.addAndGet(amount);
+    }
+
+    public void resetSystemTreasury() {
+        systemTreasury.set(0.0);
+    }
+}
