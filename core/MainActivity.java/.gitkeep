@@ -101,3 +101,14 @@ private void showSignUpPopup() {
                     "ابدأ رحلتك المالية الذكية الآن!";
     popupManager.showScrollablePopup("مرحبًا بك!", content);
 }
+@Override
+protected void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
+    setContentView(R.layout.activity_main);
+
+    // ... (الكود السابق)
+
+    // تطبيق التخطيط الديناميكي بعد تحميل الإعدادات
+    AdminConfig.getInstance().loadFromServer();
+    new DynamicLayoutManager((ViewGroup) findViewById(android.R.id.content)).applyLayout();
+}
