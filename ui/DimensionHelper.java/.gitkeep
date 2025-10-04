@@ -1,0 +1,28 @@
+package mazdady.ui;
+
+import android.app.AlertDialog;
+import android.content.Context;
+
+public class DimensionHelper {
+    public static void showDimensionsFor(Context context, String elementName) {
+        String dimensions = getDimensions(elementName);
+        new AlertDialog.Builder(context)
+            .setTitle("أبعاد " + elementName)
+            .setMessage(dimensions)
+            .setPositiveButton("فهمت", null)
+            .show();
+    }
+
+    private static String getDimensions(String element) {
+        switch (element) {
+            case "main_background":
+                return "العرض: 100% من الشاشة\nالارتفاع: 100% من الشاشة\nالحجم الموصى به: 1080x1920 بكسل";
+            case "buy_button_background":
+                return "العرض: 160dp\nالارتفاع: 50dp\nالحجم الموصى به: 480x150 بكسل";
+            case "popup_background":
+                return "العرض: 95% من الشاشة\nالارتفاع: 80% من الشاشة\nالحجم الموصى به: 1026x1536 بكسل";
+            default:
+                return "الأبعاد غير متوفرة";
+        }
+    }
+}
