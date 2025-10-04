@@ -96,6 +96,38 @@
             document.getElementById('status').innerText = '✅ تم الحفظ! (في الإنتاج: سيتم تحديث config.json تلقائيًا)';
             document.getElementById('status').style.display = 'block';
         }
+        
+        <!-- أضف هذا داخل قسم "خلفيات مخصصة" -->
+<div class="card">
+    <h3>رفع صورة مخصصة</h3>
+    <label>اختر العنصر:</label>
+    <select id="elementSelect">
+        <option value="main_background">الواجهة الرئيسية</option>
+        <option value="buy_button_background">زر الشراء</option>
+        <option value="sell_button_background">زر البيع</option>
+        <option value="popup_background">خلفية الـ Popup</option>
+    </select>
+    
+    <label>اختر الصورة من معرضك:</label>
+    <input type="file" id="imageUpload" accept="image/*">
+    
+    <button onclick="handleUpload()">رفع الصورة</button>
+</div>
+
+<script>
+function handleUpload() {
+    const fileInput = document.getElementById('imageUpload');
+    const element = document.getElementById('elementSelect').value;
+    
+    if (fileInput.files.length === 0) {
+        alert('يرجى اختيار صورة!');
+        return;
+    }
+    
+    const file = fileInput.files[0];
+    uploadImage(file, element); // من upload.js
+}
+</script>
     </script>
 </body>
 </html>
