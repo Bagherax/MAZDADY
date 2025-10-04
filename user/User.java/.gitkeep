@@ -1,0 +1,15 @@
+package mazdady.user;
+
+public class User {
+    private String userId;
+    private int level = 1;
+    private double balance = 0.0;
+    private Subscription subscription;
+    private KYCStatus kycStatus;
+    private long registrationDate;
+
+    // Getters و Setters
+    public boolean isKYCVerified() {
+        return kycStatus != null && kycStatus.isVerified();
+    }
+}
