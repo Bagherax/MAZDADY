@@ -1,35 +1,24 @@
 package mazdady.ad;
 
-public class SocialPromotion {
-    public static boolean isValidPlatform(String platform) {
-        return "youtube".equals(platform) || 
-               "tiktok".equals(platform) || 
-               "instagram".equals(platform) ||
-               "twitter".equals(platform);
+/**
+ * ترويج اجتماعي مع دعم التكامل الديناميكي
+ * يوفر واجهة موحدة لمنصات التواصل المختلفة
+ */
+public final class SocialPromotion {
+    public static boolean isValidPlatform(AdCampaign.Platform platform) {
+        return platform != null;
     }
 
-    public static boolean isValidUrl(String url, String platform) {
-        switch (platform.toLowerCase()) {
-            case "youtube":
-                return url.contains("youtube.com/watch") || url.contains("youtu.be/");
-            case "tiktok":
-                return url.contains("tiktok.com/");
-            case "instagram":
-                return url.contains("instagram.com/");
-            case "twitter":
-                return url.contains("twitter.com/") || url.contains("x.com/");
-            default:
-                return false;
-        }
+    public static boolean isValidUrl(String url, AdCampaign.Platform platform) {
+        return platform.isValidUrl(url);
     }
 
-    public static String getGoalLabel(String goal) {
-        switch (goal) {
-            case "views": return "مشاهدات";
-            case "likes": return "إعجابات";
-            case "comments": return "تعليقات";
-            case "subscribers": return "متابعين";
-            default: return goal;
-        }
+    public static String getGoalLabel(AdCampaign.Goal goal) {
+        return switch (goal) {
+            case VIEWS -> "مشاهدات";
+            case LIKES -> "إعجابات";
+            case COMMENTS -> "تعليقات";
+            case SUBSCRIBERS -> "متابعين";
+        };
     }
 }
