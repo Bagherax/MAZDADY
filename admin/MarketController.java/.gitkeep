@@ -1,0 +1,24 @@
+package mazdady.admin;
+
+import mazdady.trading.PriceEngine;
+
+public class MarketController {
+    private PriceEngine priceEngine;
+
+    public MarketController() {
+        this.priceEngine = new PriceEngine();
+    }
+
+    public void adjustMarketVolatility(double newVolatility) {
+        // في الإنتاج: تعديل تقلبات السوق
+        System.out.println("تم تعيين تقلبات السوق إلى: " + newVolatility);
+    }
+
+    public void injectLiquidity(double amount) {
+        System.out.println("تم ضخ سيولة بقيمة: " + amount + " MAZDADY");
+    }
+
+    public void stabilizeMarket() {
+        System.out.println("تم تفعيل استقرار السوق");
+    }
+}
