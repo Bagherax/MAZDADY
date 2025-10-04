@@ -1,0 +1,15 @@
+package mazdady.admin;
+
+public class WithdrawalMethodManager {
+    public void addWithdrawalMethod(String methodId, String displayName) {
+        System.out.println("تم إضافة طريقة سحب جديدة: " + methodId + " (" + displayName + ")");
+    }
+
+    public void removeWithdrawalMethod(String methodId) {
+        System.out.println("تم إزالة طريقة السحب: " + methodId);
+    }
+
+    public void updateWithdrawalMethod(String methodId, String newDisplayName) {
+        System.out.println("تم تحديث طريقة السحب: " + methodId + " → " + newDisplayName);
+    }
+}
