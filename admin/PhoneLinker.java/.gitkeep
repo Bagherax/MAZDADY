@@ -1,17 +1,34 @@
 package mazdady.admin;
 
-public class PhoneLinker {
+/**
+ * مدير ربط أرقام الهواتف مع دعم التحقق
+ */
+public final class PhoneLinker {
+    private static final PhoneLinker INSTANCE = new PhoneLinker();
+
+    private PhoneLinker() {}
+
+    public static PhoneLinker getInstance() {
+        return INSTANCE;
+    }
+
     public void linkPhoneNumberToUser(String userId, String phoneNumber) {
-        // في الإنتاج: ربط الرقم بحساب المستخدم
-        System.out.println("تم ربط الرقم " + phoneNumber + " بالمستخدم: " + userId);
+        if (!isValidPhoneNumber(phoneNumber)) {
+            throw new IllegalArgumentException("Invalid phone number format");
+        }
+        System.out.println("PHONE LINKED: " + phoneNumber + " linked to user " + userId);
     }
 
     public void unlinkPhoneNumber(String userId) {
-        System.out.println("تم فصل الرقم عن المستخدم: " + userId);
+        System.out.println("PHONE UNLINKED: Phone number unlinked from user " + userId);
     }
 
     public boolean isPhoneLinked(String phoneNumber) {
-        // في الإنتاج: التحقق من ربط الرقم
+        // في الإنتاج: التحقق من قاعدة البيانات
         return true;
+    }
+
+    private boolean isValidPhoneNumber(String phoneNumber) {
+        return phoneNumber.matches("^\\+?[1-9]\\d{1,14}$");
     }
 }
