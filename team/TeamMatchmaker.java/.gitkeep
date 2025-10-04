@@ -1,0 +1,19 @@
+package mazdady.team;
+
+import mazdady.admin.AdminConfig;
+import mazdady.user.User;
+import java.util.List;
+
+public class TeamMatchmaker {
+    public boolean shouldActivateTeams(List<User> activeUsers) {
+        int minUsers = AdminConfig.getInstance().getTeamsMinUsers();
+        return activeUsers.size() >= minUsers;
+    }
+
+    public void startMatchIfReady(List<User> activeUsers) {
+        if (shouldActivateTeams(activeUsers)) {
+            TeamManager teamManager = new TeamManager(/* priceEngine */);
+            teamManager.executeMatch(activeUsers);
+        }
+    }
+}
