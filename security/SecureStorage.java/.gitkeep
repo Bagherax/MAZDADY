@@ -46,7 +46,6 @@ public class SecureStorage {
         byte[] iv = cipher.getIV();
         byte[] ciphertext = cipher.doFinal(plaintext.getBytes());
 
-        // دمج IV مع النص المشفر (IV لا يحتاج تشفير)
         byte[] result = new byte[iv.length + ciphertext.length];
         System.arraycopy(iv, 0, result, 0, iv.length);
         System.arraycopy(ciphertext, 0, result, iv.length, ciphertext.length);
