@@ -176,3 +176,6 @@ String translated = translator.translateToArabic("Hello, how are you?");
 // ترجمة من العربية إلى لغة المستخدم
 String userLangText = translator.translateToUserLanguage("مرحبا بك في MAZDADY!");
 }
+onCreate
+dev.UnitTests.runAllTests();
+}
