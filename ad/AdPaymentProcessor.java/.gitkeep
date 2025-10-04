@@ -1,0 +1,18 @@
+package mazdady.ad;
+
+import mazdady.wallet.WalletManager;
+
+public class AdPaymentProcessor {
+    public boolean processPayment(double amount, String paymentMethod) {
+        // في الإنتاج: دعم طرق دفع متعددة
+        if ("mazdady_wallet".equals(paymentMethod)) {
+            WalletManager wallet = new WalletManager();
+            return wallet.getBalance() >= amount && wallet.withdrawMAZDADY(amount);
+        }
+        throw new UnsupportedOperationException("طريقة الدفع غير مدعومة");
+    }
+
+    public double calculateTotalCost(AdCampaign campaign) {
+        return campaign.getBudget();
+    }
+}
