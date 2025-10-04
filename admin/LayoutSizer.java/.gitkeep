@@ -1,0 +1,13 @@
+package mazdady.admin;
+
+public class LayoutSizer {
+    public void setElementSize(String elementId, float widthRatio, float heightRatio) {
+        // في الإنتاج: تحديث الإعدادات في config.json
+        System.out.println("تم تعيين حجم العنصر " + elementId + 
+                          ": العرض = " + widthRatio + ", الارتفاع = " + heightRatio);
+    }
+
+    public void resetToDefaultSize(String elementId) {
+        System.out.println("تم إعادة حجم العنصر " + elementId + " إلى الافتراضي");
+    }
+}
