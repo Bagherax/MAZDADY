@@ -1,69 +1,16 @@
-<!DOCTYPE html>
-<html lang="ar" dir="rtl">
-<head>
-    <meta charset="UTF-8">
-    <title>لوحة تحكم MAZDADY</title>
-    <style>
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #0f0f1b; color: #fff; padding: 20px; }
-        .container { max-width: 800px; margin: 0 auto; }
-        h1 { color: #4CAF50; text-align: center; }
-        .card { background: #1a1a2e; padding: 20px; margin: 15px 0; border-radius: 10px; }
-        label { display: block; margin: 10px 0 5px; }
-        input, select { width: 100%; padding: 10px; margin-bottom: 10px; background: #252540; border: 1px solid #4CAF50; color: white; border-radius: 5px; }
-        button { background: #4CAF50; color: white; border: none; padding: 12px 20px; width: 100%; font-size: 16px; border-radius: 5px; cursor: pointer; }
-        button:hover { background: #45a049; }
-        .status { text-align: center; margin-top: 20px; padding: 10px; border-radius: 5px; }
-        .success { background: #2e7d32; }
-        .error { background: #c62828; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>لوحة تحكم MAZDADY</h1>
-        
-        <div class="card">
-            <h2>إعدادات السحب</h2>
-            <label>الحد الأدنى للمستوى:</label>
-            <input type="number" id="minLevel" value="5">
-            
-            <label>الجدولة:</label>
-            <select id="schedule">
-                <option value="weekly">أسبوعي</option>
-                <option value="monthly">شهري</option>
-            </select>
-        </div>
-
-        <div class="card">
-            <h2>ضرائب السحب</h2>
-            <label>محفظة رقمية (%):</label>
-            <input type="number" id="taxWallet" value="5" step="0.1">
-            
-            <label>تحويل بنكي (%):</label>
-            <input type="number" id="taxBank" value="8" step="0.1">
-        </div>
-
-        <button onclick="saveConfig()">حفظ الإعدادات</button>
-        <div id="status" class="status" style="display:none;"></div>
-    </div>
-
-    <script>
-        async function saveConfig() {
-            const config = {
-                min_withdrawal_level: parseInt(document.getElementById('minLevel').value),
-                withdrawal_schedule: document.getElementById('schedule').value,
-                tax_rates: {
-                    wallet_crypto: parseFloat(document.getElementById('taxWallet').value),
-                    bank_transfer: parseFloat(document.getElementById('taxBank').value)
-                },
-                last_updated: new Date().toISOString()
-            };
-
-            // هنا ستُفعّل GitHub Action (في الإنتاج)
-            // لكننا نُظهر رسالة تأكيد مؤقتة
-            document.getElementById('status').className = 'status success';
-            document.getElementById('status').innerText = '✅ تم الحفظ! (في الإنتاج: سيتم تحديث config.json تلقائيًا)';
-            document.getElementById('status').style.display = 'block';
-        }
-    </script>
-</body>
-</html>
+<!-- أضف هذا القسم داخل <div class="container"> -->
+<div class="card">
+    <h2>تصميم الواجهة</h2>
+    
+    <label>لون خلفية الـ Popup:</label>
+    <input type="color" id="popupBg" value="#1a1a2e">
+    
+    <label>لون عنوان الـ Popup:</label>
+    <input type="color" id="popupTitleColor" value="#4CAF50">
+    
+    <label>حجم عنوان الـ Popup (pt):</label>
+    <input type="number" id="popupTitleSize" value="20" min="10" max="30">
+    
+    <label>عرض الـ Popup (% من الشاشة):</label>
+    <input type="number" id="popupWidth" value="95" min="50" max="100">
+</div>
