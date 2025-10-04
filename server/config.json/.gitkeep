@@ -1,9 +1,23 @@
 {
   "min_withdrawal_level": 5,
+  "weekly_limits": [0, 10, 30, 60, 100, 200, 500, 1000],
+  "withdrawal_schedule": "weekly",
   "tax_rates": {
-    "wallet_crypto": 5
+    "wallet_crypto": 5,
+    "bank_transfer": 8,
+    "internal_transfer": 1,
+    "mobile_wallet": 6
   },
+  "gift_tax_rate": 30,
+  "team_loss_penalty": 10,
+  "price_change": "+2.34",
+  
   "ui": {
+    "main_background_color": "#0f0f1b",
+    "top_bar_color": "#1a1a2e",
+    "buy_button_color": "#4CAF50",
+    "sell_button_color": "#F44336",
+    "text_color": "#ffffff",
     "popup_bg": "#1a1a2e",
     "popup_title_color": "#4CAF50",
     "popup_content_color": "#ffffff",
@@ -14,5 +28,24 @@
     "popup_width_ratio": 0.95,
     "popup_height_ratio": 0.8
   },
+  
+  "trading": {
+    "min_trade_amount": 1,
+    "max_trade_amount": 10000,
+    "auto_refresh_interval": 5000,
+    "show_stars_on_profit": true
+  },
+  
+  "kyc": {
+    "required_for_withdrawal": true,
+    "allowed_document_types": ["national_id", "passport", "driver_license"]
+  },
+  
+  "teams": {
+    "buy_team_active": true,
+    "sell_team_active": true,
+    "min_users_for_match": 2
+  },
+  
   "last_updated": "2025-04-05T12:00:00Z"
 }
