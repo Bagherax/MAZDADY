@@ -1,19 +1,44 @@
 package mazdady.admin;
 
-public class TradingLineCustomizer {
+/**
+ * مخصص خط التداول مع دعم التأثيرات البصرية
+ */
+public final class TradingLineCustomizer {
+    private static final TradingLineCustomizer INSTANCE = new TradingLineCustomizer();
+
+    private TradingLineCustomizer() {}
+
+    public static TradingLineCustomizer getInstance() {
+        return INSTANCE;
+    }
+
     public void setLineColor(String color) {
-        System.out.println("تم تعيين لون خط التداول إلى: " + color);
+        if (!isValidColor(color)) {
+            throw new IllegalArgumentException("Invalid color format");
+        }
+        System.out.println("TRADING LINE COLOR: Set to " + color);
+        ConfigPusher.getInstance().pushUIConfig("trading_line", "color", color);
     }
 
     public void setLineWidth(int width) {
-        System.out.println("تم تعيين عرض خط التداول إلى: " + width + " بكسل");
+        if (width <= 0 || width > 10) {
+            throw new IllegalArgumentException("Width must be between 1 and 10");
+        }
+        System.out.println("TRADING LINE WIDTH: Set to " + width + "px");
+        ConfigPusher.getInstance().pushUIConfig("trading_line", "width", String.valueOf(width));
     }
 
     public void enableStarEffects(boolean enabled) {
-        System.out.println("تم " + (enabled ? "تفعيل" : "إيقاف") + " تأثيرات النجوم");
+        System.out.println("STAR EFFECTS: " + (enabled ? "Enabled" : "Disabled"));
+        ConfigPusher.getInstance().pushUIConfig("trading_line", "star_effects", String.valueOf(enabled));
     }
 
     public void customizeUserAvatars(boolean enabled) {
-        System.out.println("تم " + (enabled ? "تفعيل" : "إيقاف") + " صور المستخدمين على الخط");
+        System.out.println("USER AVATARS: " + (enabled ? "Enabled" : "Disabled"));
+        ConfigPusher.getInstance().pushUIConfig("trading_line", "user_avatars", String.valueOf(enabled));
+    }
+
+    private boolean isValidColor(String color) {
+        return color.matches("^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$");
     }
 }
