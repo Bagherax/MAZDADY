@@ -1,0 +1,33 @@
+package mazdady.ui;
+
+import android.animation.ObjectAnimator;
+import android.view.View;
+import android.widget.ImageView;
+import android.widget.RelativeLayout;
+
+public class StarEffectManager {
+    public static void showStar(String avatarUrl, View parentView) {
+        ImageView star = new ImageView(parentView.getContext());
+        star.setImageResource(R.drawable.ic_star); // أيقونة نجمة
+        star.setColorFilter(android.graphics.Color.YELLOW);
+        star.setAlpha(0f);
+
+        RelativeLayout.LayoutParams params = new RelativeLayout.LayoutParams(
+            80, 80
+        );
+        params.addRule(RelativeLayout.ALIGN_PARENT_TOP);
+        params.addRule(RelativeLayout.ALIGN_PARENT_END);
+        star.setLayoutParams(params);
+
+        ((ViewGroup) parentView).addView(star);
+
+        ObjectAnimator fadeIn = ObjectAnimator.ofFloat(star, "alpha", 0f, 1f);
+        ObjectAnimator fadeOut = ObjectAnimator.ofFloat(star, "alpha", 1f, 0f);
+        fadeIn.setDuration(500);
+        fadeOut.setDuration(500);
+        fadeOut.setStartDelay(1000);
+
+        fadeIn.start();
+        fadeOut.start();
+    }
+}
