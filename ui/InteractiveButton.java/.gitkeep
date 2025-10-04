@@ -1,0 +1,70 @@
+package mazdady.ui;
+
+import android.content.Context;
+import android.graphics.drawable.GradientDrawable;
+import android.util.AttributeSet;
+import android.view.MotionEvent;
+import android.widget.Button;
+import mazdady.admin.AdminConfig;
+
+public class InteractiveButton extends Button {
+    private float originalScaleX, originalScaleY;
+    private int pressColor;
+    private boolean isGlowEnabled;
+
+    public InteractiveButton(Context context, AttributeSet attrs) {
+        super(context, attrs);
+        init();
+    }
+
+    private void init() {
+        AdminConfig.UIConfig.ButtonConfig config = 
+            AdminConfig.getInstance().getUIConfig().getButtonConfig("default");
+        
+        // تحميل لون الضغط من لوحة التحكم
+        pressColor = android.graphics.Color.parseColor(config.getPressColor());
+        isGlowEnabled = config.isGlowEffectEnabled();
+        
+        // حفظ الحجم الأصلي
+        originalScaleX = getScaleX();
+        originalScaleY = getScaleY();
+    }
+
+    @Override
+    public boolean onTouchEvent(MotionEvent event) {
+        switch (event.getAction()) {
+            case MotionEvent.ACTION_DOWN:
+                // تأثير الضغط: تصغير + تغيير لون
+                animate().scaleX(0.95f).scaleY(0.95f).setDuration(100);
+                setPressed(true);
+                break;
+                
+            case MotionEvent.ACTION_UP:
+            case MotionEvent.ACTION_CANCEL:
+                // العودة للحجم الأصلي
+                animate().scaleX(originalScaleX).scaleY(originalScaleY).setDuration(100);
+                setPressed(false);
+                
+                // إذا كان تأثير اللمعان مفعلًا
+                if (isGlowEnabled) {
+                    showGlowEffect();
+                }
+                break;
+        }
+        return super.onTouchEvent(event);
+    }
+
+    private void showGlowEffect() {
+        GradientDrawable glow = new GradientDrawable();
+        glow.setColor(0x33FFFFFF); // أبيض شفاف
+        glow.setCornerRadius(getHeight() / 2f);
+        glow.setStroke(8, 0xFFFFFFFF); // حد أبيض
+        
+        setBackground(glow);
+        
+        // إزالة التأثير بعد 300ms
+        postDelayed(() -> {
+            setBackground(getBackground()); // العودة للخلفية الأصلية
+        }, 300);
+    }
+}
