@@ -17,12 +17,10 @@ public class PriceTickerView {
         String formattedChange = String.format("%.2f", Math.abs(change));
         String display = symbol + " " + formattedChange + "%";
 
-        // تغيير اللون ديناميكيًا
         int color = change >= 0 ? Color.parseColor("#4CAF50") : Color.parseColor("#F44336");
         priceView.setTextColor(color);
         priceView.setText(display);
 
-        // تأثير اهتزاز خفيف عند التغيير الكبير
         if (Math.abs(change) > 5.0) {
             animatePulse();
         }
@@ -31,7 +29,6 @@ public class PriceTickerView {
     }
 
     private void animatePulse() {
-        // تأثير بصري بسيط (يمكن تحسينه لاحقًا)
         priceView.animate().scaleX(1.1f).scaleY(1.1f).setDuration(100)
                 .withEndAction(() -> priceView.animate().scaleX(1.0f).scaleY(1.0f).setDuration(100));
     }
