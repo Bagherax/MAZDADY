@@ -1,0 +1,21 @@
+package mazdady.admin;
+
+import mazdady.user.UserManager;
+
+public class AccountFreezer {
+    public void freezeAccount(String userId) {
+        // في الإنتاج: تجميد الحساب في قاعدة البيانات
+        System.out.println("تم تجميد الحساب: " + userId);
+        // مثال: تحديث حالة المستخدم
+        UserManager.getInstance(null).getCurrentUser().setLevel(0);
+    }
+
+    public void unfreezeAccount(String userId) {
+        System.out.println("تم إلغاء تجميد الحساب: " + userId);
+    }
+
+    public boolean isAccountFrozen(String userId) {
+        // في الإنتاج: التحقق من حالة الحساب
+        return false;
+    }
+}
