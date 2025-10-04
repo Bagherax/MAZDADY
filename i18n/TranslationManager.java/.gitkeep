@@ -1,0 +1,53 @@
+package mazdady.i18n;
+
+import android.content.Context;
+import mazdady.security.EncryptedSharedPreferences;
+
+public class TranslationManager {
+    private Context context;
+    private RealTimeTranslator translator;
+    private EncryptedSharedPreferences prefs;
+
+    public TranslationManager(Context context) {
+        this.context = context;
+        this.translator = RealTimeTranslator.getInstance();
+        this.prefs = new EncryptedSharedPreferences(context);
+    }
+
+    public String getString(String key) {
+        // في الإنتاج: تحميل من ملفات الموارد
+        String defaultText = getDefaultText(key);
+        return translator.translateToUserLanguage(defaultText);
+    }
+
+    public String getString(String key, String... args) {
+        String text = getString(key);
+        for (int i = 0; i < args.length; i++) {
+            text = text.replace("{" + i + "}", args[i]);
+        }
+        return text;
+    }
+
+    private String getDefaultText(String key) {
+        switch (key) {
+            case "balance_label": return "الرصيد: {0} MAZDADY";
+            case "buy_button": return "شراء";
+            case "sell_button": return "بيع";
+            case "withdraw_button": return "سحب الأرباح";
+            case "ad_campaign_title": return "إنشاء حملة إعلانية";
+            case "support_chat": return "دردشة مباشرة";
+            case "kyc_verify": return "توثيق الهوية";
+            case "level_up": return "ترقية المستوى";
+            default: return key;
+        }
+    }
+
+    public void changeLanguage(String languageCode) {
+        translator.setUserLanguage(languageCode);
+        prefs.putString("user_language", languageCode);
+    }
+
+    public String getCurrentLanguage() {
+        return prefs.getString("user_language", translator.getUserLanguage());
+    }
+}
