@@ -1,0 +1,16 @@
+package mazdady.admin;
+
+public class UIHider {
+    public void hideElement(String elementId) {
+        // في الإنتاج: تحديث الإعدادات في config.json
+        System.out.println("تم إخفاء العنصر: " + elementId);
+    }
+
+    public void showElement(String elementId) {
+        System.out.println("تم إظهار العنصر: " + elementId);
+    }
+
+    public void toggleElement(String elementId) {
+        System.out.println("تم تبديل حالة العنصر: " + elementId);
+    }
+}
