@@ -1,0 +1,27 @@
+// server/admin/api.js
+async function saveConfig(config) {
+    // في الإنتاج: حفظ في config.json عبر GitHub API
+    console.log("تم حفظ الإعدادات:", config);
+    
+    // محاكاة الحفظ
+    return { success: true, message: "تم الحفظ بنجاح!" };
+}
+
+async function updateFeatureToggle(featureId, enabled) {
+    const config = await fetchConfig();
+    config.ui.elements[featureId].visible = enabled;
+    return saveConfig(config);
+}
+
+// دوال مساعدة
+async function fetchConfig() {
+    // في الإنتاج: جلب من server/config.json
+    return {
+        ui: {
+            elements: {
+                payment_tools: { visible: false },
+                floating_ad: { visible: true }
+            }
+        }
+    };
+}
