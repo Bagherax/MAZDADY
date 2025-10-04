@@ -1,21 +1,54 @@
 package mazdady.admin;
 
 import mazdady.user.UserManager;
+import mazdady.user.User;
 
-public class AccountFreezer {
-    public void freezeAccount(String userId) {
-        // في الإنتاج: تجميد الحساب في قاعدة البيانات
-        System.out.println("تم تجميد الحساب: " + userId);
-        // مثال: تحديث حالة المستخدم
-        UserManager.getInstance(null).getCurrentUser().setLevel(0);
+import java.time.Instant;
+import java.util.concurrent.CompletableFuture;
+
+/**
+ * مدير تجميد الحسابات مع دعم العمليات غير المتزامنة
+ * يتبع نمط Command لفصل الأوامر عن التنفيذ
+ */
+public final class AccountFreezer {
+    private static final AccountFreezer INSTANCE = new AccountFreezer();
+
+    private AccountFreezer() {}
+
+    public static AccountFreezer getInstance() {
+        return INSTANCE;
     }
 
+    /**
+     * تجميد الحساب غير متزامن مع تسجيل السبب
+     */
+    public CompletableFuture<Void> freezeAccountAsync(String userId, String reason) {
+        return CompletableFuture.runAsync(() -> {
+            User user = UserManager.getInstance(null).getCurrentUser();
+            if (user.getUserId().equals(userId)) {
+                // في الإنتاج: تحديث حالة الحساب في قاعدة البيانات
+                System.out.println("FROZEN: User " + userId + " frozen at " + Instant.now() + " - Reason: " + reason);
+                user.setLevel(0); // تجميد عبر خفض المستوى
+            }
+        });
+    }
+
+    /**
+     * إلغاء تجميد الحساب
+     */
     public void unfreezeAccount(String userId) {
-        System.out.println("تم إلغاء تجميد الحساب: " + userId);
+        User user = UserManager.getInstance(null).getCurrentUser();
+        if (user.getUserId().equals(userId)) {
+            System.out.println("UNFROZEN: User " + userId + " unfrozen at " + Instant.now());
+            user.setLevel(1); // استعادة المستوى الأساسي
+        }
     }
 
+    /**
+     * التحقق من حالة التجميد
+     */
     public boolean isAccountFrozen(String userId) {
-        // في الإنتاج: التحقق من حالة الحساب
-        return false;
+        User user = UserManager.getInstance(null).getCurrentUser();
+        return user.getUserId().equals(userId) && user.getLevel() <= 0;
     }
 }
