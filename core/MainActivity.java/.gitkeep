@@ -85,3 +85,19 @@ private void setupFloatingAdButton() {
 
     ((ViewGroup) findViewById(android.R.id.content)).addView(adButton, params);
 }
+// أضف هذا إلى نهاية onCreate
+private void checkForNewUser() {
+    if (UserManager.getInstance().isNewUser()) {
+        showSignUpPopup();
+    }
+}
+
+private void showSignUpPopup() {
+    String content = "مرحبًا بك في MAZDADY! 🌟\n\n" +
+                    "اختر طريقة الدخول:\n" +
+                    "• رقم الهاتف\n" +
+                    "• البريد الإلكتروني\n" +
+                    "• Google / Facebook / TikTok\n\n" +
+                    "ابدأ رحلتك المالية الذكية الآن!";
+    popupManager.showScrollablePopup("مرحبًا بك!", content);
+}
