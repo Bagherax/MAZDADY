@@ -1,29 +1,45 @@
 package mazdady.ad;
 
+import java.time.Duration;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
-public class AdScheduler {
-    private ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
-    private AdMarketplace marketplace;
-    private AdDeliveryEngine deliveryEngine;
+/**
+ * مجدول الحملات مع دعم الجدولة المتقدمة
+ * يدعم الجدولة الفورية والمتكررة
+ */
+public final class AdScheduler {
+    private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
+    private final AdMarketplace marketplace;
+    private final AdDeliveryEngine deliveryEngine;
 
     public AdScheduler(AdMarketplace marketplace, AdDeliveryEngine deliveryEngine) {
         this.marketplace = marketplace;
         this.deliveryEngine = deliveryEngine;
     }
 
-    public void scheduleCampaign(AdCampaign campaign, long delaySeconds) {
-        scheduler.schedule(() -> {
-            marketplace.publishCampaign(campaign);
-            deliveryEngine.deliverAd(campaign);
-        }, delaySeconds, TimeUnit.SECONDS);
+    public void scheduleCampaign(AdCampaign campaign, Duration delay) {
+        scheduler.schedule(
+            () -> {
+                marketplace.publishCampaign(campaign);
+                deliveryEngine.deliverAd(campaign, camp -> {});
+            },
+            delay.toMillis(),
+            TimeUnit.MILLISECONDS
+        );
     }
 
-    public void scheduleRecurringCleanup() {
-        scheduler.scheduleAtFixedRate(() -> {
-            new AdRemovalEngine(marketplace, deliveryEngine).removeCompletedCampaigns();
-        }, 0, 30, TimeUnit.MINUTES);
+    public void scheduleRecurringCleanup(Duration interval) {
+        scheduler.scheduleAtFixedRate(
+            () -> new AdRemovalEngine(marketplace, deliveryEngine).removeCompletedCampaigns(),
+            0,
+            interval.toMillis(),
+            TimeUnit.MILLISECONDS
+        );
+    }
+
+    public void shutdown() {
+        scheduler.shutdown();
     }
 }
