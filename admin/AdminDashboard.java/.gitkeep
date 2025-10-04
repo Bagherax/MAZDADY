@@ -1,0 +1,60 @@
+package mazdady.admin;
+
+import mazdady.user.UserManager;
+import mazdady.wallet.WalletManager;
+import mazdady.ad.AdManager;
+
+public class AdminDashboard {
+    private static AdminDashboard instance;
+    private FeatureToggleManager featureToggleManager;
+    private UserInspector userInspector;
+    private RevenueAnalyzer revenueAnalyzer;
+
+    private AdminDashboard() {
+        this.featureToggleManager = new FeatureToggleManager();
+        this.userInspector = new UserInspector();
+        this.revenueAnalyzer = new RevenueAnalyzer();
+    }
+
+    public static synchronized AdminDashboard getInstance() {
+        if (instance == null) {
+            instance = new AdminDashboard();
+        }
+        return instance;
+    }
+
+    // --- وظائف التحكم الأساسية ---
+    public void toggleFeature(String featureId, boolean enabled) {
+        featureToggleManager.toggleFeature(featureId, enabled);
+    }
+
+    public void setUserLevel(String userId, int level) {
+        userInspector.setUserLevel(userId, level);
+    }
+
+    public void setWithdrawalTax(String method, double rate) {
+        WithdrawalTaxController taxController = new WithdrawalTaxController();
+        taxController.setTaxRate(method, rate);
+    }
+
+    public double getTotalRevenue() {
+        return revenueAnalyzer.calculateTotalRevenue();
+    }
+
+    public int getActiveUsersCount() {
+        return userInspector.getActiveUsersCount();
+    }
+
+    // --- Getters ---
+    public FeatureToggleManager getFeatureToggleManager() {
+        return featureToggleManager;
+    }
+
+    public UserInspector getUserInspector() {
+        return userInspector;
+    }
+
+    public RevenueAnalyzer getRevenueAnalyzer() {
+        return revenueAnalyzer;
+    }
+}
