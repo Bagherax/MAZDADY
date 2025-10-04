@@ -1,0 +1,63 @@
+package mazdady.ctrl;
+
+import mazdady.trading.PriceEngine;
+import mazdady.ui.PriceTickerView;
+
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
+
+/**
+ * وحدة تحكم واجهة التداول مع دعم التحديثات الحية
+ * يتبع نمط Observer لإعلام واجهة المستخدم بالتغيرات
+ */
+public final class TradingUIController {
+    private final PriceEngine priceEngine;
+    private final ScheduledExecutorService scheduler;
+    private PriceTickerView priceTickerView;
+    private static final TradingUIController INSTANCE = new TradingUIController();
+
+    private TradingUIController() {
+        this.priceEngine = new PriceEngine();
+        this.scheduler = Executors.newSingleThreadScheduledExecutor();
+    }
+
+    public static TradingUIController getInstance() {
+        return INSTANCE;
+    }
+
+    /**
+     * ربط واجهة عرض السعر
+     */
+    public void bindPriceTickerView(PriceTickerView priceTickerView) {
+        this.priceTickerView = priceTickerView;
+        startPriceUpdates();
+    }
+
+    /**
+     * بدء تحديثات السعر الحية
+     */
+    private void startPriceUpdates() {
+        scheduler.scheduleAtFixedRate(
+            this::updatePriceDisplay,
+            0,
+            5,
+            TimeUnit.SECONDS
+        );
+    }
+
+    private void updatePriceDisplay() {
+        if (priceTickerView != null) {
+            double currentPrice = priceEngine.getCurrentPrice();
+            priceTickerView.updatePrice(currentPrice);
+        }
+    }
+
+    /**
+     * إيقاف تحديثات السعر
+     */
+    public void stopPriceUpdates() {
+        scheduler.shutdown();
+    }
+}
