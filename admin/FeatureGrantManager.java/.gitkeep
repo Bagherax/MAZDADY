@@ -1,0 +1,18 @@
+package mazdady.admin;
+
+import mazdady.user.UserManager;
+
+public class FeatureGrantManager {
+    public void grantFeatureToUser(String userId, String feature, int durationHours) {
+        // في الإنتاج: منح ميزة مؤقتة للمستخدم
+        System.out.println("تم منح الميزة '" + feature + "' للمستخدم " + userId + 
+                          " لمدة " + durationHours + " ساعات");
+        
+        // مثال: رفع المستوى مؤقتًا
+        UserManager.getInstance(null).getCurrentUser().setLevel(10);
+    }
+
+    public void revokeFeatureFromUser(String userId, String feature) {
+        System.out.println("تم سحب الميزة '" + feature + "' من المستخدم: " + userId);
+    }
+}
