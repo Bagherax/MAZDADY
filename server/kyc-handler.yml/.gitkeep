@@ -1,0 +1,29 @@
+name: KYC Document Handler
+
+on:
+  workflow_dispatch:
+    inputs:
+      user_id:
+        description: 'User ID'
+        required: true
+      document_data:
+        description: 'Base64 Encrypted Document'
+        required: true
+
+jobs:
+  process-kyc:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Decode and Store Document
+        env:
+          USER_ID: ${{ github.event.inputs.user_id }}
+          DOC_DATA: ${{ github.event.inputs.document_data }}
+        run: |
+          echo "$DOC_DATA" | base64 --decode > "kyc_${USER_ID}.enc"
+          # في الإنتاج: رفع الملف إلى GitHub Releases أو Firebase
+          echo "Document stored securely for user $USER_ID"
+      
+      - name: Notify User
+        run: |
+          echo "KYC approved for user ${{ github.event.inputs.user_id }}"
+          # في الإنتاج: إرسال إشعار إلى التطبيق عبر FCM
