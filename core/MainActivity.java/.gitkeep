@@ -1,202 +1,29 @@
 package mazdady.core;
 
 import android.os.Bundle;
+import android.view.Gravity;
 import android.view.View;
+import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.TextView;
 import androidx.appcompat.app.AppCompatActivity;
 import mazdady.admin.AdminConfig;
+import mazdady.dev.UnitTests;
+import mazdady.i18n.TranslationManager;
+import mazdady.ui.DynamicLayoutManager;
 import mazdady.ui.DynamicPopupManager;
+import mazdady.ui.FloatingAdButton;
 import mazdady.ui.StarEffectManager;
 import mazdady.user.UserManager;
-
-public class MainActivity extends AppCompatActivity {
-    private DynamicPopupManager popupManager;
-    private TextView balanceView;
-    private Button buyButton, sellButton;
-
-    @Override
-    protected void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_main);
-
-        AdminConfig.getInstance().loadFromServer();
-
-        balanceView = findViewById(R.id.balance_view);
-        buyButton = findViewById(R.id.buy_button);
-        sellButton = findViewById(R.id.sell_button);
-
-        popupManager = new DynamicPopupManager(this);
-
-        double balance = UserManager.getInstance().getCurrentUser().getBalance();
-        balanceView.setText("الرصيد: " + String.format("%.2f", balance) + " MAZDADY");
-
-        buyButton.setOnClickListener(v -> showBuyPopup());
-        sellButton.setOnClickListener(v -> showSellPopup());
-
-        if (UserManager.getInstance().getCurrentUser().hasRecentProfit()) {
-            StarEffectManager.showStar(this, findViewById(R.id.main_container));
-        }
-    }
-
-    private void showBuyPopup() {
-        String content = "اختر عدد العملات التي تريد شراؤها:\n\n" +
-                        "• الحد الأدنى: 1 MAZDADY\n" +
-                        "• يمكنك استخدام رصيدك أو محفظتك الرقمية.\n\n" +
-                        "ملاحظة: سعر الشراء الحالي يعتمد على نشاط السوق.";
-        popupManager.showScrollablePopup("شراء MAZDADY", content);
-    }
-
-    private void showSellPopup() {
-        String content = "حدد كمية العملات التي تريد بيعها:\n\n" +
-                        "• سيتم خصم ضريبة السحب تلقائيًا.\n" +
-                        "• الأرباح تُحول إلى محفظتك بعد التحقق.\n\n" +
-                        "تنبيه: لا يمكن السحب إلا بعد توثيق الهوية.";
-        popupManager.showScrollablePopup("بيع MAZDADY", content);
-    }
-}
-@Override
-protected void onCreate(Bundle savedInstanceState) {
-    super.onCreate(savedInstanceState);
-    setContentView(R.layout.activity_main);
-
-    // ... (الكود السابق)
-
-    // إضافة الزر العائم
-    setupFloatingAdButton();
-}
-
-private void setupFloatingAdButton() {
-    AdminConfig.UIConfig uiConfig = AdminConfig.getInstance().getUIConfig();
-    if (!uiConfig.getFloatingAdConfig().isEnabled()) return;
-
-    FloatingAdButton adButton = new FloatingAdButton(this, null);
-    adButton.configure(
-        uiConfig.getFloatingAdConfig().getDisplayDuration(),
-        uiConfig.getFloatingAdConfig().getHideDuration(),
-        uiConfig.getFloatingAdConfig().getAdImageUrl()
-    );
-
-    FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
-        120, 120, Gravity.BOTTOM | Gravity.END
-    );
-    params.rightMargin = 20;
-    params.bottomMargin = 20;
-
-    ((ViewGroup) findViewById(android.R.id.content)).addView(adButton, params);
-}
-// أضف هذا إلى نهاية onCreate
-private void checkForNewUser() {
-    if (UserManager.getInstance().isNewUser()) {
-        showSignUpPopup();
-    }
-}
-
-private void showSignUpPopup() {
-    String content = "مرحبًا بك في MAZDADY! 🌟\n\n" +
-                    "اختر طريقة الدخول:\n" +
-                    "• رقم الهاتف\n" +
-                    "• البريد الإلكتروني\n" +
-                    "• Google / Facebook / TikTok\n\n" +
-                    "ابدأ رحلتك المالية الذكية الآن!";
-    popupManager.showScrollablePopup("مرحبًا بك!", content);
-}
-@Override
-protected void onCreate(Bundle savedInstanceState) {
-    super.onCreate(savedInstanceState);
-    setContentView(R.layout.activity_main);
-
-    // ... (الكود السابق)
-
-    // تطبيق التخطيط الديناميكي بعد تحميل الإعدادات
-    AdminConfig.getInstance().loadFromServer();
-    new DynamicLayoutManager((ViewGroup) findViewById(android.R.id.content)).applyLayout();
-}
-// تحميل حالة المستخدم
-UserManager userManager = UserManager.getInstance(this);
-User user = userManager.getCurrentUser();
-
-// التحقق من الميزات
-if (LevelManager.canAccessFeature("payment_tools", user.getLevel())) {
-    findViewById(R.id.payment_tools).setVisibility(View.VISIBLE);
-}
-
-// التحقق من الاشتراك
-if (userManager.hasActiveSubscription()) {
-    // إظهار ميزات Premium
-}
-// عند النقر على زر السحب
-findViewById(R.id.withdraw_button).setOnClickListener(v -> {
-    WalletManager walletManager = new WalletManager();
-    if (walletManager.getConnector().isConnected()) {
-        boolean success = walletManager.withdrawMAZDADY(100.0);
-        if (success) {
-            showPopup("تم السحب بنجاح!");
-        }
-    } else {
-        showWalletConnectionPopup();
-    }
-});
-// عند النقر على زر السحب
-findViewById(R.id.withdraw_button).setOnClickListener(v -> {
-    WalletManager walletManager = new WalletManager();
-    if (walletManager.getConnector().isConnected()) {
-        boolean success = walletManager.withdrawMAZDADY(100.0);
-        if (success) {
-            showPopup("تم السحب بنجاح!");
-        }
-    } else {
-        showWalletConnectionPopup();
-    }
-});
-// التحقق من الأمان عند التشغيل
-if (RootDetection.isDeviceRooted()) {
-    new SecurityMonitor(this).reportSuspiciousActivity("ROOTED_DEVICE");
-}
-
-if (!AppIntegrityChecker.isAppIntegrityValid(this)) {
-    new SecurityMonitor(this).reportSuspiciousActivity("MODIFIED_APP");
-}
-// تهيئة الترجمة
-TranslationManager translationManager = new TranslationManager(this);
-
-// ترجمة العناصر
-balanceView.setText(translationManager.getString("balance_label", "9891.26"));
-buyButton.setText(translationManager.getString("buy_button"));
-sellButton.setText(translationManager.getString("sell_button"));
-
-// تغيير اللغة ديناميكيًا
-translationManager.changeLanguage("en"); // تغيير إلى الإنجليزية
-}
-// ترجمة فورية لأي نص
-RealTimeTranslator translator = RealTimeTranslator.getInstance();
-String translated = translator.translateToArabic("Hello, how are you?");
-// الناتج: "[مترجم إلى العربية] Hello, how are you?"
-
-// ترجمة من العربية إلى لغة المستخدم
-String userLangText = translator.translateToUserLanguage("مرحبا بك في MAZDADY!");
-}
-onCreate
-dev.UnitTests.runAllTests();
-}
-package mazdady.core;
-
-import android.os.Bundle;
-import android.view.View;
-import android.widget.Button;
-import android.widget.TextView;
-import androidx.appcompat.app.AppCompatActivity;
-import mazdady.admin.AdminConfig;
-import mazdady.ui.DynamicPopupManager;
-import mazdady.ui.StarEffectManager;
-import mazdady.user.UserManager;
+import mazdady.wallet.WalletManager;
 
 /**
- * النشاط الرئيسي مع دعم التهيئة الديناميكية
+ * النشاط الرئيسي المتكامل مع دعم جميع الميزات المتقدمة
  * يتبع نمط Template Method لفصل خطوات التهيئة
  */
 public final class MainActivity extends AppCompatActivity {
     private DynamicPopupManager popupManager;
+    private TranslationManager translationManager;
     private TextView balanceView;
     private Button buyButton, sellButton;
 
@@ -205,40 +32,71 @@ public final class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        // تهيئة المكونات الأساسية
+        // 1. تشغيل اختبارات الوحدة (للاختبار فقط)
+        UnitTests.runAllTests();
+
+        // 2. تهيئة المكونات الأساسية
         initializeComponents();
         
-        // تهيئة واجهة المستخدم
+        // 3. تهيئة واجهة المستخدم
         initializeUI();
         
-        // تهيئة الأحداث
+        // 4. تهيئة الأحداث
         initializeEventHandlers();
         
-        // عرض تأثيرات الترحيب
+        // 5. عرض تأثيرات الترحيب
         showWelcomeEffects();
+        
+        // 6. إعداد الزر العائم للإعلانات
+        setupFloatingAdButton();
+        
+        // 7. التحقق من المستخدم الجديد
+        checkForNewUser();
+        
+        // 8. تطبيق التخطيط الديناميكي
+        applyDynamicLayout();
+        
+        // 9. التحقق من الأمان
+        performSecurityCheck();
     }
 
     private void initializeComponents() {
+        // تحميل الإعدادات من السيرفر
         AdminConfig.getInstance().loadFromServer();
+        
+        // تهيئة مديري الواجهة
         popupManager = new DynamicPopupManager(this);
+        translationManager = new TranslationManager(this);
     }
 
     private void initializeUI() {
+        // ربط العناصر من التخطيط
         balanceView = findViewById(R.id.balance_view);
         buyButton = findViewById(R.id.buy_button);
         sellButton = findViewById(R.id.sell_button);
 
-        // تحميل رصيد المستخدم
+        // تحميل رصيد المستخدم وترجمته
         double balance = UserManager.getInstance(this).getCurrentUser().getBalance();
-        balanceView.setText("الرصيد: " + String.format("%.2f", balance) + " MAZDADY");
+        String balanceText = translationManager.getString("balance_label", String.format("%.2f", balance));
+        balanceView.setText(balanceText);
 
-        // تطبيق إعدادات الواجهة من لوحة التحكم
+        // ترجمة أزرار التداول
+        buyButton.setText(translationManager.getString("buy_button"));
+        sellButton.setText(translationManager.getString("sell_button"));
+
+        // تطبيق إعدادات الواجهة الديناميكية
         applyDynamicUI();
     }
 
     private void initializeEventHandlers() {
         buyButton.setOnClickListener(v -> showBuyPopup());
         sellButton.setOnClickListener(v -> showSellPopup());
+        
+        // زر السحب (إذا كان موجودًا في التخطيط)
+        View withdrawButton = findViewById(R.id.withdraw_button);
+        if (withdrawButton != null) {
+            withdrawButton.setOnClickListener(v -> handleWithdrawal());
+        }
     }
 
     private void showWelcomeEffects() {
@@ -247,24 +105,69 @@ public final class MainActivity extends AppCompatActivity {
         }
     }
 
-    private void applyDynamicUI() {
-        // في الإنتاج: تطبيق الإعدادات من AdminConfig
-        // مثل الألوان، الأحجام، الرؤية
+    private void setupFloatingAdButton() {
+        AdminConfig.UIConfig uiConfig = AdminConfig.getInstance().getUIConfig();
+        if (!uiConfig.getFloatingAdConfig().isEnabled()) return;
+
+        FloatingAdButton adButton = new FloatingAdButton(this, null);
+        adButton.configure(
+            uiConfig.getFloatingAdConfig().getDisplayDuration(),
+            uiConfig.getFloatingAdConfig().getHideDuration(),
+            uiConfig.getFloatingAdConfig().getAdImageUrl()
+        );
+
+        ViewGroup.LayoutParams params = new ViewGroup.LayoutParams(120, 120);
+        ((ViewGroup) findViewById(android.R.id.content)).addView(adButton, params);
+    }
+
+    private void checkForNewUser() {
+        if (UserManager.getInstance(this).isNewUser()) {
+            showSignUpPopup();
+        }
+    }
+
+    private void applyDynamicLayout() {
+        new DynamicLayoutManager((ViewGroup) findViewById(android.R.id.content)).applyLayout();
+    }
+
+    private void performSecurityCheck() {
+        // التحقق من جذور الجهاز
+        if (mazdady.security.RootDetection.isDeviceRooted()) {
+            new mazdady.security.SecurityMonitor(this).reportSuspiciousActivity("ROOTED_DEVICE");
+        }
+
+        // التحقق من سلامة التطبيق
+        if (!mazdady.security.AppIntegrityChecker.isAppIntegrityValid(this)) {
+            new mazdady.security.SecurityMonitor(this).reportSuspiciousActivity("MODIFIED_APP");
+        }
+    }
+
+    private void handleWithdrawal() {
+        WalletManager walletManager = new WalletManager();
+        if (walletManager.getConnector().isConnected()) {
+            boolean success = walletManager.withdrawMAZDADY(100.0);
+            if (success) {
+                showPopup(translationManager.getString("withdrawal_success"));
+            }
+        } else {
+            showWalletConnectionPopup();
+        }
     }
 
     private void showBuyPopup() {
-        String content = "اختر عدد العملات التي تريد شراؤها:\n\n" +
-                        "• الحد الأدنى: 1 MAZDADY\n" +
-                        "• يمكنك استخدام رصيدك أو محفظتك الرقمية.\n\n" +
-                        "ملاحظة: سعر الشراء الحالي يعتمد على نشاط السوق.";
-        popupManager.showScrollablePopup("شراء MAZDADY", content);
+        String content = translationManager.getString("buy_popup_content");
+        popupManager.showScrollablePopup(translationManager.getString("buy_title"), content);
     }
 
     private void showSellPopup() {
-        String content = "حدد كمية العملات التي تريد بيعها:\n\n" +
-                        "• سيتم خصم ضريبة السحب تلقائيًا.\n" +
-                        "• الأرباح تُحول إلى محفظتك بعد التحقق.\n\n" +
-                        "تنبيه: لا يمكن السحب إلا بعد توثيق الهوية.";
-        popupManager.showScrollablePopup("بيع MAZDADY", content);
+        String content = translationManager.getString("sell_popup_content");
+        popupManager.showScrollablePopup(translationManager.getString("sell_title"), content);
     }
-}
+
+    private void showSignUpPopup() {
+        String content = translationManager.getString("signup_welcome");
+        popupManager.showScrollablePopup(translationManager.getString("welcome_title"), content);
+    }
+
+    private void showWalletConnectionPopup() {
+        String conten
