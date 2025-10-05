@@ -1,0 +1,104 @@
+package mazdady.social;
+
+import mazdady.user.User;
+
+import java.time.LocalDate;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+
+/**
+ * مكافآت يومية مع دعم السلسلة المتتالية
+ * يتبع نمط State لتمثيل حالة المكافآت اليومية
+ */
+public final class DailyRewards {
+    private final Map<Integer, Double> dailyRewards = new ConcurrentHashMap<>();
+    private static DailyRewards instance;
+
+    private DailyRewards() {
+        initializeDailyRewards();
+    }
+
+    public static synchronized DailyRewards getInstance() {
+        if (instance == null) {
+            instance = new DailyRewards();
+        }
+        return instance;
+    }
+
+    private void initializeDailyRewards() {
+        // مكافآت يومية تصاعدية
+        dailyRewards.put(1, 10.0);   // اليوم 1: 10 MAZDADY
+        dailyRewards.put(2, 15.0);   // اليوم 2: 15 MAZDADY
+        dailyRewards.put(3, 25.0);   // اليوم 3: 25 MAZDADY
+        dailyRewards.put(4, 40.0);   // اليوم 4: 40 MAZDADY
+        dailyRewards.put(5, 60.0);   // اليوم 5: 60 MAZDADY
+        dailyRewards.put(6, 85.0);   // اليوم 6: 85 MAZDADY
+        dailyRewards.put(7, 120.0);  // اليوم 7: 120 MAZDADY (مكافأة أسبوعية)
+    }
+
+    /**
+     * المطالبة بالمكافأة اليومية
+     */
+    public RewardResult claimDailyReward(User user) {
+        LocalDate today = LocalDate.now();
+        LocalDate lastClaimDate = user.getLastDailyRewardDate();
+        
+        if (lastClaimDate != null && lastClaimDate.equals(today)) {
+            return RewardResult.failure("Already claimed today's reward");
+        }
+        
+        int currentStreak = user.getDailyRewardStreak();
+        LocalDate expectedDate = lastClaimDate != null ? lastClaimDate.plusDays(1) : today;
+        
+        int newStreak;
+        if (lastClaimDate == null || today.equals(expectedDate)) {
+            // استمرار السلسلة
+            newStreak = currentStreak + 1;
+        } else {
+            // كسر السلسلة - إعادة البدء
+            newStreak = 1;
+        }
+        
+        // تحديد المكافأة بناءً على اليوم في السلسلة
+        int dayInCycle = ((newStreak - 1) % 7) + 1;
+        double rewardAmount = dailyRewards.getOrDefault(dayInCycle, 10.0);
+        
+        // منح المكافأة
+        user.setBalance(user.getBalance() + rewardAmount);
+        user.setLastDailyRewardDate(today);
+        user.setDailyRewardStreak(newStreak);
+        
+        return RewardResult.success(rewardAmount, newStreak);
+    }
+
+    /**
+     * نتيجة المكافأة
+     */
+    public static final class RewardResult {
+        private final boolean success;
+        private final double amount;
+        private final int streak;
+        private final String message;
+
+        private RewardResult(boolean success, double amount, int streak, String message) {
+            this.success = success;
+            this.amount = amount;
+            this.streak = streak;
+            this.message = message;
+        }
+
+        public static RewardResult success(double amount, int streak) {
+            return new RewardResult(true, amount, streak, 
+                "Daily reward claimed: " + amount + " MAZDADY (Streak: " + streak + " days)");
+        }
+
+        public static RewardResult failure(String message) {
+            return new RewardResult(false, 0, 0, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public double getAmount() { return amount; }
+        public int getStreak() { return streak; }
+        public String getMessage() { return message; }
+    }
+}
