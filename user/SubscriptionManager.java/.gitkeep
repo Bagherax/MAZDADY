@@ -1,26 +1,148 @@
 package mazdady.user;
 
-import java.util.Date;
+import java.time.Instant;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReference;
 
-public class Subscription {
-    private boolean active = false;
-    private Date expiryDate;
-    private String planType; // "monthly", "yearly"
+/**
+ * مدير الاشتراكات مع دعم التحديثات الديناميكية
+ * يتبع نمط State لتمثيل حالات الاشتراك المختلفة
+ */
+public final class SubscriptionManager {
+    private static SubscriptionManager instance;
 
-    public boolean isActive() {
-        if (!active) return false;
-        return expiryDate != null && expiryDate.after(new Date());
+    private SubscriptionManager() {}
+
+    public static synchronized SubscriptionManager getInstance() {
+        if (instance == null) {
+            instance = new SubscriptionManager();
+        }
+        return instance;
     }
 
-    public void activate(String planType, int durationDays) {
-        this.active = true;
-        this.planType = planType;
-        long expiryTime = System.currentTimeMillis() + (durationDays * 24L * 60 * 60 * 1000);
-        this.expiryDate = new Date(expiryTime);
+    /**
+     * تفعيل اشتراك للمستخدم
+     */
+    public void activateSubscription(User user, SubscriptionType type, int durationDays) {
+        if (user == null) return;
+        
+        Subscription subscription = new Subscription(type, durationDays);
+        user.setSubscription(subscription);
+        
+        System.out.println("SUBSCRIPTION: " + type + " activated for " + user.getUserId() + 
+                         " for " + durationDays + " days");
     }
 
-    // Getters
-    public boolean isActiveNow() { return isActive(); }
-    public String getPlanType() { return planType; }
-    public Date getExpiryDate() { return expiryDate; }
+    /**
+     * تجديد اشتراك للمستخدم
+     */
+    public void renewSubscription(User user) {
+        if (user == null) return;
+        
+        Subscription current = user.getSubscription();
+        if (current != null && current.isActive()) {
+            current.extend(30); // تجديد لمدة 30 يوم إضافية
+            System.out.println("SUBSCRIPTION: Renewed for " + user.getUserId());
+        }
+    }
+
+    /**
+     * إلغاء اشتراك المستخدم
+     */
+    public void cancelSubscription(User user) {
+        if (user == null) return;
+        
+        Subscription current = user.getSubscription();
+        if (current != null) {
+            current.cancel();
+            System.out.println("SUBSCRIPTION: Cancelled for " + user.getUserId());
+        }
+    }
+
+    /**
+     * التحقق من اشتراك نشط
+     */
+    public boolean hasActiveSubscription(User user) {
+        if (user == null) return false;
+        
+        Subscription subscription = user.getSubscription();
+        return subscription != null && subscription.isActive();
+    }
+
+    /**
+     * الاشتراك
+     */
+    public static final class Subscription {
+        private final SubscriptionType type;
+        private final Instant startDate;
+        private final AtomicReference<Instant> expiryDate;
+        private volatile boolean cancelled = false;
+
+        public Subscription(SubscriptionType type, int durationDays) {
+            this.type = type;
+            this.startDate = Instant.now();
+            long expiryTime = System.currentTimeMillis() + (durationDays * 24L * 60 * 60 * 1000);
+            this.expiryDate = new AtomicReference<>(Instant.ofEpochMilli(expiryTime));
+        }
+
+        /**
+         * تفعيل الاشتراك
+         */
+        public boolean isActive() {
+            if (cancelled) return false;
+            return expiryDate.get().isAfter(Instant.now());
+        }
+
+        /**
+         * تمديد الاشتراك
+         */
+        public void extend(int days) {
+            if (!cancelled) {
+                long newExpiry = expiryDate.get().toEpochMilli() + (days * 24L * 60 * 60 * 1000);
+                expiryDate.set(Instant.ofEpochMilli(newExpiry));
+                System.out.println("SUBSCRIPTION: Extended by " + days + " days");
+            }
+        }
+
+        /**
+         * إلغاء الاشتراك
+         */
+        public void cancel() {
+            this.cancelled = true;
+            System.out.println("SUBSCRIPTION: Cancelled");
+        }
+
+        /**
+         * الحصول على الأيام المتبقية
+         */
+        public int getDaysRemaining() {
+            if (cancelled || !isActive()) return 0;
+            
+            long diff = expiryDate.get().toEpochMilli() - System.currentTimeMillis();
+            return (int) (diff / (24 * 60 * 60 * 1000));
+        }
+
+        // Getters
+        public SubscriptionType getType() { return type; }
+        public Instant getStartDate() { return startDate; }
+        public Instant getExpiryDate() { return expiryDate.get(); }
+        public boolean isCancelled() { return cancelled; }
+    }
+
+    /**
+     * أنواع الاشتراكات
+     */
+    public enum SubscriptionType {
+        BASIC(10.0),      // 10 MAZDADY/شهر
+        PREMIUM(25.0),    // 25 MAZDADY/شهر
+        VIP(50.0);        // 50 MAZDADY/شهر
+
+        private final double monthlyPrice;
+
+        SubscriptionType(double monthlyPrice) {
+            this.monthlyPrice = monthlyPrice;
+        }
+
+        public double getMonthlyPrice() { return monthlyPrice; }
+    }
 }
