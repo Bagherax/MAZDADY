@@ -1,0 +1,210 @@
+package mazdady.social;
+
+import mazdady.user.User;
+import mazdady.user.UserManager;
+import mazdady.wallet.WalletManager;
+
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.BiFunction;
+
+/**
+ * نظام المكافآت للمشاركة مع دعم الكشف التلقائي
+ * يتبع نمط Strategy لفصل استراتيجيات المكافآت
+ */
+public final class ShareRewardSystem {
+    private final ConcurrentHashMap<String, BiFunction<String, String, Boolean>> platformValidators = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, Double> rewardAmounts = new ConcurrentHashMap<>();
+    private static ShareRewardSystem instance;
+
+    private ShareRewardSystem() {
+        initializePlatformValidators();
+        initializeRewardAmounts();
+    }
+
+    public static synchronized ShareRewardSystem getInstance() {
+        if (instance == null) {
+            instance = new ShareRewardSystem();
+        }
+        return instance;
+    }
+
+    private void initializePlatformValidators() {
+        platformValidators.put("youtube", this::validateYouTubeShare);
+        platformValidators.put("tiktok", this::validateTikTokShare);
+        platformValidators.put("facebook", this::validateFacebookShare);
+        platformValidators.put("telegram", this::validateTelegramShare);
+        platformValidators.put("instagram", this::validateInstagramShare);
+        platformValidators.put("x", this::validateXTweetShare);
+    }
+
+    private void initializeRewardAmounts() {
+        rewardAmounts.put("youtube_subscriber", 50.0);
+        rewardAmounts.put("youtube_like", 5.0);
+        rewardAmounts.put("youtube_comment", 10.0);
+        rewardAmounts.put("youtube_view", 1.0);
+        
+        rewardAmounts.put("tiktok_follow", 30.0);
+        rewardAmounts.put("tiktok_like", 3.0);
+        rewardAmounts.put("tiktok_comment", 7.0);
+        rewardAmounts.put("tiktok_share", 15.0);
+        
+        rewardAmounts.put("facebook_like", 4.0);
+        rewardAmounts.put("facebook_comment", 8.0);
+        rewardAmounts.put("facebook_share", 12.0);
+        
+        rewardAmounts.put("telegram_join", 20.0);
+        rewardAmounts.put("telegram_post", 5.0);
+        
+        rewardAmounts.put("instagram_follow", 25.0);
+        rewardAmounts.put("instagram_like", 2.0);
+        rewardAmounts.put("instagram_comment", 6.0);
+        
+        rewardAmounts.put("x_follow", 20.0);
+        rewardAmounts.put("x_like", 3.0);
+        rewardAmounts.put("x_retweet", 8.0);
+        rewardAmounts.put("x_comment", 10.0);
+    }
+
+    /**
+     * منح مكافأة للمشاركة غير متزامنة
+     */
+    public CompletableFuture<RewardResult> grantShareRewardAsync(
+        String userId, 
+        String platform, 
+        String action, 
+        String contentUrl
+    ) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                // التحقق من صحة المنصة والإجراء
+                BiFunction<String, String, Boolean> validator = platformValidators.get(platform.toLowerCase());
+                if (validator == null) {
+                    return RewardResult.failure("Unsupported platform: " + platform);
+                }
+                
+                if (!validator.apply(contentUrl, action)) {
+                    return RewardResult.failure("Invalid share action: " + action + " on " + platform);
+                }
+                
+                // التحقق من عدم منح المكافأة مسبقًا
+                if (hasUserReceivedReward(userId, platform, action, contentUrl)) {
+                    return RewardResult.failure("Reward already claimed for this action");
+                }
+                
+                // حساب مبلغ المكافأة
+                String rewardKey = platform.toLowerCase() + "_" + action.toLowerCase();
+                Double rewardAmount = rewardAmounts.get(rewardKey);
+                if (rewardAmount == null || rewardAmount <= 0) {
+                    return RewardResult.failure("No reward configured for " + rewardKey);
+                }
+                
+                // منح المكافأة
+                User user = UserManager.getInstance(null).getCurrentUser();
+                if (user.getUserId().equals(userId)) {
+                    WalletManager wallet = new WalletManager();
+                    wallet.depositMAZDADY(rewardAmount);
+                    user.setBalance(user.getBalance() + rewardAmount);
+                    
+                    // تسجيل المكافأة الممنوحة
+                    recordReward(userId, platform, action, contentUrl, rewardAmount);
+                    
+                    System.out.println("SHARE REWARD: Granted " + rewardAmount + 
+                                     " MAZDADY to " + userId + " for " + action + " on " + platform);
+                    
+                    return RewardResult.success(rewardAmount, "Reward granted successfully");
+                } else {
+                    return RewardResult.failure("Invalid user");
+                }
+                
+            } catch (Exception e) {
+                return RewardResult.failure("Reward granting failed: " + e.getMessage());
+            }
+        });
+    }
+
+    private boolean validateYouTubeShare(String contentUrl, String action) {
+        if (contentUrl == null || action == null) return false;
+        
+        switch (action.toLowerCase()) {
+            case "subscribe":
+                return contentUrl.contains("youtube.com/channel/") || 
+                       contentUrl.contains("youtube.com/c/");
+            case "like":
+            case "comment":
+            case "view":
+                return contentUrl.contains("youtube.com/watch") || 
+                       contentUrl.contains("youtu.be/");
+            default:
+                return false;
+        }
+    }
+
+    private boolean validateTikTokShare(String contentUrl, String action) {
+        if (contentUrl == null) return false;
+        return contentUrl.contains("tiktok.com/");
+    }
+
+    private boolean validateFacebookShare(String contentUrl, String action) {
+        if (contentUrl == null) return false;
+        return contentUrl.contains("facebook.com/") || 
+               contentUrl.contains("fb.com/");
+    }
+
+    private boolean validateTelegramShare(String contentUrl, String action) {
+        if (contentUrl == null) return false;
+        return contentUrl.contains("t.me/") || 
+               contentUrl.contains("telegram.me/");
+    }
+
+    private boolean validateInstagramShare(String contentUrl, String action) {
+        if (contentUrl == null) return false;
+        return contentUrl.contains("instagram.com/");
+    }
+
+    private boolean validateXTweetShare(String contentUrl, String action) {
+        if (contentUrl == null) return false;
+        return contentUrl.contains("twitter.com/") || 
+               contentUrl.contains("x.com/");
+    }
+
+    private boolean hasUserReceivedReward(String userId, String platform, String action, String contentUrl) {
+        // في الإنتاج: التحقق من قاعدة البيانات
+        System.out.println("SHARE REWARD: Checking if user " + userId + 
+                         " already received reward for " + action + " on " + platform);
+        return false; // محاكاة عدم وجود المكافأة مسبقًا
+    }
+
+    private void recordReward(String userId, String platform, String action, String contentUrl, double amount) {
+        // في الإنتاج: تسجيل المكافأة في قاعدة البيانات
+        System.out.println("SHARE REWARD: Recorded reward for " + userId + 
+                         " - " + platform + " " + action + " - " + amount + " MAZDADY");
+    }
+
+    /**
+     * نتيجة المكافأة
+     */
+    public static final class RewardResult {
+        private final boolean success;
+        private final double amount;
+        private final String message;
+
+        private RewardResult(boolean success, double amount, String message) {
+            this.success = success;
+            this.amount = amount;
+            this.message = message;
+        }
+
+        public static RewardResult success(double amount, String message) {
+            return new RewardResult(true, amount, message);
+        }
+
+        public static RewardResult failure(String message) {
+            return new RewardResult(false, 0, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public double getAmount() { return amount; }
+        public String getMessage() { return message; }
+    }
+}
