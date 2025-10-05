@@ -1,0 +1,159 @@
+package mazdady.dev;
+
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CopyOnWriteArrayList;
+
+/**
+ * مدير اختبارات التكامل مع دعم المحاكاة المتقدمة
+ * يتبع نمط Observer لإعلام المكونات بالنتائج
+ */
+public final class IntegrationTests {
+    private final CopyOnWriteArrayList<IntegrationTest> tests = new CopyOnWriteArrayList<>();
+    private static final IntegrationTests INSTANCE = new IntegrationTests();
+
+    private IntegrationTests() {
+        initializeTests();
+    }
+
+    public static IntegrationTests getInstance() {
+        return INSTANCE;
+    }
+
+    private void initializeTests() {
+        tests.add(new UserWalletIntegrationTest());
+        tests.add(new TradingAdIntegrationTest());
+        tests.add(new SecurityAuthIntegrationTest());
+    }
+
+    /**
+     * تشغيل جميع اختبارات التكامل غير المتزامنة
+     */
+    public CompletableFuture<IntegrationReport> runAllTestsAsync() {
+        return CompletableFuture.supplyAsync(() -> {
+            IntegrationReport report = new IntegrationReport();
+            for (IntegrationTest test : tests) {
+                report.merge(test.run());
+            }
+            return report;
+        });
+    }
+
+    /**
+     * تشغيل جميع اختبارات التكامل
+     */
+    public static void runAllTests() {
+        IntegrationReport report = getInstance().runAllTestsAsync().join();
+        System.out.println(report.getSummary());
+    }
+
+    /**
+     * واجهة اختبار التكامل
+     */
+    @FunctionalInterface
+    public interface IntegrationTest {
+        IntegrationReport run();
+    }
+
+    /**
+     * تقرير اختبار التكامل
+     */
+    public static final class IntegrationReport {
+        private int passed = 0;
+        private int failed = 0;
+        private final CopyOnWriteArrayList<String> failures = new CopyOnWriteArrayList<>();
+
+        public void addPassed() { passed++; }
+        public void addFailed(String testName, String reason) {
+            failed++;
+            failures.add(testName + ": " + reason);
+        }
+
+        public void merge(IntegrationReport other) {
+            this.passed += other.passed;
+            this.failed += other.failed;
+            this.failures.addAll(other.failures);
+        }
+
+        public String getSummary() {
+            return String.format(
+                "🔗 INTEGRATION TESTS: %d passed, %d failed\n%s",
+                passed, failed,
+                failures.isEmpty() ? "" : "Failures:\n" + String.join("\n", failures)
+            );
+        }
+    }
+
+    // --- اختبارات تكامل مخصصة ---
+    private static final class UserWalletIntegrationTest implements IntegrationTest {
+        @Override
+        public IntegrationReport run() {
+            IntegrationReport report = new IntegrationReport();
+            try {
+                // محاكاة تكامل المستخدم والمحفظة
+                mazdady.user.User user = new mazdady.user.User("integration_test");
+                mazdady.wallet.WalletManager wallet = new mazdady.wallet.WalletManager();
+                wallet.depositMAZDADY(1000.0);
+                user.setBalance(wallet.getBalance());
+                
+                if (user.getBalance() != 1000.0) {
+                    throw new AssertionError("User balance should match wallet balance");
+                }
+                report.addPassed();
+            } catch (Exception e) {
+                report.addFailed("UserWalletIntegrationTest", e.getMessage());
+            }
+            return report;
+        }
+    }
+
+    private static final class TradingAdIntegrationTest implements IntegrationTest {
+        @Override
+        public IntegrationReport run() {
+            IntegrationReport report = new IntegrationReport();
+            try {
+                // محاكاة تكامل التداول والإعلانات
+                mazdady.trading.PriceEngine engine = new mazdady.trading.PriceEngine();
+                mazdady.ad.AdManager adManager = mazdady.ad.AdManager.getInstance();
+                
+                // تنفيذ صفقة تداول
+                engine.executeBuyOrder("test_user", 50);
+                
+                // إنشاء حملة إعلانية
+                mazdady.ad.AdCampaign campaign = new mazdady.ad.AdCampaign.Builder()
+                    .userId("test_user")
+                    .platform(mazdady.ad.AdCampaign.Platform.TIKTOK)
+                    .contentUrl("https://tiktok.com/test")
+                    .goal(mazdady.ad.AdCampaign.Goal.VIEWS)
+                    .targetCount(100)
+                    .budget(10.0)
+                    .build();
+                
+                report.addPassed();
+            } catch (Exception e) {
+                report.addFailed("TradingAdIntegrationTest", e.getMessage());
+            }
+            return report;
+        }
+    }
+
+    private static final class SecurityAuthIntegrationTest implements IntegrationTest {
+        @Override
+        public IntegrationReport run() {
+            IntegrationReport report = new IntegrationReport();
+            try {
+                // محاكاة تكامل الأمان والمصادقة
+                mazdady.auth.LoginManager loginManager = mazdady.auth.LoginManager.getInstance();
+                mazdady.security.SecurityMgr securityMgr = mazdady.security.SecurityMgr.getInstance(null);
+                
+                // التحقق من سلامة التطبيق
+                if (!securityMgr.isAppIntegrityValid()) {
+                    throw new AssertionError("App integrity should be valid in tests");
+                }
+                report.addPassed();
+            } catch (Exception e) {
+                report.addFailed("SecurityAuthIntegrationTest", e.getMessage());
+            }
+            return report;
+        }
+    }
+}
