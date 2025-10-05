@@ -1,0 +1,252 @@
+package mazdady.ui;
+
+import android.content.Context;
+import android.graphics.Canvas;
+import android.graphics.Color;
+import android.graphics.Paint;
+import android.util.AttributeSet;
+import android.view.GestureDetector;
+import android.view.MotionEvent;
+import android.view.ScaleGestureDetector;
+import android.view.View;
+
+import mazdady.trading.PriceEngine;
+
+import java.time.Instant;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
+
+/**
+ * خريطة التداول القابلة للتكبير مع دعم الفترات الزمنية
+ * يتبع نمط Observer لمراقبة تغيرات الأسعار
+ */
+public final class ZoomableTradingLineMap extends View {
+    private final Paint linePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint gridPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint textPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final ScaleGestureDetector scaleDetector;
+    private final GestureDetector gestureDetector;
+    private final CopyOnWriteArrayList<PricePoint> pricePoints = new CopyOnWriteArrayList<>();
+    
+    private float scaleFactor = 1.0f;
+    private float offsetX = 0f;
+    private float offsetY = 0f;
+    private TimeRange currentTimeRange = TimeRange.ONE_DAY;
+    private static ZoomableTradingLineMap instance;
+
+    public ZoomableTradingLineMap(Context context, AttributeSet attrs) {
+        super(context, attrs);
+        initializePaints();
+        this.scaleDetector = new ScaleGestureDetector(context, new ScaleListener());
+        this.gestureDetector = new GestureDetector(context, new GestureListener());
+        loadInitialData();
+    }
+
+    private void initializePaints() {
+        linePaint.setColor(Color.parseColor("#4CAF50"));
+        linePaint.setStrokeWidth(4f);
+        linePaint.setStyle(Paint.Style.STROKE);
+        
+        gridPaint.setColor(Color.parseColor("#37474F"));
+        gridPaint.setStrokeWidth(1f);
+        gridPaint.setStyle(Paint.Style.STROKE);
+        
+        textPaint.setColor(Color.WHITE);
+        textPaint.setTextSize(12f);
+        textPaint.setTextAlign(Paint.Align.CENTER);
+    }
+
+    private void loadInitialData() {
+        // تحميل بيانات الأسعار الأولية
+        PriceEngine priceEngine = PriceEngine.getInstance();
+        long now = System.currentTimeMillis();
+        
+        for (int i = 0; i < 100; i++) {
+            long timestamp = now - (i * 60000); // كل دقيقة
+            double price = priceEngine.getCurrentPrice() + (Math.random() - 0.5) * 10;
+            pricePoints.add(new PricePoint(timestamp, price));
+        }
+        
+        System.out.println("ZOOMABLE MAP: Loaded " + pricePoints.size() + " initial price points");
+    }
+
+    /**
+     * تغيير نطاق الوقت
+     */
+    public void setTimeRange(TimeRange timeRange) {
+        this.currentTimeRange = timeRange;
+        loadHistoricalData(timeRange);
+        invalidate();
+        System.out.println("ZOOMABLE MAP: Time range changed to " + timeRange);
+    }
+
+    private void loadHistoricalData(TimeRange timeRange) {
+        pricePoints.clear();
+        
+        // في الإنتاج: تحميل البيانات التاريخية من قاعدة البيانات
+        PriceEngine priceEngine = PriceEngine.getInstance();
+        long now = System.currentTimeMillis();
+        long periodMs = timeRange.getMilliseconds();
+        int pointCount = 100;
+        
+        for (int i = 0; i < pointCount; i++) {
+            long timestamp = now - (periodMs * i / pointCount);
+            double price = priceEngine.getCurrentPrice() + (Math.random() - 0.5) * 20;
+            pricePoints.add(new PricePoint(timestamp, price));
+        }
+        
+        System.out.println("ZOOMABLE MAP: Loaded historical data for " + timeRange);
+    }
+
+    @Override
+    public boolean onTouchEvent(MotionEvent event) {
+        scaleDetector.onTouchEvent(event);
+        gestureDetector.onTouchEvent(event);
+        return true;
+    }
+
+    @Override
+    protected void onDraw(Canvas canvas) {
+        super.onDraw(canvas);
+        
+        try {
+            int width = getWidth();
+            int height = getHeight();
+            
+            // رسم الشبكة الخلفية
+            drawGrid(canvas, width, height);
+            
+            // رسم خط الأسعار
+            drawPriceLine(canvas, width, height);
+            
+            // رسم التسميات الزمنية
+            drawTimeLabels(canvas, width, height);
+            
+        } catch (Exception e) {
+            System.err.println("ZOOMABLE MAP DRAW ERROR: " + e.getMessage());
+        }
+    }
+
+    private void drawGrid(Canvas canvas, int width, int height) {
+        // رسم خطوط الشبكة العمودية
+        for (int i = 0; i <= 10; i++) {
+            float x = width * i / 10f;
+            canvas.drawLine(x, 0, x, height, gridPaint);
+        }
+        
+        // رسم خطوط الشبكة الأفقية
+        for (int i = 0; i <= 5; i++) {
+            float y = height * i / 5f;
+            canvas.drawLine(0, y, width, y, gridPaint);
+        }
+    }
+
+    private void drawPriceLine(Canvas canvas, int width, int height) {
+        if (pricePoints.size() < 2) return;
+        
+        // حساب الحد الأدنى والأقصى للأسعار
+        double minPrice = pricePoints.stream().mapToDouble(PricePoint::getPrice).min().orElse(100);
+        double maxPrice = pricePoints.stream().mapToDouble(PricePoint::getPrice).max().orElse(100);
+        double priceRange = maxPrice - minPrice;
+        if (priceRange == 0) priceRange = 1;
+        
+        // رسم الخط
+        for (int i = 0; i < pricePoints.size() - 1; i++) {
+            PricePoint current = pricePoints.get(i);
+            PricePoint next = pricePoints.get(i + 1);
+            
+            float x1 = width * i / (float) (pricePoints.size() - 1);
+            float y1 = height - (float) ((current.getPrice() - minPrice) / priceRange * height);
+            float x2 = width * (i + 1) / (float) (pricePoints.size() - 1);
+            float y2 = height - (float) ((next.getPrice() - minPrice) / priceRange * height);
+            
+            canvas.drawLine(x1, y1, x2, y2, linePaint);
+        }
+    }
+
+    private void drawTimeLabels(Canvas canvas, int width, int height) {
+        // رسم التسميات الزمنية
+        for (int i = 0; i <= 5; i++) {
+            long timestamp = System.currentTimeMillis() - (currentTimeRange.getMilliseconds() * i / 5);
+            String timeLabel = formatTime(timestamp);
+            float x = width * i / 5f;
+            canvas.drawText(timeLabel, x, height - 10, textPaint);
+        }
+    }
+
+    private String formatTime(long timestamp) {
+        Instant instant = Instant.ofEpochMilli(timestamp);
+        return instant.toString().substring(11, 16); // HH:mm
+    }
+
+    private class ScaleListener extends ScaleGestureDetector.SimpleOnScaleGestureListener {
+        @Override
+        public boolean onScale(ScaleGestureDetector detector) {
+            scaleFactor *= detector.getScaleFactor();
+            scaleFactor = Math.max(0.5f, Math.min(scaleFactor, 5.0f)); // حدود التكبير
+            invalidate();
+            return true;
+        }
+    }
+
+    private class GestureListener extends GestureDetector.SimpleOnGestureListener {
+        @Override
+        public boolean onScroll(MotionEvent e1, MotionEvent e2, float distanceX, float distanceY) {
+            offsetX -= distanceX;
+            offsetY -= distanceY;
+            invalidate();
+            return true;
+        }
+    }
+
+    /**
+     * نقطة السعر
+     */
+    private static final class PricePoint {
+        private final long timestamp;
+        private final double price;
+
+        public PricePoint(long timestamp, double price) {
+            this.timestamp = timestamp;
+            this.price = price;
+        }
+
+        public long getTimestamp() { return timestamp; }
+        public double getPrice() { return price; }
+    }
+
+    /**
+     * نطاق الوقت
+     */
+    public enum TimeRange {
+        ONE_DAY(24 * 60 * 60 * 1000L),
+        ONE_WEEK(7 * 24 * 60 * 60 * 1000L),
+        ONE_MONTH(30 * 24 * 60 * 60 * 1000L),
+        ONE_YEAR(365 * 24 * 60 * 60 * 1000L);
+
+        private final long milliseconds;
+
+        TimeRange(long milliseconds) {
+            this.milliseconds = milliseconds;
+        }
+
+        public long getMilliseconds() { return milliseconds; }
+    }
+
+    // --- Getters/Setters ---
+    public float getScaleFactor() { return scaleFactor; }
+    public void setScaleFactor(float scaleFactor) { this.scaleFactor = scaleFactor; invalidate(); }
+    public TimeRange getCurrentTimeRange() { return currentTimeRange; }
+    public int getPricePointCount() { return pricePoints.size(); }
+    public void clearData() { pricePoints.clear(); invalidate(); }
+    
+    /**
+     * تحديث البيانات (للاختبارات)
+     */
+    public void updateData(List<PricePoint> newPoints) {
+        pricePoints.clear();
+        pricePoints.addAll(newPoints);
+        invalidate();
+        System.out.println("ZOOMABLE MAP: Data updated with " + newPoints.size() + " points");
+    }
+}
