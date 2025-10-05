@@ -1,0 +1,122 @@
+package mazdady.offline;
+
+import java.util.concurrent.PriorityBlockingQueue;
+import java.util.concurrent.atomic.AtomicLong;
+
+/**
+ * مدير الطابور مع دعم الأولويات والمعالجة المتزامنة
+ * يتبع نمط Command لتمثيل العمليات المؤجلة
+ */
+public final class QueueMgr {
+    private final PriorityBlockingQueue<QueuedOperation> operationQueue = new PriorityBlockingQueue<>();
+    private final AtomicLong sequenceNumber = new AtomicLong(0);
+    private static final QueueMgr INSTANCE = new QueueMgr();
+
+    private QueueMgr() {}
+
+    public static QueueMgr getInstance() {
+        return INSTANCE;
+    }
+
+    /**
+     * إضافة عملية إلى الطابور
+     */
+    public void enqueue(Operation operation, Priority priority) {
+        QueuedOperation queuedOp = new QueuedOperation(
+            operation,
+            priority,
+            System.currentTimeMillis(),
+            sequenceNumber.getAndIncrement()
+        );
+        operationQueue.offer(queuedOp);
+        System.out.println("QUEUE: Enqueued operation " + operation.getType() + 
+                          " with priority " + priority);
+    }
+
+    /**
+     * الحصول على العملية التالية من الطابور
+     */
+    public QueuedOperation dequeue() throws InterruptedException {
+        return operationQueue.take();
+    }
+
+    /**
+     * الحصول على حجم الطابور
+     */
+    public int size() {
+        return operationQueue.size();
+    }
+
+    /**
+     * مسح الطابور
+     */
+    public void clear() {
+        operationQueue.clear();
+    }
+
+    /**
+     * واجهة العملية
+     */
+    @FunctionalInterface
+    public interface Operation {
+        String getType();
+        void execute();
+        boolean isRetryable();
+    }
+
+    /**
+     * أولوية العملية
+     */
+    public enum Priority implements Comparable<Priority> {
+        HIGH(1),
+        MEDIUM(2),
+        LOW(3);
+
+        private final int value;
+
+        Priority(int value) {
+            this.value = value;
+        }
+
+        public int getValue() {
+            return value;
+        }
+    }
+
+    /**
+     * العملية المؤجلة
+     */
+    public static final class QueuedOperation implements Comparable<QueuedOperation> {
+        private final Operation operation;
+        private final Priority priority;
+        private final long timestamp;
+        private final long sequenceNumber;
+
+        public QueuedOperation(Operation operation, Priority priority, long timestamp, long sequenceNumber) {
+            this.operation = operation;
+            this.priority = priority;
+            this.timestamp = timestamp;
+            this.sequenceNumber = sequenceNumber;
+        }
+
+        public Operation getOperation() { return operation; }
+        public Priority getPriority() { return priority; }
+        public long getTimestamp() { return timestamp; }
+
+        @Override
+        public int compareTo(QueuedOperation other) {
+            // الفرز حسب الأولوية أولاً، ثم التوقيت، ثم رقم التسلسل
+            int priorityCompare = Integer.compare(this.priority.getValue(), other.priority.getValue());
+            if (priorityCompare != 0) {
+                return priorityCompare;
+            }
+            
+            int timestampCompare = Long.compare(this.timestamp, other.timestamp);
+            if (timestampCompare != 0) {
+                return timestampCompare;
+            }
+            
+            return Long.compare(this.sequenceNumber, other.sequenceNumber);
+        }
+    }
+}
