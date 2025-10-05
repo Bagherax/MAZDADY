@@ -1,0 +1,181 @@
+package mazdady.sec;
+
+import mazdady.user.User;
+import mazdady.wallet.WalletManager;
+
+import java.time.Instant;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReference;
+
+/**
+ * مُحقّق مكافحة غسل الأموال مع دعم المراقبة الحية
+ * يتبع نمط Observer لإعلام النظام بالأنشطة المشبوهة
+ */
+public final class AMLValidator {
+    private final ConcurrentHashMap<String, UserActivity> userActivities = new ConcurrentHashMap<>();
+    private final AtomicReference<AMLConfig> config = new AtomicReference<>(new AMLConfig());
+    private static AMLValidator instance;
+
+    private AMLValidator() {}
+
+    public static synchronized AMLValidator getInstance() {
+        if (instance == null) {
+            instance = new AMLValidator();
+        }
+        return instance;
+    }
+
+    /**
+     * التحقق من نشاط المستخدم
+     */
+    public AMLResult validateActivity(User user, String activityType, double amount) {
+        UserActivity activity = userActivities.computeIfAbsent(
+            user.getUserId(), 
+            k -> new UserActivity(user.getUserId())
+        );
+        
+        // تحديث النشاط
+        activity.addTransaction(amount, activityType);
+        
+        // التحقق من القواعد
+        if (isSuspiciousActivity(activity, amount)) {
+            return AMLResult.suspicious("Suspicious activity detected: " + activityType);
+        }
+        
+        return AMLResult.clean("Activity validated");
+    }
+
+    /**
+     * التحقق من سحب كبير
+     */
+    public AMLResult validateWithdrawal(User user, double amount) {
+        AMLConfig currentConfig = config.get();
+        
+        if (amount > currentConfig.getMaxWithdrawalAmount()) {
+            return AMLResult.suspicious("Withdrawal amount exceeds limit: " + amount);
+        }
+        
+        if (amount > user.getBalance() * currentConfig.getMaxWithdrawalRatio()) {
+            return AMLResult.suspicious("Withdrawal ratio exceeds limit: " + amount);
+        }
+        
+        return AMLResult.clean("Withdrawal validated");
+    }
+
+    private boolean isSuspiciousActivity(UserActivity activity, double amount) {
+        AMLConfig currentConfig = config.get();
+        
+        // التحقق من عدد المعاملات في الدقيقة
+        if (activity.getTransactionsInLastMinute() > currentConfig.getMaxTransactionsPerMinute()) {
+            return true;
+        }
+        
+        // التحقق من المبلغ الكبير
+        if (amount > currentConfig.getSuspiciousAmountThreshold()) {
+            return true;
+        }
+        
+        // التحقق من النشاط غير المعتاد
+        if (activity.isUnusualPattern()) {
+            return true;
+        }
+        
+        return false;
+    }
+
+    /**
+     * تحديث إعدادات AML
+     */
+    public void updateConfig(AMLConfig newConfig) {
+        config.set(newConfig);
+    }
+
+    /**
+     * نتيجة AML
+     */
+    public static final class AMLResult {
+        private final boolean suspicious;
+        private final String message;
+
+        private AMLResult(boolean suspicious, String message) {
+            this.suspicious = suspicious;
+            this.message = message;
+        }
+
+        public static AMLResult clean(String message) {
+            return new AMLResult(false, message);
+        }
+
+        public static AMLResult suspicious(String message) {
+            return new AMLResult(true, message);
+        }
+
+        public boolean isSuspicious() { return suspicious; }
+        public String getMessage() { return message; }
+    }
+
+    /**
+     * نشاط المستخدم
+     */
+    private static final class UserActivity {
+        private final String userId;
+        private final java.util.Queue<Transaction> recentTransactions = 
+            new java.util.concurrent.ConcurrentLinkedQueue<>();
+
+        public UserActivity(String userId) {
+            this.userId = userId;
+        }
+
+        public void addTransaction(double amount, String type) {
+            recentTransactions.offer(new Transaction(amount, type, System.currentTimeMillis()));
+            
+            // إزالة المعاملات القديمة (أكثر من دقيقة)
+            long minuteAgo = System.currentTimeMillis() - 60000;
+            recentTransactions.removeIf(tx -> tx.timestamp < minuteAgo);
+        }
+
+        public int getTransactionsInLastMinute() {
+            return recentTransactions.size();
+        }
+
+        public boolean isUnusualPattern() {
+            // في الإنتاج: تحليل أنماط النشاط باستخدام ML
+            return recentTransactions.size() > 10;
+        }
+    }
+
+    /**
+     * معاملة
+     */
+    private static final class Transaction {
+        private final double amount;
+        private final String type;
+        private final long timestamp;
+
+        public Transaction(double amount, String type, long timestamp) {
+            this.amount = amount;
+            this.type = type;
+            this.timestamp = timestamp;
+        }
+    }
+
+    /**
+     * إعدادات AML
+     */
+    public static final class AMLConfig {
+        private double maxWithdrawalAmount = 10000.0;
+        private double maxWithdrawalRatio = 0.5; // 50% من الرصيد
+        private int maxTransactionsPerMinute = 5;
+        private double suspiciousAmountThreshold = 5000.0;
+
+        // Getters and Setters
+        public double getMaxWithdrawalAmount() { return maxWithdrawalAmount; }
+        public void setMaxWithdrawalAmount(double maxWithdrawalAmount) { this.maxWithdrawalAmount = maxWithdrawalAmount; }
+        public double getMaxWithdrawalRatio() { return maxWithdrawalRatio; }
+        public void setMaxWithdrawalRatio(double maxWithdrawalRatio) { this.maxWithdrawalRatio = maxWithdrawalRatio; }
+        public int getMaxTransactionsPerMinute() { return maxTransactionsPerMinute; }
+        public void setMaxTransactionsPerMinute(int maxTransactionsPerMinute) { this.maxTransactionsPerMinute = maxTransactionsPerMinute; }
+        public double getSuspiciousAmountThreshold() { return suspiciousAmountThreshold; }
+        public void setSuspiciousAmountThreshold(double suspiciousAmountThreshold) { this.suspiciousAmountThreshold = suspiciousAmountThreshold; }
+    }
+}
