@@ -1,65 +1,199 @@
 package mazdady.ctrl;
 
-import mazdady.ad.AdManager;
 import mazdady.ad.AdCampaign;
+import mazdady.ad.AdManager;
+import mazdady.user.User;
 import mazdady.user.UserManager;
+import mazdady.wallet.WalletManager;
 
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Consumer;
 
 /**
  * وحدة تحكم الترويج مع دعم الحملات المتقدمة
- * يتبع نمط Facade لتوفير واجهة مبسطة
+ * يتبع نمط Facade لتوفير واجهة موحدة
  */
 public final class PromotionController {
     private final AdManager adManager;
-    private static final PromotionController INSTANCE = new PromotionController();
+    private final UserManager userManager;
+    private final WalletManager walletManager;
+    private final ConcurrentHashMap<String, Consumer<PromotionEvent>> promotionListeners = new ConcurrentHashMap<>();
+    private static PromotionController instance;
 
-    private PromotionController() {
-        this.adManager = AdManager.getInstance();
+    private PromotionController(AdManager adManager, UserManager userManager, WalletManager walletManager) {
+        this.adManager = adManager;
+        this.userManager = userManager;
+        this.walletManager = walletManager;
     }
 
-    public static PromotionController getInstance() {
-        return INSTANCE;
+    public static synchronized PromotionController getInstance(AdManager adManager, 
+                                                             UserManager userManager, 
+                                                             WalletManager walletManager) {
+        if (instance == null) {
+            instance = new PromotionController(adManager, userManager, walletManager);
+        }
+        return instance;
     }
 
     /**
      * إنشاء حملة ترويجية غير متزامنة
      */
-    public CompletableFuture<AdCampaign> createPromotionAsync(
-        String platform,
+    public CompletableFuture<PromotionResult> createPromotionCampaignAsync(
+        String userId,
+        AdCampaign.Platform platform,
         String contentUrl,
-        String goal,
+        AdCampaign.Goal goal,
         int targetCount,
         double budget
     ) {
-        return adManager.createCampaignAsync(
-            AdCampaign.Platform.valueOf(platform.toUpperCase()),
-            contentUrl,
-            AdCampaign.Goal.valueOf(goal.toUpperCase()),
-            targetCount,
-            budget
-        );
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                User user = userManager.getUserById(userId);
+                if (user == null) {
+                    return PromotionResult.failure("User not found");
+                }
+                
+                // التحقق من الرصيد
+                if (user.getBalance() < budget) {
+                    return PromotionResult.failure("Insufficient balance");
+                }
+                
+                // التحقق من صحة رابط المحتوى
+                if (!isValidContentUrl(contentUrl, platform)) {
+                    return PromotionResult.failure("Invalid content URL for " + platform);
+                }
+                
+                // خصم الميزانية
+                user.setBalance(user.getBalance() - budget);
+                
+                // إنشاء الحملة
+                AdCampaign campaign = adManager.createCampaign(
+                    platform, contentUrl, goal, targetCount, budget, userId
+                );
+                
+                // تسجيل الحملة
+                System.out.println("PROMOTION CONTROLLER: Created campaign " + campaign.getCampaignId() + 
+                                 " for user " + userId);
+                
+                // إشعار المستمعين
+                notifyPromotionListeners(new PromotionEvent(
+                    PromotionEvent.EventType.CAMPAIGN_CREATED,
+                    userId,
+                    campaign.getCampaignId(),
+                    "Campaign created successfully"
+                ));
+                
+                return PromotionResult.success(campaign, "Promotion campaign created successfully");
+                
+            } catch (Exception e) {
+                return PromotionResult.failure("Promotion campaign creation failed: " + e.getMessage());
+            }
+        });
     }
 
     /**
-     * إنشاء حملة ترويجية للمستخدم الحالي
+     * إضافة مستمع للأحداث الترويجية
      */
-    public void createPromotionForCurrentUser(
-        String platform,
-        String contentUrl,
-        String goal,
-        int targetCount,
-        double budget
-    ) {
-        String userId = UserManager.getInstance(null).getCurrentUser().getUserId();
-        adManager.createCampaign(
-            AdCampaign.Platform.valueOf(platform.toUpperCase()),
-            contentUrl,
-            AdCampaign.Goal.valueOf(goal.toUpperCase()),
-            targetCount,
-            budget,
-            campaign -> System.out.println("PROMOTION: Campaign " + campaign.getCampaignId() + " created"),
-            error -> System.err.println("PROMOTION ERROR: " + error.getMessage())
-        );
+    public void addPromotionListener(String listenerId, Consumer<PromotionEvent> listener) {
+        if (listenerId != null && listener != null) {
+            promotionListeners.put(listenerId, listener);
+            System.out.println("PROMOTION CONTROLLER: Added listener " + listenerId);
+        }
+    }
+
+    /**
+     * إزالة مستمع للأحداث الترويجية
+     */
+    public void removePromotionListener(String listenerId) {
+        if (listenerId != null) {
+            promotionListeners.remove(listenerId);
+            System.out.println("PROMOTION CONTROLLER: Removed listener " + listenerId);
+        }
+    }
+
+    private void notifyPromotionListeners(PromotionEvent event) {
+        promotionListeners.values().forEach(listener -> {
+            try {
+                listener.accept(event);
+            } catch (Exception e) {
+                // تجاهل أخطاء المستمعين
+            }
+        });
+    }
+
+    private boolean isValidContentUrl(String url, AdCampaign.Platform platform) {
+        if (url == null || url.isEmpty()) return false;
+        
+        switch (platform) {
+            case YOUTUBE:
+                return url.contains("youtube.com/watch") || url.contains("youtu.be/");
+            case TIKTOK:
+                return url.contains("tiktok.com/");
+            case INSTAGRAM:
+                return url.contains("instagram.com/");
+            case TWITTER:
+                return url.contains("twitter.com/") || url.contains("x.com/");
+            case FACEBOOK:
+                return url.contains("facebook.com/");
+            case TELEGRAM:
+                return url.contains("t.me/");
+            default:
+                return false;
+        }
+    }
+
+    /**
+     * نتيجة الحملة الترويجية
+     */
+    public static final class PromotionResult {
+        private final boolean success;
+        private final AdCampaign campaign;
+        private final String message;
+
+        private PromotionResult(boolean success, AdCampaign campaign, String message) {
+            this.success = success;
+            this.campaign = campaign;
+            this.message = message;
+        }
+
+        public static PromotionResult success(AdCampaign campaign, String message) {
+            return new PromotionResult(true, campaign, message);
+        }
+
+        public static PromotionResult failure(String message) {
+            return new PromotionResult(false, null, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public AdCampaign getCampaign() { return campaign; }
+        public String getMessage() { return message; }
+    }
+
+    /**
+     * حدث الترويج
+     */
+    public static final class PromotionEvent {
+        private final EventType type;
+        private final String userId;
+        private final String campaignId;
+        private final String message;
+
+        public PromotionEvent(EventType type, String userId, String campaignId, String message) {
+            this.type = type;
+            this.userId = userId;
+            this.campaignId = campaignId;
+            this.message = message;
+        }
+
+        public enum EventType {
+            CAMPAIGN_CREATED, CAMPAIGN_COMPLETED, CAMPAIGN_FAILED, CAMPAIGN_PAUSED, CAMPAIGN_RESUMED
+        }
+
+        // Getters
+        public EventType getType() { return type; }
+        public String getUserId() { return userId; }
+        public String getCampaignId() { return campaignId; }
+        public String getMessage() { return message; }
     }
 }
