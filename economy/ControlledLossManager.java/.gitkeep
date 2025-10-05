@@ -1,0 +1,101 @@
+package mazdady.economy;
+
+import mazdady.user.UserManager;
+import mazdady.user.User;
+
+import java.time.Instant;
+import java.util.concurrent.atomic.AtomicReference;
+
+/**
+ * مدير الخسارة المُدارة مع دعم الحماية الذكية
+ * يتبع نمط State لتمثيل حالات الحماية
+ */
+public final class ControlledLossManager {
+    private final AtomicReference<ProtectionState> currentState = new AtomicReference<>(new NormalState());
+    private static final ControlledLossManager INSTANCE = new ControlledLossManager();
+
+    private ControlledLossManager() {}
+
+    public static ControlledLossManager getInstance() {
+        return INSTANCE;
+    }
+
+    /**
+     * تطبيق خسارة مُدارة على المستخدم
+     */
+    public double applyControlledLoss(double lossAmount) {
+        ProtectionState state = currentState.get();
+        double actualLoss = state.calculateActualLoss(lossAmount);
+        
+        // تحديث حالة الحماية
+        ProtectionState newState = state.getNextState(lossAmount);
+        currentState.set(newState);
+        
+        System.out.println("CONTROLLED LOSS: Applied " + actualLoss + " MAZDADY loss at " + Instant.now() +
+                          " (State: " + newState.getName() + ")");
+        return actualLoss;
+    }
+
+    /**
+     * التحقق من حالة الحماية الحالية
+     */
+    public String getCurrentProtectionState() {
+        return currentState.get().getName();
+    }
+
+    /**
+     * واجهة حالة الحماية
+     */
+    private interface ProtectionState {
+        String getName();
+        double calculateActualLoss(double lossAmount);
+        ProtectionState getNextState(double lossAmount);
+    }
+
+    // --- حالات الحماية ---
+    private static final class NormalState implements ProtectionState {
+        @Override public String getName() { return "NORMAL"; }
+        @Override public double calculateActualLoss(double lossAmount) {
+            // الخسارة الكاملة في الحالة العادية
+            return lossAmount;
+        }
+        @Override public ProtectionState getNextState(double lossAmount) {
+            User user = UserManager.getInstance(null).getCurrentUser();
+            double balance = user.getBalance();
+            double lossRatio = lossAmount / (balance + lossAmount);
+            
+            if (lossRatio > 0.5) {
+                return new HighRiskState();
+            }
+            return this;
+        }
+    }
+
+    private static final class HighRiskState implements ProtectionState {
+        @Override public String getName() { return "HIGH_RISK"; }
+        @Override public double calculateActualLoss(double lossAmount) {
+            // تقليل الخسارة بنسبة 30% في حالة الخطر العالي
+            return lossAmount * 0.7;
+        }
+        @Override public ProtectionState getNextState(double lossAmount) {
+            // البقاء في حالة الخطر العالي حتى يتحسن الرصيد
+            return this;
+        }
+    }
+
+    /**
+     * تفعيل الحماية يدويًا
+     */
+    public void activateHighRiskProtection() {
+        currentState.set(new HighRiskState());
+        System.out.println("PROTECTION ACTIVATED: High risk protection enabled");
+    }
+
+    /**
+     * إلغاء تفعيل الحماية
+     */
+    public void deactivateProtection() {
+        currentState.set(new NormalState());
+        System.out.println("PROTECTION DEACTIVATED: Normal state restored");
+    }
+}
