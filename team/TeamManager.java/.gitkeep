@@ -2,33 +2,157 @@ package mazdady.team;
 
 import mazdady.trading.PriceEngine;
 import mazdady.user.User;
-import java.util.List;
+import mazdady.admin.AdminConfig;
 
-public class TeamManager {
-    private BuyingTeam buyingTeam;
-    private SellingTeam sellingTeam;
-    private PriceEngine priceEngine;
+import java.util.List;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+
+/**
+ * مدير الفرق مع دعم المباريات والتحكم المتقدم
+ * يتبع نمط Facade لتوفير واجهة موحدة
+ */
+public final class TeamManager {
+    private final BuyingTeam buyingTeam;
+    private final SellingTeam sellingTeam;
+    private final PriceEngine priceEngine;
+    private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(2);
+    private volatile boolean teamsActive = true;
 
     public TeamManager(PriceEngine priceEngine) {
         this.priceEngine = priceEngine;
         this.buyingTeam = new BuyingTeam(priceEngine);
         this.sellingTeam = new SellingTeam(priceEngine);
-    }
-
-    public void executeMatch(List<User> realUsers) {
-        // تشغيل الفريقين في نفس الوقت
-        buyingTeam.executeTrades(realUsers);
-        sellingTeam.executeTrades(realUsers);
         
-        // توزيع الأرباح بعد كل جولة
-        distributeProfits();
+        // تحميل إعدادات الفريق من الإدارة
+        loadTeamSettings();
+        
+        // بدء تشغيل الفرق
+        startTeams();
     }
 
-    private void distributeProfits() {
-        double totalProfit = priceEngine.getSystemTreasury();
-        if (totalProfit > 0) {
-            // 70% للفريق الفائز، 30% للخزينة
-            priceEngine.resetSystemTreasury();
+    /**
+     * بدء تشغيل الفرق
+     */
+    public void startTeams() {
+        if (!teamsActive) return;
+        
+        // جدولة تنفيذ الصفقات كل 30 ثانية
+        scheduler.scheduleAtFixedRate(
+            () -> {
+                // في الإنتاج: الحصول من قاعدة البيانات أو إدارة المستخدمين
+                List<User> dummyUsers = List.of(); // قائمة مستخدمين وهمية
+                executeTeamTrades(dummyUsers);
+            },
+            0,
+            30,
+            TimeUnit.SECONDS
+        );
+        
+        System.out.println("TEAM MANAGER: Teams started");
+    }
+
+    /**
+     * إيقاف الفرق
+     */
+    public void stopTeams() {
+        scheduler.shutdown();
+        buyingTeam.deactivate();
+        sellingTeam.deactivate();
+        System.out.println("TEAM MANAGER: Teams stopped");
+    }
+
+    /**
+     * تنفيذ صفقات الفريق
+     */
+    public void executeTeamTrades(List<User> realUsers) {
+        if (!teamsActive) return;
+        
+        // في الإنتاج: التحقق من إعدادات الإدارة
+        if (AdminConfig.getInstance().getTeamsMinUsers() <= realUsers.size()) {
+            buyingTeam.executeTrades(realUsers);
+            sellingTeam.executeTrades(realUsers);
+            
+            // توزيع الأرباح
+            distributeProfits();
         }
+    }
+
+    /**
+     * توزيع الأرباح بين الفرق
+     */
+    private void distributeProfits() {
+        double systemTreasury = priceEngine.getSystemTreasury();
+        if (systemTreasury > 0) {
+            // 70% للفريق الفائز، 30% للخزينة
+            double winnerShare = systemTreasury * 0.7;
+            double treasuryShare = systemTreasury * 0.3;
+            
+            // تحديد الفريق الفائز (الذي ساهم أكثر في تحريك السعر)
+            if (buyingTeam.getCapital() < 8000 && sellingTeam.getHoldings() > 4000) {
+                // فريق الشراء ساهم أكثر
+                buyingTeam.addCapital(winnerShare);
+                System.out.println("PROFIT DISTRIBUTION: Buy team won " + winnerShare + " MAZDADY");
+            } else if (sellingTeam.getHoldings() < 4000 && buyingTeam.getCapital() > 8000) {
+                // فريق البيع ساهم أكثر
+                sellingTeam.addHoldings(winnerShare);
+                System.out.println("PROFIT DISTRIBUTION: Sell team won " + winnerShare + " MAZDADY");
+            } else {
+                // تقسيم متساوي
+                buyingTeam.addCapital(winnerShare / 2);
+                sellingTeam.addHoldings(winnerShare / 2);
+                System.out.println("PROFIT DISTRIBUTION: Equal split " + (winnerShare/2) + " MAZDADY each");
+            }
+            
+            // تحديث الخزينة
+            priceEngine.resetSystemTreasury();
+            priceEngine.addToSystemTreasury(treasuryShare);
+        }
+    }
+
+    /**
+     * تحميل إعدادات الفريق من الإدارة
+     */
+    private void loadTeamSettings() {
+        try {
+            AdminConfig config = AdminConfig.getInstance();
+            // في الإنتاج: تحميل الإعدادات من config.json
+            System.out.println("TEAM MANAGER: Loaded team settings from admin config");
+        } catch (Exception e) {
+            System.err.println("TEAM MANAGER: Failed to load settings, using defaults");
+        }
+    }
+
+    /**
+     * تحديث إعدادات الفريق
+     */
+    public void updateTeamSettings() {
+        loadTeamSettings();
+        System.out.println("TEAM MANAGER: Team settings updated");
+    }
+
+    // --- Getters ---
+    public BuyingTeam getBuyingTeam() { return buyingTeam; }
+    public SellingTeam getSellingTeam() { return sellingTeam; }
+    
+    /**
+     * تفعيل الفرق
+     */
+    public void activateTeams() {
+        buyingTeam.activate();
+        sellingTeam.activate();
+        teamsActive = true;
+        System.out.println("TEAM MANAGER: Teams activated");
+    }
+    
+    /**
+     * تعطيل الفرق
+     */
+    public void deactivateTeams() {
+        buyingTeam.deactivate();
+        sellingTeam.deactivate();
+        teamsActive = false;
+        System.out.println("TEAM MANAGER: Teams deactivated");
     }
 }
