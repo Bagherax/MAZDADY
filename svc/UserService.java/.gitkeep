@@ -1,0 +1,102 @@
+package mazdady.svc;
+
+import mazdady.user.User;
+import mazdady.user.UserManager;
+import mazdady.auth.KYCValidator;
+
+import java.util.concurrent.CompletableFuture;
+
+/**
+ * خدمة المستخدم مع دعم العمليات المتقدمة
+ * يتبع نمط Facade لتوفير واجهة موحدة
+ */
+public final class UserService {
+    private static UserService instance;
+
+    private UserService() {}
+
+    public static synchronized UserService getInstance() {
+        if (instance == null) {
+            instance = new UserService();
+        }
+        return instance;
+    }
+
+    /**
+     * تحديث رصيد المستخدم غير المتزامن
+     */
+    public CompletableFuture<Boolean> updateBalanceAsync(String userId, double newBalance) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                User user = UserManager.getInstance(null).getCurrentUser();
+                if (user.getUserId().equals(userId)) {
+                    user.setBalance(newBalance);
+                    System.out.println("USER BALANCE UPDATED: " + userId + " to " + newBalance);
+                    return true;
+                }
+                return false;
+            } catch (Exception e) {
+                System.err.println("BALANCE UPDATE FAILED: " + e.getMessage());
+                return false;
+            }
+        });
+    }
+
+    /**
+     * تحقق KYC غير المتزامن
+     */
+    public CompletableFuture<KYCResult> verifyKYCAsync(String userId, String documentData) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                KYCValidator.KYCResult result = 
+                    KYCValidator.getInstance().startKYCVerificationAsync(userId, documentData).join();
+                
+                if (result.isSuccess()) {
+                    User user = UserManager.getInstance(null).getCurrentUser();
+                    user.getKycStatus().markAsVerified("NATIONAL_ID", "verified_hash");
+                    System.out.println("KYC VERIFIED: " + userId);
+                    return KYCResult.success("KYC verification completed successfully");
+                } else {
+                    return KYCResult.failure(result.getMessage());
+                }
+            } catch (Exception e) {
+                return KYCResult.failure("KYC verification failed: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * تحديث مستوى المستخدم
+     */
+    public void updateUserLevel(String userId, int newLevel) {
+        User user = UserManager.getInstance(null).getCurrentUser();
+        if (user.getUserId().equals(userId)) {
+            user.setLevel(newLevel);
+            System.out.println("USER LEVEL UPDATED: " + userId + " to level " + newLevel);
+        }
+    }
+
+    /**
+     * نتيجة KYC
+     */
+    public static final class KYCResult {
+        private final boolean success;
+        private final String message;
+
+        private KYCResult(boolean success, String message) {
+            this.success = success;
+            this.message = message;
+        }
+
+        public static KYCResult success(String message) {
+            return new KYCResult(true, message);
+        }
+
+        public static KYCResult failure(String message) {
+            return new KYCResult(false, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public String getMessage() { return message; }
+    }
+}
