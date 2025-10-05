@@ -1,0 +1,144 @@
+package mazdady.emergency;
+
+import java.time.Instant;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
+
+/**
+ * مدير الطوارئ المركزي مع دعم الحالات المتقدمة
+ * يتبع نمط State لتمثيل مستويات الطوارئ المختلفة
+ */
+public final class EmergencyMgr {
+    private final AtomicReference<EmergencyState> currentState = new AtomicReference<>(new NormalState());
+    private final Map<String, Consumer<EmergencyEvent>> listeners = new ConcurrentHashMap<>();
+    private static final EmergencyMgr INSTANCE = new EmergencyMgr();
+
+    private EmergencyMgr() {}
+
+    public static EmergencyMgr getInstance() {
+        return INSTANCE;
+    }
+
+    /**
+     * تفعيل حالة طوارئ
+     */
+    public void triggerEmergency(EmergencyLevel level, String reason) {
+        EmergencyEvent event = new EmergencyEvent(level, reason, Instant.now());
+        currentState.get().handleEmergency(event);
+        notifyListeners(event);
+    }
+
+    /**
+     * إضافة مستمع لأحداث الطوارئ
+     */
+    public void addListener(String listenerId, Consumer<EmergencyEvent> listener) {
+        listeners.put(listenerId, listener);
+    }
+
+    /**
+     * إزالة مستمع
+     */
+    public void removeListener(String listenerId) {
+        listeners.remove(listenerId);
+    }
+
+    private void notifyListeners(EmergencyEvent event) {
+        listeners.values().forEach(listener -> listener.accept(event));
+    }
+
+    /**
+     * الحصول على حالة الطوارئ الحالية
+     */
+    public EmergencyLevel getCurrentLevel() {
+        return currentState.get().getLevel();
+    }
+
+    /**
+     * استعادة الحالة الطبيعية
+     */
+    public void restoreNormalState() {
+        currentState.set(new NormalState());
+        System.out.println("EMERGENCY: Normal state restored at " + Instant.now());
+    }
+
+    /**
+     * حدث الطوارئ
+     */
+    public static final class EmergencyEvent {
+        private final EmergencyLevel level;
+        private final String reason;
+        private final Instant timestamp;
+
+        public EmergencyEvent(EmergencyLevel level, String reason, Instant timestamp) {
+            this.level = level;
+            this.reason = reason;
+            this.timestamp = timestamp;
+        }
+
+        public EmergencyLevel getLevel() { return level; }
+        public String getReason() { return reason; }
+        public Instant getTimestamp() { return timestamp; }
+    }
+
+    /**
+     * واجهة حالة الطوارئ
+     */
+    private interface EmergencyState {
+        EmergencyLevel getLevel();
+        void handleEmergency(EmergencyEvent event);
+    }
+
+    // --- حالات الطوارئ ---
+    private static final class NormalState implements EmergencyState {
+        @Override public EmergencyLevel getLevel() { return EmergencyLevel.NORMAL; }
+        @Override public void handleEmergency(EmergencyEvent event) {
+            EmergencyMgr mgr = EmergencyMgr.getInstance();
+            switch (event.getLevel()) {
+                case WARNING:
+                    mgr.currentState.set(new WarningState());
+                    break;
+                case CRITICAL:
+                    mgr.currentState.set(new CriticalState());
+                    break;
+                case SYSTEM_WIDE:
+                    mgr.currentState.set(new SystemWideState());
+                    break;
+            }
+            System.out.println("EMERGENCY: State changed to " + mgr.getCurrentLevel() + 
+                             " due to: " + event.getReason());
+        }
+    }
+
+    private static final class WarningState implements EmergencyState {
+        @Override public EmergencyLevel getLevel() { return EmergencyLevel.WARNING; }
+        @Override public void handleEmergency(EmergencyEvent event) {
+            // في الإنتاج: إرسال تنبيهات للمشرفين
+            System.out.println("WARNING: " + event.getReason());
+        }
+    }
+
+    private static final class CriticalState implements EmergencyState {
+        @Override public EmergencyLevel getLevel() { return EmergencyLevel.CRITICAL; }
+        @Override public void handleEmergency(EmergencyEvent event) {
+            // في الإنتاج: تعطيل الميزات غير الضرورية
+            System.out.println("CRITICAL: " + event.getReason() + " - Non-essential features disabled");
+        }
+    }
+
+    private static final class SystemWideState implements EmergencyState {
+        @Override public EmergencyLevel getLevel() { return EmergencyLevel.SYSTEM_WIDE; }
+        @Override public void handleEmergency(EmergencyEvent event) {
+            // في الإنتاج: وضع النظام في وضع الأمان
+            System.out.println("SYSTEM WIDE EMERGENCY: " + event.getReason() + " - Safety mode activated");
+        }
+    }
+
+    /**
+     * مستويات الطوارئ
+     */
+    public enum EmergencyLevel {
+        NORMAL, WARNING, CRITICAL, SYSTEM_WIDE
+    }
+}
