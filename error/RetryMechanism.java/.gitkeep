@@ -1,0 +1,126 @@
+package mazdady.error;
+
+import java.time.Duration;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
+
+/**
+ * آلية إعادة المحاولة مع دعم الاستراتيجيات الديناميكية
+ * يتبع نمط Strategy لفصل استراتيجيات إعادة المحاولة
+ */
+public final class RetryMechanism {
+    private static final RetryMechanism INSTANCE = new RetryMechanism();
+
+    private RetryMechanism() {}
+
+    public static RetryMechanism getInstance() {
+        return INSTANCE;
+    }
+
+    /**
+     * تنفيذ عملية مع إعادة المحاولة غير المتزامنة
+     */
+    public <T> CompletableFuture<T> executeWithRetryAsync(
+        Supplier<T> operation,
+        RetryStrategy strategy,
+        Class<? extends Exception>... retryableExceptions
+    ) {
+        return CompletableFuture.supplyAsync(() -> {
+            int attempt = 0;
+            long startTime = System.currentTimeMillis();
+            
+            while (attempt < strategy.getMaxAttempts()) {
+                try {
+                    T result = operation.get();
+                    if (attempt > 0) {
+                        System.out.println("RETRY: Operation succeeded on attempt " + (attempt + 1));
+                    }
+                    return result;
+                    
+                } catch (Exception e) {
+                    attempt++;
+                    boolean shouldRetry = shouldRetry(e, retryableExceptions);
+                    
+                    if (!shouldRetry || attempt >= strategy.getMaxAttempts()) {
+                        System.err.println("RETRY: Operation failed after " + attempt + " attempts");
+                        throw new RuntimeException("Operation failed after " + attempt + " attempts", e);
+                    }
+                    
+                    long delay = strategy.getDelayMs(attempt);
+                    long elapsedTime = System.currentTimeMillis() - startTime;
+                    long remainingTime = strategy.getTimeoutMs() - elapsedTime;
+                    
+                    if (remainingTime <= 0) {
+                        System.err.println("RETRY: Timeout exceeded");
+                        throw new RuntimeException("Operation timeout exceeded", e);
+                    }
+                    
+                    if (delay > remainingTime) {
+                        delay = remainingTime;
+                    }
+                    
+                    System.out.println("RETRY: Attempt " + attempt + " failed. Retrying in " + delay + "ms...");
+                    try {
+                        Thread.sleep(delay);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        throw new RuntimeException("Retry interrupted", ie);
+                    }
+                }
+            }
+            
+            throw new RuntimeException("Unexpected state in retry mechanism");
+        });
+    }
+
+    private boolean shouldRetry(Exception e, Class<? extends Exception>[] retryableExceptions) {
+        for (Class<? extends Exception> exceptionClass : retryableExceptions) {
+            if (exceptionClass.isInstance(e)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * واجهة استراتيجية إعادة المحاولة
+     */
+    @FunctionalInterface
+    public interface RetryStrategy {
+        int getMaxAttempts();
+        long getDelayMs(int attempt);
+        long getTimeoutMs();
+    }
+
+    /**
+     * استراتيجيات مدمجة
+     */
+    public static final class Strategies {
+        public static RetryStrategy exponentialBackoff(int maxAttempts, Duration timeout) {
+            return new RetryStrategy() {
+                @Override public int getMaxAttempts() { return maxAttempts; }
+                @Override public long getDelayMs(int attempt) { 
+                    return Math.min(1000L * (1L << attempt), 30000); // 1s, 2s, 4s, 8s, 16s, max 30s
+                }
+                @Override public long getTimeoutMs() { return timeout.toMillis(); }
+            };
+        }
+
+        public static RetryStrategy fixedDelay(int maxAttempts, long delayMs, Duration timeout) {
+            return new RetryStrategy() {
+                @Override public int getMaxAttempts() { return maxAttempts; }
+                @Override public long getDelayMs(int attempt) { return delayMs; }
+                @Override public long getTimeoutMs() { return timeout.toMillis(); }
+            };
+        }
+
+        public static RetryStrategy noDelay(int maxAttempts, Duration timeout) {
+            return new RetryStrategy() {
+                @Override public int getMaxAttempts() { return maxAttempts; }
+                @Override public long getDelayMs(int attempt) { return 0; }
+                @Override public long getTimeoutMs() { return timeout.toMillis(); }
+            };
+        }
+    }
+}
