@@ -5,85 +5,173 @@ import mazdady.trading.OrderBook;
 
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 
 /**
  * بوت السيولة مع دعم إدارة العمق السوقي
- * يحافظ على توازن أوامر الشراء والبيع
+ * يتبع نمط Strategy لفصل استراتيجيات السيولة
  */
 public final class LiquidityBot extends TradingBot {
-    private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
-    private double liquidityPool = 10000.0; // رأس مال السيولة
+    private final ScheduledExecutorService liquidityScheduler = Executors.newSingleThreadScheduledExecutor();
+    private final OrderBook orderBook;
+    private volatile double liquidityPool = 10000.0; // رأس مال السيولة
 
-    public LiquidityBot(String botId, PriceEngine priceEngine, OrderBook orderBook) {
-        super(botId, priceEngine, orderBook);
-        setBehavior(new BalancedLiquidityBehavior());
+    public LiquidityBot(String botId, PriceEngine priceEngine) {
+        super(botId, priceEngine);
+        this.orderBook = new OrderBook();
+        setCapital(liquidityPool);
     }
 
     @Override
-    protected void executeTradingStrategy() {
-        // جدولة تحديث السيولة كل 30 ثانية
-        scheduler.scheduleAtFixedRate(
-            this::provideLiquidity,
-            0,
-            30,
-            TimeUnit.SECONDS
-        );
-    }
-
-    private void provideLiquidity() {
-        if (!isActive()) return;
-        
-        BotBehavior behavior = currentBehavior.get();
-        if (behavior != null) {
-            behavior.execute(this);
+    public void start() {
+        if (isActive.compareAndSet(false, true)) {
+            liquidityScheduler.scheduleAtFixedRate(
+                this::provideLiquidity,
+                0,
+                15,
+                TimeUnit.SECONDS
+            );
+            
+            System.out.println("LIQUIDITY BOT: Started - ID: " + getBotId() + 
+                             " - Pool: " + liquidityPool + " MAZDADY");
         }
     }
 
-    private void placeBuyOrder(double amount) {
-        if (liquidityPool >= amount) {
-            priceEngine.executeBuyOrder(botId, amount);
-            liquidityPool -= amount;
-            logger.accept("Placed BUY order: " + amount + " MAZDADY");
+    @Override
+    public void stop() {
+        if (isActive.compareAndSet(true, false)) {
+            liquidityScheduler.shutdown();
+            System.out.println("LIQUIDITY BOT: Stopped - ID: " + getBotId());
         }
-    }
-
-    private void placeSellOrder(double amount) {
-        // في الإنتاج: التحقق من وجود عملات للبيع
-        priceEngine.executeSellOrder(botId, amount);
-        logger.accept("Placed SELL order: " + amount + " MAZDADY");
     }
 
     /**
-     * سلوك السيولة المتوازن
+     * توفير السيولة تلقائيًا
      */
-    private final class BalancedLiquidityBehavior implements BotBehavior {
-        @Override
-        public String getName() {
-            return "BALANCED_LIQUIDITY";
-        }
-
-        @Override
-        public void execute(TradingBot bot) {
+    private void provideLiquidity() {
+        if (!isActive.get()) return;
+        
+        try {
             double currentPrice = priceEngine.getCurrentPrice();
             double volatility = priceEngine.getVolatility();
             
-            // توفير سيولة إضافية في أوقات التقلب
-            double baseAmount = 50.0 * (1 + volatility);
+            // توفير أوامر شراء عند الأسعار المنخفضة
+            double buyPrice = currentPrice * (1 - (volatility * 0.02));
+            double buyAmount = ThreadLocalRandom.current().nextDouble(50, 200);
             
-            // أوامر شراء عند انخفاض السعر
-            if (currentPrice < 95.0) {
-                placeBuyOrder(baseAmount * 1.5);
+            if (liquidityPool >= buyAmount) {
+                orderBook.addBuyOrder(getBotId(), buyPrice, buyAmount);
+                liquidityPool -= buyAmount;
+                System.out.println("LIQUIDITY BOT: Placed BUY order - " + buyAmount + 
+                                 " MAZDADY at " + String.format("%.4f", buyPrice));
             }
             
-            // أوامر بيع عند ارتفاع السعر
-            if (currentPrice > 105.0) {
-                placeSellOrder(baseAmount * 1.5);
+            // توفير أوامر بيع عند الأسعار المرتفعة
+            double sellPrice = currentPrice * (1 + (volatility * 0.02));
+            double sellAmount = ThreadLocalRandom.current().nextDouble(50, 200);
+            
+            if (liquidityPool >= sellAmount) {
+                orderBook.addSellOrder(getBotId(), sellPrice, sellAmount);
+                liquidityPool -= sellAmount;
+                System.out.println("LIQUIDITY BOT: Placed SELL order - " + sellAmount + 
+                                 " MAZDADY at " + String.format("%.4f", sellPrice));
             }
             
-            // أوامر عادية للحفاظ على العمق
-            placeBuyOrder(baseAmount);
-            placeSellOrder(baseAmount);
+        } catch (Exception e) {
+            System.err.println("LIQUIDITY PROVIDER ERROR: " + e.getMessage());
         }
+    }
+
+    /**
+     * تنفيذ صفقة تجارية
+     */
+    @Override
+    public void executeTrade(TradeType tradeType, double amount) {
+        if (!isActive.get() || amount <= 0) return;
+        
+        try {
+            if (tradeType == TradeType.BUY) {
+                priceEngine.executeBuyOrder(getBotId(), amount);
+                liquidityPool -= amount;
+                System.out.println("LIQUIDITY BOT: Executed BUY trade - " + amount + " MAZDADY");
+            } else if (tradeType == TradeType.SELL) {
+                priceEngine.executeSellOrder(getBotId(), amount);
+                liquidityPool += amount;
+                System.out.println("LIQUIDITY BOT: Executed SELL trade - " + amount + " MAZDADY");
+            }
+            
+            // تحديث رأس المال
+            setCapital(liquidityPool);
+            
+        } catch (Exception e) {
+            System.err.println("LIQUIDITY TRADE ERROR: " + e.getMessage());
+        }
+    }
+
+    /**
+     * إعادة تمويل السيولة
+     */
+    public void refillLiquidity(double amount) {
+        if (amount > 0) {
+            liquidityPool += amount;
+            setCapital(liquidityPool);
+            System.out.println("LIQUIDITY BOT: Refilled liquidity - " + amount + " MAZDADY");
+        }
+    }
+
+    /**
+     * الحصول على حالة السيولة
+     */
+    public LiquidityStatus getLiquidityStatus() {
+        return new LiquidityStatus(
+            liquidityPool,
+            orderBook.getBuyOrders().size(),
+            orderBook.getSellOrders().size(),
+            isActive.get()
+        );
+    }
+
+    /**
+     * حالة السيولة
+     */
+    public static final class LiquidityStatus {
+        private final double poolAmount;
+        private final int buyOrdersCount;
+        private final int sellOrdersCount;
+        private final boolean active;
+
+        public LiquidityStatus(double poolAmount, int buyOrdersCount, int sellOrdersCount, boolean active) {
+            this.poolAmount = poolAmount;
+            this.buyOrdersCount = buyOrdersCount;
+            this.sellOrdersCount = sellOrdersCount;
+            this.active = active;
+        }
+
+        // Getters
+        public double getPoolAmount() { return poolAmount; }
+        public int getBuyOrdersCount() { return buyOrdersCount; }
+        public int getSellOrdersCount() { return sellOrdersCount; }
+        public boolean isActive() { return active; }
+        public int getTotalOrders() { return buyOrdersCount + sellOrdersCount; }
+        
+        public String getFormattedStatus() {
+            return "Liquidity: " + String.format("%.2f", poolAmount) + " MAZDADY - " +
+                   "Orders: " + getTotalOrders() + " (" + buyOrdersCount + " BUY, " + sellOrdersCount + " SELL) - " +
+                   "Status: " + (active ? "ACTIVE" : "INACTIVE");
+        }
+    }
+
+    // --- Getters ---
+    public double getLiquidityPool() { return liquidityPool; }
+    public OrderBook getOrderBook() { return orderBook; }
+    public boolean hasSufficientLiquidity() { return liquidityPool > 1000.0; }
+    
+    /**
+     * إيقاف السيولة (للاختبارات)
+     */
+    public void shutdown() {
+        stop();
+        System.out.println("LIQUIDITY BOT: Shutdown completed - ID: " + getBotId());
     }
 }
