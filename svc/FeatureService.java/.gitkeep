@@ -1,0 +1,83 @@
+package mazdady.svc;
+
+import mazdady.admin.FeatureToggleManager;
+import mazdady.user.UserManager;
+
+import java.util.concurrent.CompletableFuture;
+
+/**
+ * خدمة الميزات مع دعم التفعيل الديناميكي
+ * يتبع نمط Facade لتوفير واجهة موحدة
+ */
+public final class FeatureService {
+    private final FeatureToggleManager featureToggleManager;
+    private static FeatureService instance;
+
+    private FeatureService() {
+        this.featureToggleManager = FeatureToggleManager.getInstance();
+    }
+
+    public static synchronized FeatureService getInstance() {
+        if (instance == null) {
+            instance = new FeatureService();
+        }
+        return instance;
+    }
+
+    /**
+     * تفعيل ميزة غير متزامن
+     */
+    public CompletableFuture<FeatureResult> enableFeatureAsync(String userId, String featureId) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                // في الإنتاج: التحقق من صلاحيات المستخدم
+                featureToggleManager.toggleFeature(featureId, true);
+                
+                System.out.println("FEATURE ENABLED: " + featureId + " for user " + userId);
+                return FeatureResult.success("Feature enabled successfully");
+                
+            } catch (Exception e) {
+                return FeatureResult.failure("Feature enabling failed: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * تعطيل ميزة
+     */
+    public void disableFeature(String featureId) {
+        featureToggleManager.toggleFeature(featureId, false);
+        System.out.println("FEATURE DISABLED: " + featureId);
+    }
+
+    /**
+     * التحقق من توفر الميزة
+     */
+    public boolean isFeatureAvailable(String featureId) {
+        return featureToggleManager.isFeatureEnabled(featureId);
+    }
+
+    /**
+     * نتيجة الميزة
+     */
+    public static final class FeatureResult {
+        private final boolean success;
+        private final String message;
+
+        private FeatureResult(boolean success, String message) {
+            this.success = success;
+            this.message = message;
+        }
+
+        public static FeatureResult success(String message) {
+            return new FeatureResult(true, message);
+        }
+
+        public static FeatureResult failure(String message) {
+            return new FeatureResult(false, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public String getMessage() { return message; }
+    }
+}
