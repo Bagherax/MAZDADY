@@ -1,0 +1,189 @@
+package mazdady.ui;
+
+import android.animation.ObjectAnimator;
+import android.animation.ValueAnimator;
+import android.graphics.Color;
+import android.view.View;
+import android.view.animation.OvershootInterpolator;
+import android.widget.TextView;
+
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+
+/**
+ * محرك رسومية الأسعار مع دعم التأثيرات المتقدمة
+ * يتبع نمط Observer لمراقبة تغيرات الأسعار
+ */
+public final class PriceAnimationEngine {
+    private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+    private final TextView priceView;
+    private volatile double lastPrice = 0.0;
+    private volatile boolean animationsEnabled = true;
+
+    public PriceAnimationEngine(TextView priceView) {
+        this.priceView = priceView;
+    }
+
+    /**
+     * تحريك تغير السعر
+     */
+    public void animatePriceChange(double oldPrice, double newPrice) {
+        if (!animationsEnabled) {
+            priceView.setText(String.format("%.2f", newPrice));
+            return;
+        }
+
+        try {
+            // تأثير الوميض السريع
+            flashPriceView();
+
+            // تأثير التغير العددي
+            animateNumericChange(oldPrice, newPrice);
+
+            // تأثير تغير اللون
+            animateColorChange(oldPrice, newPrice);
+
+            // تأثير الحركة العمودية
+            animateVerticalMovement();
+
+            // تحديث السعر النهائي
+            scheduler.schedule(
+                () -> priceView.post(() -> priceView.setText(String.format("%.2f", newPrice))),
+                1000,
+                TimeUnit.MILLISECONDS
+            );
+
+            this.lastPrice = newPrice;
+            System.out.println("PRICE ANIMATION: Price changed from " + oldPrice + " to " + newPrice);
+        } catch (Exception e) {
+            System.err.println("PRICE ANIMATION ERROR: " + e.getMessage());
+            priceView.setText(String.format("%.2f", newPrice)); // احتياطي
+        }
+    }
+
+    /**
+     * تأثير الوميض السريع
+     */
+    private void flashPriceView() {
+        ValueAnimator flashAnimator = ValueAnimator.ofFloat(1f, 0.3f, 1f);
+        flashAnimator.addUpdateListener(animation -> {
+            float alpha = (Float) animation.getAnimatedValue();
+            priceView.setAlpha(alpha);
+        });
+        flashAnimator.setDuration(300);
+        flashAnimator.start();
+    }
+
+    /**
+     * تأثير التغير العددي
+     */
+    private void animateNumericChange(double oldPrice, double newPrice) {
+        ValueAnimator numericAnimator = ValueAnimator.ofFloat((float) oldPrice, (float) newPrice);
+        numericAnimator.addUpdateListener(animation -> {
+            float animatedValue = (Float) animation.getAnimatedValue();
+            priceView.setText(String.format("%.2f", animatedValue));
+        });
+        numericAnimator.setDuration(800);
+        numericAnimator.start();
+    }
+
+    /**
+     * تأثير تغير اللون
+     */
+    private void animateColorChange(double oldPrice, double newPrice) {
+        int targetColor;
+        if (newPrice > oldPrice) {
+            targetColor = Color.GREEN; // ارتفاع السعر
+        } else if (newPrice < oldPrice) {
+            targetColor = Color.RED; // انخفاض السعر
+        } else {
+            targetColor = Color.WHITE; // سعر ثابت
+        }
+
+        ObjectAnimator colorAnimator = ObjectAnimator.ofArgb(
+            priceView, "textColor", priceView.getCurrentTextColor(), targetColor
+        );
+        colorAnimator.setDuration(1000);
+        colorAnimator.start();
+    }
+
+    /**
+     * تأثير الحركة العمودية
+     */
+    private void animateVerticalMovement() {
+        ObjectAnimator moveUp = ObjectAnimator.ofFloat(priceView, "translationY", 0f, -20f, 0f);
+        moveUp.setDuration(600);
+        moveUp.setInterpolator(new OvershootInterpolator());
+        moveUp.start();
+    }
+
+    /**
+     * تأثير الاهتزاز عند تغير كبير
+     */
+    public void shakeOnLargeChange(double oldPrice, double newPrice) {
+        double changePercent = Math.abs((newPrice - oldPrice) / oldPrice * 100);
+        if (changePercent > 5.0) { // تغير أكبر من 5%
+            animateShakeEffect();
+        }
+    }
+
+    private void animateShakeEffect() {
+        ObjectAnimator shake = ObjectAnimator.ofFloat(priceView, "translationX", 0f, -10f, 10f, -10f, 10f, 0f);
+        shake.setDuration(500);
+        shake.start();
+    }
+
+    /**
+     * تأثير الدوران عند تغير مفاجئ
+     */
+    public void spinOnSuddenChange(double oldPrice, double newPrice) {
+        double changeSpeed = Math.abs(newPrice - oldPrice) / 1000; // محاكاة السرعة
+        if (changeSpeed > 1.0) {
+            animateSpinEffect();
+        }
+    }
+
+    private void animateSpinEffect() {
+        ObjectAnimator spin = ObjectAnimator.ofFloat(priceView, "rotation", 0f, 360f);
+        spin.setDuration(800);
+        spin.start();
+    }
+
+    /**
+     * تأثير النبض عند السعر الثابت
+     */
+    public void pulseOnStablePrice() {
+        ObjectAnimator pulse = ObjectAnimator.ofFloat(priceView, "scaleX", 1f, 1.1f, 1f);
+        ObjectAnimator pulseY = ObjectAnimator.ofFloat(priceView, "scaleY", 1f, 1.1f, 1f);
+        pulse.setDuration(1000);
+        pulseY.setDuration(1000);
+        pulse.setRepeatCount(ObjectAnimator.INFINITE);
+        pulseY.setRepeatCount(ObjectAnimator.INFINITE);
+        pulse.start();
+        pulseY.start();
+    }
+
+    /**
+     * إيقاف جميع التأثيرات
+     */
+    public void stopAllAnimations() {
+        priceView.clearAnimation();
+        animationsEnabled = false;
+        System.out.println("PRICE ANIMATION: All animations stopped");
+    }
+
+    /**
+     * استئناف جميع التأثيرات
+     */
+    public void resumeAnimations() {
+        animationsEnabled = true;
+        System.out.println("PRICE ANIMATION: Animations resumed");
+    }
+
+    // --- Getters ---
+    public boolean isAnimationsEnabled() { return animationsEnabled; }
+    public double getLastPrice() { return lastPrice; }
+    public void setAnimationsEnabled(boolean enabled) { this.animationsEnabled = enabled; }
+    public void setLastPrice(double price) { this.lastPrice = price; }
+}
