@@ -1,0 +1,98 @@
+package mazdady.social;
+
+import mazdady.ad.AdCampaign;
+import mazdady.user.User;
+import mazdady.user.UserManager;
+
+import java.util.concurrent.CompletableFuture;
+
+/**
+ * مدير الترويج مع دعم الحملات المتقدمة
+ * يتبع نمط Facade لتوفير واجهة موحدة
+ */
+public final class PromotionManager {
+    private static PromotionManager instance;
+
+    private PromotionManager() {}
+
+    public static synchronized PromotionManager getInstance() {
+        if (instance == null) {
+            instance = new PromotionManager();
+        }
+        return instance;
+    }
+
+    /**
+     * إنشاء حملة ترويجية غير متزامنة
+     */
+    public CompletableFuture<PromotionResult> createPromotionAsync(
+        String platform, 
+        String contentUrl, 
+        String goal, 
+        int targetCount, 
+        double budget
+    ) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                User user = UserManager.getInstance(null).getCurrentUser();
+                
+                // التحقق من الرصيد
+                if (user.getBalance() < budget) {
+                    return PromotionResult.failure("Insufficient balance");
+                }
+                
+                // إنشاء حملة إعلانية
+                AdCampaign campaign = new AdCampaign.Builder()
+                    .userId(user.getUserId())
+                    .platform(AdCampaign.Platform.valueOf(platform.toUpperCase()))
+                    .contentUrl(contentUrl)
+                    .goal(AdCampaign.Goal.valueOf(goal.toUpperCase()))
+                    .targetCount(targetCount)
+                    .budget(budget)
+                    .build();
+                
+                // خصم الميزانية
+                user.setBalance(user.getBalance() - budget);
+                
+                // تسجيل النشاط في المجتمع
+                CommunityMgr.getInstance().registerActivity(
+                    user.getUserId(), 
+                    CommunityMgr.ActivityType.AD_CAMPAIGN, 
+                    budget
+                );
+                
+                return PromotionResult.success(campaign);
+                
+            } catch (Exception e) {
+                return PromotionResult.failure("Promotion creation failed: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * نتيجة الترويج
+     */
+    public static final class PromotionResult {
+        private final boolean success;
+        private final AdCampaign campaign;
+        private final String message;
+
+        private PromotionResult(boolean success, AdCampaign campaign, String message) {
+            this.success = success;
+            this.campaign = campaign;
+            this.message = message;
+        }
+
+        public static PromotionResult success(AdCampaign campaign) {
+            return new PromotionResult(true, campaign, "Promotion created successfully");
+        }
+
+        public static PromotionResult failure(String message) {
+            return new PromotionResult(false, null, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public AdCampaign getCampaign() { return campaign; }
+        public String getMessage() { return message; }
+    }
+}
