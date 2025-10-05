@@ -1,54 +1,184 @@
 package mazdady.ad;
 
-import mazdady.arch.BusinessInteractor;
-import mazdady.user.UserManager;
+import mazdady.user.User;
 import mazdady.wallet.WalletManager;
+import mazdady.admin.AdminConfig;
+
+import java.time.Instant;
+import java.util.concurrent.CompletableFuture;
+import java.util.function.Consumer;
 
 /**
- * منشئ الحملات كمنفذ للمنطق التجاري
- * يتبع نمط Template Method مع التحقق من الصلاحيات
+ * منشئ الحملات الإعلانية مع دعم إنشاء الحملات من لوحة التحكم الإدارية
+ * يتبع نمط Builder لفصل خطوات الإنشاء
  */
-public final class AdCampaignCreator extends BusinessInteractor<AdCampaignCreator.Request, AdCampaign> {
+public final class AdCampaignCreator {
+    private final AdManager adManager;
+    private final WalletManager walletManager;
+    private final AdminConfig adminConfig;
 
-    @Override
-    protected boolean hasPermission(Request request) {
-        return UserManager.getInstance(null).getCurrentUser().getUserId().equals(request.userId());
-    }
-
-    @Override
-    protected AdCampaign performBusinessLogic(Request request) {
-        // 1. التحقق من رصيد المستخدم
-        WalletManager wallet = new WalletManager();
-        if (wallet.getBalance() < request.budget()) {
-            throw new IllegalStateException("Insufficient balance for campaign");
-        }
-
-        // 2. خصم الميزانية
-        boolean withdrawn = wallet.withdrawMAZDADY(request.budget());
-        if (!withdrawn) {
-            throw new IllegalStateException("Failed to withdraw campaign budget");
-        }
-
-        // 3. إنشاء الحملة
-        return new AdCampaign.Builder()
-            .userId(request.userId())
-            .platform(request.platform())
-            .contentUrl(request.contentUrl())
-            .goal(request.goal())
-            .targetCount(request.targetCount())
-            .budget(request.budget())
-            .build();
+    public AdCampaignCreator(AdManager adManager, WalletManager walletManager, AdminConfig adminConfig) {
+        this.adManager = adManager;
+        this.walletManager = walletManager;
+        this.adminConfig = adminConfig;
     }
 
     /**
-     * طلب إنشاء حملة (كائن غير قابل للتغيير)
+     * إنشاء حملة إعلانية غير متزامن من لوحة التحكم
      */
-    public record Request(
+    public CompletableFuture<CampaignCreationResult> createCampaignFromAdminAsync(
         String userId,
         AdCampaign.Platform platform,
         String contentUrl,
         AdCampaign.Goal goal,
         int targetCount,
-        double budget
-    ) {}
+        double budget,
+        String adminNotes
+    ) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                // التحقق من صحة المدخلات
+                if (!isValidCampaignInput(platform, contentUrl, goal, targetCount, budget)) {
+                    return CampaignCreationResult.failure("Invalid campaign parameters");
+                }
+
+                // التحقق من صلاحيات الادمن
+                if (!isAdminAuthorized(userId)) {
+                    return CampaignCreationResult.failure("Unauthorized admin access");
+                }
+
+                // التحقق من الرصيد (من محفظة النظام)
+                if (!hasSufficientSystemBalance(budget)) {
+                    return CampaignCreationResult.failure("Insufficient system balance");
+                }
+
+                // إنشاء الحملة
+                AdCampaign campaign = new AdCampaign.Builder()
+                    .userId(userId)
+                    .platform(platform)
+                    .contentUrl(contentUrl)
+                    .goal(goal)
+                    .targetCount(targetCount)
+                    .budget(budget)
+                    .adminNotes(adminNotes)
+                    .build();
+
+                // نشر الحملة في السوق
+                AdMarketplace marketplace = adManager.getMarketplace();
+                marketplace.publishCampaign(campaign);
+
+                // بدء تسليم الحملة
+                AdDeliveryEngine deliveryEngine = adManager.getDeliveryEngine();
+                deliveryEngine.deliverAd(campaign, deliveredCampaign -> {
+                    System.out.println("ADMIN CAMPAIGN: Delivered campaign " + deliveredCampaign.getCampaignId());
+                });
+
+                // تسجيل في السجل الإداري
+                logAdminCampaignCreation(campaign, adminNotes);
+
+                System.out.println("ADMIN CAMPAIGN CREATOR: Created campaign from admin - " + 
+                                 campaign.getCampaignId());
+
+                return CampaignCreationResult.success(campaign, "Campaign created successfully from admin panel");
+
+            } catch (Exception e) {
+                return CampaignCreationResult.failure("Campaign creation failed: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * إنشاء حملة إنقاذية تلقائية
+     */
+    public CompletableFuture<CampaignCreationResult> createRescueCampaignAsync(User user) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                // التحقق من الحاجة لحملة إنقاذ
+                if (!needsRescueCampaign(user)) {
+                    return CampaignCreationResult.failure("User does not need rescue campaign");
+                }
+
+                // إنشاء حملة إنقاذية
+                AdCampaign rescueCampaign = new AdCampaign.Builder()
+                    .userId(user.getUserId())
+                    .platform(AdCampaign.Platform.TIKTOK)
+                    .contentUrl("https://tiktok.com/rescue_campaign_" + user.getUserId())
+                    .goal(AdCampaign.Goal.VIEWS)
+                    .targetCount(100)
+                    .budget(50.0) // ميزانية إنقاذية
+                    .isRescueCampaign(true)
+                    .build();
+
+                // نشر الحملة
+                AdMarketplace marketplace = adManager.getMarketplace();
+                marketplace.publishCampaign(rescueCampaign);
+
+                // تسجيل الحملة الإنقاذية
+                RescueAdManager.getInstance().logRescueCampaign(rescueCampaign);
+
+                System.out.println("RESCUE CAMPAIGN: Created for user " + user.getUserId());
+
+                return CampaignCreationResult.success(rescueCampaign, "Rescue campaign created successfully");
+
+            } catch (Exception e) {
+                return CampaignCreationResult.failure("Rescue campaign creation failed: " + e.getMessage());
+            }
+        });
+    }
+
+    private boolean isValidCampaignInput(AdCampaign.Platform platform, String contentUrl, 
+                                       AdCampaign.Goal goal, int targetCount, double budget) {
+        return platform != null && 
+               contentUrl != null && !contentUrl.isEmpty() &&
+               goal != null &&
+               targetCount > 0 &&
+               budget > 0;
+    }
+
+    private boolean isAdminAuthorized(String userId) {
+        // في الإنتاج: التحقق من صلاحيات الادمن
+        return "ADMIN".equals(userId) || userId.startsWith("admin_");
+    }
+
+    private boolean hasSufficientSystemBalance(double budget) {
+        // في الإنتاج: التحقق من رصيد محفظة النظام
+        return walletManager.getBalance() >= budget;
+    }
+
+    private boolean needsRescueCampaign(User user) {
+        return user.getBalance() < 10.0 && // رصيد أقل من 10 MAZDADY
+               user.getLevel() >= 3; // مستوى 3 فأعلى
+    }
+
+    private void logAdminCampaignCreation(AdCampaign campaign, String adminNotes) {
+        System.out.println("ADMIN LOG: Campaign " + campaign.getCampaignId() + 
+                         " created by admin - Notes: " + adminNotes);
+    }
+
+    /**
+     * نتيجة إنشاء الحملة
+     */
+    public static final class CampaignCreationResult {
+        private final boolean success;
+        private final AdCampaign campaign;
+        private final String message;
+
+        private CampaignCreationResult(boolean success, AdCampaign campaign, String message) {
+            this.success = success;
+            this.campaign = campaign;
+            this.message = message;
+        }
+
+        public static CampaignCreationResult success(AdCampaign campaign, String message) {
+            return new CampaignCreationResult(true, campaign, message);
+        }
+
+        public static CampaignCreationResult failure(String message) {
+            return new CampaignCreationResult(false, null, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public AdCampaign getCampaign() { return campaign; }
+        public String getMessage() { return message; }
+    }
 }
