@@ -1,0 +1,101 @@
+package mazdady.economy;
+
+import mazdady.user.UserManager;
+import mazdady.user.User;
+
+import java.time.Instant;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicDouble;
+import java.util.function.BiFunction;
+
+/**
+ * نظام مكافآت المجتمع مع دعم التوزيع الديناميكي
+ * يتبع نمط Strategy لفصل استراتيجيات المكافآت
+ */
+public final class CommunityRewardSystem {
+    private final Map<String, BiFunction<User, Double, Void>> rewardStrategies;
+    private final AtomicDouble communityPool = new AtomicDouble(0.0);
+    private static final CommunityRewardSystem INSTANCE = new CommunityRewardSystem();
+
+    private CommunityRewardSystem() {
+        this.rewardStrategies = new ConcurrentHashMap<>();
+        initializeRewardStrategies();
+    }
+
+    public static CommunityRewardSystem getInstance() {
+        return INSTANCE;
+    }
+
+    private void initializeRewardStrategies() {
+        rewardStrategies.put("trading_activity", this::rewardTradingActivity);
+        rewardStrategies.put("social_engagement", this::rewardSocialEngagement);
+        rewardStrategies.put("content_creation", this::rewardContentCreation);
+        rewardStrategies.put("referral", this::rewardReferral);
+    }
+
+    /**
+     * إضافة أموال إلى صندوق المجتمع
+     */
+    public void addToCommunityPool(double amount) {
+        communityPool.addAndGet(amount);
+        System.out.println("COMMUNITY POOL: +" + amount + " MAZDADY at " + Instant.now());
+    }
+
+    /**
+     * منح مكافأة للمستخدم
+     */
+    public void awardReward(String userId, String rewardType, double amount) {
+        User user = UserManager.getInstance(null).getCurrentUser();
+        if (user.getUserId().equals(userId)) {
+            BiFunction<User, Double, Void> strategy = rewardStrategies.get(rewardType);
+            if (strategy != null) {
+                strategy.apply(user, amount);
+                System.out.println("REWARD AWARDED: " + amount + " MAZDADY to " + userId + " for " + rewardType);
+            }
+        }
+    }
+
+    /**
+     * توزيع المكافآت تلقائيًا
+     */
+    public void distributeRewardsAutomatically() {
+        double pool = communityPool.get();
+        if (pool > 0) {
+            // في الإنتاج: توزيع ذكي حسب النشاط
+            User user = UserManager.getInstance(null).getCurrentUser();
+            user.setBalance(user.getBalance() + pool * 0.1); // 10% كمكافأة
+            communityPool.addAndGet(-pool * 0.1);
+            System.out.println("AUTO REWARD: Distributed " + (pool * 0.1) + " MAZDADY from community pool");
+        }
+    }
+
+    // --- استراتيجيات المكافآت ---
+    private Void rewardTradingActivity(User user, Double amount) {
+        user.setBalance(user.getBalance() + amount);
+        user.addCommunityPoints(amount.intValue());
+        return null;
+    }
+
+    private Void rewardSocialEngagement(User user, Double amount) {
+        user.setBalance(user.getBalance() + amount * 1.2); // مكافأة إضافية
+        user.addCommunityPoints((int) (amount * 2));
+        return null;
+    }
+
+    private Void rewardContentCreation(User user, Double amount) {
+        user.setBalance(user.getBalance() + amount * 1.5); // مكافأة عالية للمحتوى
+        user.addCommunityPoints((int) (amount * 3));
+        return null;
+    }
+
+    private Void rewardReferral(User user, Double amount) {
+        user.setBalance(user.getBalance() + amount);
+        // في الإنتاج: منح مكافأة للمحيل أيضًا
+        return null;
+    }
+
+    public double getCommunityPool() {
+        return communityPool.get();
+    }
+}
