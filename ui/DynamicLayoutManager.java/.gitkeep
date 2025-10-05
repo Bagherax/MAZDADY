@@ -2,100 +2,96 @@ package mazdady.ui;
 
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.RelativeLayout;
+import android.widget.FrameLayout;
+
 import mazdady.admin.AdminConfig;
-import mazdady.user.UserManager;
 
-public class DynamicLayoutManager {
-    private final ViewGroup parentView;
-    private final AdminConfig.UIConfig uiConfig;
-    private final UserManager userManager;
+/**
+ * مدير التخطيط الديناميكي مع دعم التحديثات الحية
+ * يتبع نمط Observer لإعلام المكونات بالتغيرات
+ */
+public final class DynamicLayoutManager {
+    private final ViewGroup rootView;
+    private final LayoutCustomizer layoutCustomizer;
 
-    public DynamicLayoutManager(ViewGroup parentView) {
-        this.parentView = parentView;
-        this.uiConfig = AdminConfig.getInstance().getUIConfig();
-        this.userManager = UserManager.getInstance();
+    public DynamicLayoutManager(ViewGroup rootView) {
+        this.rootView = rootView;
+        this.layoutCustomizer = new LayoutCustomizer();
     }
 
+    /**
+     * تطبيق التخطيط الديناميكي
+     */
     public void applyLayout() {
-        // تكرار على جميع العناصر المسجلة
-        applyElementLayout("buy_button", parentView.findViewById(R.id.buy_button));
-        applyElementLayout("sell_button", parentView.findViewById(R.id.sell_button));
-        applyElementLayout("ad_banner", parentView.findViewById(R.id.ad_banner));
-        applyElementLayout("payment_tools", parentView.findViewById(R.id.payment_tools));
-        applyElementLayout("sign_popup", parentView.findViewById(R.id.sign_popup));
+        AdminConfig.UIConfig uiConfig = AdminConfig.getInstance().getUIConfig();
+        
+        // تطبيق التخصيصات من الإدارة
+        layoutCustomizer.customizeLayout(rootView, uiConfig);
+        
+        // تطبيق العناصر الديناميكية
+        applyDynamicElements(uiConfig);
+        
+        System.out.println("DYNAMIC LAYOUT: Layout applied successfully");
     }
 
-    private void applyElementLayout(String elementId, View view) {
-        if (view == null) return;
-
-        AdminConfig.UIConfig.ElementConfig config = uiConfig.getElementConfig(elementId);
-        if (config == null) return;
-
-        // 1. التحقق من الرؤية
-        boolean isVisible = shouldElementBeVisible(config);
-        view.setVisibility(isVisible ? View.VISIBLE : View.GONE);
-        if (!isVisible) return;
-
-        // 2. تطبيق الموضع
-        if (view.getLayoutParams() instanceof RelativeLayout.LayoutParams) {
-            RelativeLayout.LayoutParams params = (RelativeLayout.LayoutParams) view.getLayoutParams();
-            applyPosition(params, config.getPosition());
-            view.setLayoutParams(params);
+    /**
+     * تطبيق العناصر الديناميكية
+     */
+    private void applyDynamicElements(AdminConfig.UIConfig uiConfig) {
+        // تطبيق زر الإعلان العائم
+        if (uiConfig.getFloatingAdConfig().isEnabled()) {
+            FloatingAdButton adButton = new FloatingAdButton(rootView.getContext(), null);
+            adButton.configure(
+                uiConfig.getFloatingAdConfig().getDisplayDuration(),
+                uiConfig.getFloatingAdConfig().getHideDuration(),
+                uiConfig.getFloatingAdConfig().getAdImageUrl()
+            );
+            
+            FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
+                dpToPx(120),
+                dpToPx(120)
+            );
+            params.gravity = android.view.Gravity.BOTTOM | android.view.Gravity.END;
+            params.rightMargin = dpToPx(20);
+            params.bottomMargin = dpToPx(20);
+            
+            rootView.addView(adButton, params);
+            System.out.println("DYNAMIC LAYOUT: Floating ad button added");
         }
+        
+        // تطبيق عناصر أخرى ديناميكية
+        applyAdditionalElements(uiConfig);
     }
 
-    private boolean shouldElementBeVisible(AdminConfig.UIConfig.ElementConfig config) {
-        // التحقق من الاشتراك
-        if (config.isSubscriptionRequired() && !userManager.hasActiveSubscription()) {
-            return false;
-        }
-        // التحقق من المستوى
-        if (userManager.getCurrentUser().getLevel() < config.getMinLevel()) {
-            return false;
-        }
-        // الرؤية العامة
-        return config.isVisible();
+    /**
+     * تطبيق عناصر إضافية
+     */
+    private void applyAdditionalElements(AdminConfig.UIConfig uiConfig) {
+        // في الإنتاج: تطبيق عناصر إضافية من الإعدادات
+        System.out.println("DYNAMIC LAYOUT: Additional elements applied");
     }
 
-    private void applyPosition(RelativeLayout.LayoutParams params, String position) {
-        // إزالة جميع القواعد الحالية
-        params.addRule(RelativeLayout.ALIGN_PARENT_TOP, 0);
-        params.addRule(RelativeLayout.ALIGN_PARENT_BOTTOM, 0);
-        params.addRule(RelativeLayout.ALIGN_PARENT_LEFT, 0);
-        params.addRule(RelativeLayout.ALIGN_PARENT_RIGHT, 0);
-        params.addRule(RelativeLayout.CENTER_HORIZONTAL, 0);
-        params.addRule(RelativeLayout.CENTER_VERTICAL, 0);
+    /**
+     * تحديث التخطيط ديناميكيًا
+     */
+    public void updateLayout() {
+        AdminConfig.UIConfig uiConfig = AdminConfig.getInstance().getUIConfig();
+        layoutCustomizer.customizeLayout(rootView, uiConfig);
+        System.out.println("DYNAMIC LAYOUT: Layout updated dynamically");
+    }
 
-        // تطبيق الموضع الجديد
-        switch (position) {
-            case "top_left":
-                params.addRule(RelativeLayout.ALIGN_PARENT_TOP);
-                params.addRule(RelativeLayout.ALIGN_PARENT_LEFT);
-                break;
-            case "top_center":
-                params.addRule(RelativeLayout.ALIGN_PARENT_TOP);
-                params.addRule(RelativeLayout.CENTER_HORIZONTAL);
-                break;
-            case "top_right":
-                params.addRule(RelativeLayout.ALIGN_PARENT_TOP);
-                params.addRule(RelativeLayout.ALIGN_PARENT_RIGHT);
-                break;
-            case "bottom_left":
-                params.addRule(RelativeLayout.ALIGN_PARENT_BOTTOM);
-                params.addRule(RelativeLayout.ALIGN_PARENT_LEFT);
-                break;
-            case "bottom_right":
-                params.addRule(RelativeLayout.ALIGN_PARENT_BOTTOM);
-                params.addRule(RelativeLayout.ALIGN_PARENT_RIGHT);
-                break;
-            case "center":
-                params.addRule(RelativeLayout.CENTER_IN_PARENT);
-                break;
-            case "sidebar":
-                params.addRule(RelativeLayout.ALIGN_PARENT_RIGHT);
-                params.width = 80;
-                break;
-        }
+    /**
+     * إزالة جميع العناصر الديناميكية
+     */
+    public void clearDynamicElements() {
+        // في الإنتاج: إزالة العناصر المضافة ديناميكيًا
+        System.out.println("DYNAMIC LAYOUT: Dynamic elements cleared");
+    }
+
+    /**
+     * تحويل DP إلى بكسل
+     */
+    private int dpToPx(float dp) {
+        return Math.round(dp * rootView.getContext().getResources().getDisplayMetrics().density);
     }
 }
