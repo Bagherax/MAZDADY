@@ -1,35 +1,274 @@
 package mazdady.ad;
 
+import mazdady.user.User;
+import mazdady.user.UserManager;
+
+import java.time.Instant;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
 /**
- * متتبع أداء الحملات مع دعم المراقبة الزمنية
- * يستخدم Observer Pattern لإعلام المستمعين بالتغيرات
+ * متتبع أداء الحملات الإعلانية مع دعم التحليلات الذكية
+ * يتبع نمط Observer لإعلام النظام بالتغيرات
  */
 public final class AdPerformanceTracker {
-    private final Map<String, AdCampaign> activeCampaigns = new ConcurrentHashMap<>();
-    private final Consumer<AdCampaign> onCompletion;
+    private final Map<String, CampaignMetrics> campaignMetrics = new ConcurrentHashMap<>();
+    private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
+    private final Consumer<PerformanceEvent> performanceListener;
+    private static AdPerformanceTracker instance;
 
-    public AdPerformanceTracker(Consumer<AdCampaign> onCompletion) {
-        this.onCompletion = onCompletion;
+    private AdPerformanceTracker(Consumer<PerformanceEvent> performanceListener) {
+        this.performanceListener = performanceListener;
+        startPerformanceMonitoring();
     }
 
-    public void startTracking(AdCampaign campaign) {
-        activeCampaigns.put(campaign.getId(), campaign);
-        // في الإنتاج: بدء جدولة المراقبة
+    public static synchronized AdPerformanceTracker getInstance(Consumer<PerformanceEvent> performanceListener) {
+        if (instance == null) {
+            instance = new AdPerformanceTracker(performanceListener);
+        }
+        return instance;
     }
 
-    public void updateProgress(String campaignId, int progress) {
-        AdCampaign campaign = activeCampaigns.get(campaignId);
-        if (campaign != null && campaign.isCompleted(progress)) {
-            activeCampaigns.remove(campaignId);
-            onCompletion.accept(campaign);
+    private void startPerformanceMonitoring() {
+        scheduler.scheduleAtFixedRate(
+            this::analyzePerformance,
+            0,
+            30,
+            TimeUnit.SECONDS
+        );
+        
+        System.out.println("AD PERFORMANCE TRACKER: Started performance monitoring");
+    }
+
+    /**
+     * تتبع مشاهدة إعلان
+     */
+    public void trackImpression(String campaignId) {
+        CampaignMetrics metrics = campaignMetrics.computeIfAbsent(
+            campaignId, 
+            k -> new CampaignMetrics(campaignId)
+        );
+        metrics.incrementImpressions();
+        
+        System.out.println("AD PERFORMANCE: Impression tracked for " + campaignId);
+    }
+
+    /**
+     * تتبع نقرة على إعلان
+     */
+    public void trackClick(String campaignId) {
+        CampaignMetrics metrics = campaignMetrics.get(campaignId);
+        if (metrics != null) {
+            metrics.incrementClicks();
+            System.out.println("AD PERFORMANCE: Click tracked for " + campaignId);
         }
     }
 
-    public AdCampaign getCampaign(String campaignId) {
-        return activeCampaigns.get(campaignId);
+    /**
+     * تتبع تحويل (مثل اشتراك أو شراء)
+     */
+    public void trackConversion(String campaignId, String conversionType) {
+        CampaignMetrics metrics = campaignMetrics.get(campaignId);
+        if (metrics != null) {
+            metrics.addConversion(conversionType);
+            System.out.println("AD PERFORMANCE: Conversion " + conversionType + " tracked for " + campaignId);
+        }
+    }
+
+    /**
+     * تحليل الأداء الذكي
+     */
+    private void analyzePerformance() {
+        try {
+            for (CampaignMetrics metrics : campaignMetrics.values()) {
+                double ctr = metrics.getCTR();
+                double conversionRate = metrics.getConversionRate();
+                
+                // تحليل الأداء
+                PerformanceAnalysis analysis = new PerformanceAnalysis(
+                    metrics.getCampaignId(),
+                    ctr,
+                    conversionRate,
+                    metrics.getImpressions(),
+                    metrics.getClicks(),
+                    metrics.getConversions()
+                );
+                
+                // إشعار النظام بالتحليل
+                if (performanceListener != null) {
+                    performanceListener.accept(new PerformanceEvent(analysis));
+                }
+                
+                // اتخاذ إجراءات ذكية
+                takeSmartActions(metrics, analysis);
+            }
+            
+        } catch (Exception e) {
+            System.err.println("PERFORMANCE ANALYSIS ERROR: " + e.getMessage());
+        }
+    }
+
+    private void takeSmartActions(CampaignMetrics metrics, PerformanceAnalysis analysis) {
+        String campaignId = metrics.getCampaignId();
+        
+        // إذا كان CTR أقل من 1% → تحسين الحملة
+        if (analysis.getCtr() < 1.0) {
+            System.out.println("AD PERFORMANCE: Low CTR detected for " + campaignId + 
+                             " - Suggesting optimization");
+            suggestCampaignOptimization(campaignId, "LOW_CTR");
+        }
+        
+        // إذا كان معدل التحويل أعلى من 10% → زيادة الميزانية
+        if (analysis.getConversionRate() > 10.0) {
+            System.out.println("AD PERFORMANCE: High conversion rate for " + campaignId + 
+                             " - Suggesting budget increase");
+            suggestBudgetIncrease(campaignId, "HIGH_CONVERSION");
+        }
+        
+        // إذا تجاوز الحملة هدفها → إزالة تلقائية
+        if (metrics.isGoalReached()) {
+            System.out.println("AD PERFORMANCE: Goal reached for " + campaignId + 
+                             " - Auto removing campaign");
+            autoRemoveCompletedCampaign(campaignId);
+        }
+    }
+
+    private void suggestCampaignOptimization(String campaignId, String reason) {
+        // في الإنتاج: إرسال اقتراح إلى الادمن
+        System.out.println("AD OPTIMIZATION SUGGESTION: Optimize " + campaignId + " - Reason: " + reason);
+    }
+
+    private void suggestBudgetIncrease(String campaignId, String reason) {
+        // في الإنتاج: إرسال اقتراح إلى الادمن
+        System.out.println("AD BUDGET SUGGESTION: Increase budget for " + campaignId + " - Reason: " + reason);
+    }
+
+    private void autoRemoveCompletedCampaign(String campaignId) {
+        AdRemovalEngine.getInstance().removeCampaign(campaignId);
+        campaignMetrics.remove(campaignId);
+        System.out.println("AD PERFORMANCE: Auto removed completed campaign " + campaignId);
+    }
+
+    /**
+     * الحصول على مقاييس الحملة
+     */
+    public CampaignMetrics getCampaignMetrics(String campaignId) {
+        return campaignMetrics.get(campaignId);
+    }
+
+    /**
+     * الحصول على جميع المقاييس
+     */
+    public Map<String, CampaignMetrics> getAllMetrics() {
+        return new ConcurrentHashMap<>(campaignMetrics);
+    }
+
+    /**
+     * إيقاف المتتبع (للاختبارات)
+     */
+    public void shutdown() {
+        scheduler.shutdown();
+        campaignMetrics.clear();
+        System.out.println("AD PERFORMANCE TRACKER: Shutdown completed");
+    }
+
+    /**
+     * مقاييس الحملة
+     */
+    public static final class CampaignMetrics {
+        private final String campaignId;
+        private volatile int impressions = 0;
+        private volatile int clicks = 0;
+        private final Map<String, Integer> conversions = new ConcurrentHashMap<>();
+        private final Instant createdAt = Instant.now();
+
+        public CampaignMetrics(String campaignId) {
+            this.campaignId = campaignId;
+        }
+
+        public void incrementImpressions() { impressions++; }
+        public void incrementClicks() { clicks++; }
+        public void addConversion(String type) {
+            conversions.put(type, conversions.getOrDefault(type, 0) + 1);
+        }
+
+        public double getCTR() {
+            return impressions > 0 ? (clicks * 100.0 / impressions) : 0.0;
+        }
+
+        public double getConversionRate() {
+            int totalConversions = conversions.values().stream().mapToInt(Integer::intValue).sum();
+            return clicks > 0 ? (totalConversions * 100.0 / clicks) : 0.0;
+        }
+
+        public boolean isGoalReached() {
+            // في الإنتاج: التحقق من تحقيق الهدف
+            return impressions >= 1000; // محاكاة تحقيق الهدف
+        }
+
+        // Getters
+        public String getCampaignId() { return campaignId; }
+        public int getImpressions() { return impressions; }
+        public int getClicks() { return clicks; }
+        public Map<String, Integer> getConversions() { return new ConcurrentHashMap<>(conversions); }
+        public Instant getCreatedAt() { return createdAt; }
+    }
+
+    /**
+     * تحليل الأداء
+     */
+    public static final class PerformanceAnalysis {
+        private final String campaignId;
+        private final double ctr;
+        private final double conversionRate;
+        private final int impressions;
+        private final int clicks;
+        private final Map<String, Integer> conversions;
+
+        public PerformanceAnalysis(String campaignId, double ctr, double conversionRate, 
+                                 int impressions, int clicks, Map<String, Integer> conversions) {
+            this.campaignId = campaignId;
+            this.ctr = ctr;
+            this.conversionRate = conversionRate;
+            this.impressions = impressions;
+            this.clicks = clicks;
+            this.conversions = conversions;
+        }
+
+        // Getters
+        public String getCampaignId() { return campaignId; }
+        public double getCtr() { return ctr; }
+        public double getConversionRate() { return conversionRate; }
+        public int getImpressions() { return impressions; }
+        public int getClicks() { return clicks; }
+        public Map<String, Integer> getConversions() { return conversions; }
+        
+        public String getPerformanceSummary() {
+            return "Campaign: " + campaignId + 
+                   " - CTR: " + String.format("%.2f", ctr) + "%" +
+                   " - Conversion: " + String.format("%.2f", conversionRate) + "%" +
+                   " - Impressions: " + impressions +
+                   " - Clicks: " + clicks;
+        }
+    }
+
+    /**
+     * حدث الأداء
+     */
+    public static final class PerformanceEvent {
+        private final PerformanceAnalysis analysis;
+
+        public PerformanceEvent(PerformanceAnalysis analysis) {
+            this.analysis = analysis;
+        }
+
+        public PerformanceAnalysis getAnalysis() { return analysis; }
+        public String getCampaignId() { return analysis.getCampaignId(); }
+        public double getCtr() { return analysis.getCtr(); }
+        public double getConversionRate() { return analysis.getConversionRate(); }
     }
 }
