@@ -1,0 +1,220 @@
+package mazdady.ui;
+
+import android.content.Context;
+import android.content.Intent;
+import android.media.MediaPlayer;
+import android.net.Uri;
+import android.os.Bundle;
+import android.view.View;
+import android.widget.VideoView;
+import android.widget.ProgressBar;
+import android.widget.TextView;
+import androidx.appcompat.app.AppCompatActivity;
+import mazdady.admin.AdminConfig;
+import mazdady.user.UserManager;
+
+/**
+ * شاشة ترحيب بفيديو قابل للتخصيص مع شريط تحميل متطور
+ * يتبع نمط Observer لإعلام النظام بالتحميل
+ */
+public final class SplashVideoActivity extends AppCompatActivity {
+    private VideoView splashVideoView;
+    private ProgressBar loadingProgressBar;
+    private TextView loadingText;
+    private volatile boolean videoCompleted = false;
+    private volatile boolean appReady = false;
+    private static final int VIDEO_DURATION_MS = 10000; // 10 ثواني
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_splash_video);
+        
+        initializeViews();
+        startSplashSequence();
+    }
+
+    private void initializeViews() {
+        splashVideoView = findViewById(R.id.splash_video_view);
+        loadingProgressBar = findViewById(R.id.loading_progress_bar);
+        loadingText = findViewById(R.id.loading_text_view);
+        
+        // تخصيص شريط التحميل
+        customizeLoadingBar();
+    }
+
+    private void customizeLoadingBar() {
+        AdminConfig.UIConfig uiConfig = AdminConfig.getInstance().getUIConfig();
+        AdminConfig.UIConfig.LoadingBarConfig loadingConfig = uiConfig.getLoadingBarConfig();
+        
+        // تطبيق صورة خلفية لشريط التحميل
+        if (loadingConfig.getBackgroundImage() != null && !loadingConfig.getBackgroundImage().isEmpty()) {
+            // في الإنتاج: تحميل الصورة من URL أو التخزين المحلي
+            System.out.println("SPLASH VIDEO: Loading bar background set to " + loadingConfig.getBackgroundImage());
+        }
+        
+        // تخصيص الألوان
+        loadingProgressBar.setProgressDrawable(
+            getResources().getDrawable(
+                getResources().getIdentifier(
+                    loadingConfig.getProgressDrawable(),
+                    "drawable",
+                    getPackageName()
+                )
+            )
+        );
+        
+        // تخصيص النص
+        loadingText.setTextColor(
+            android.graphics.Color.parseColor(loadingConfig.getTextColor())
+        );
+        loadingText.setTextSize(loadingConfig.getTextSize());
+    }
+
+    private void startSplashSequence() {
+        // 1. تحميل فيديو الترحيب
+        loadSplashVideo();
+        
+        // 2. بدء تحميل التطبيق في الخلفية
+        startAppLoading();
+        
+        // 3. جدولة انتهاء الفيديو
+        splashVideoView.postDelayed(
+            this::handleSplashCompletion,
+            VIDEO_DURATION_MS
+        );
+        
+        System.out.println("SPLASH VIDEO: Started splash sequence");
+    }
+
+    private void loadSplashVideo() {
+        try {
+            AdminConfig.UIConfig uiConfig = AdminConfig.getInstance().getUIConfig();
+            String videoUrl = uiConfig.getSplashVideoUrl();
+            
+            if (videoUrl != null && !videoUrl.isEmpty()) {
+                Uri videoUri = Uri.parse(videoUrl);
+                splashVideoView.setVideoURI(videoUri);
+                
+                splashVideoView.setOnPreparedListener(mp -> {
+                    mp.setLooping(false);
+                    splashVideoView.start();
+                    System.out.println("SPLASH VIDEO: Started playing video from " + videoUrl);
+                });
+                
+                splashVideoView.setOnCompletionListener(mp -> {
+                    videoCompleted = true;
+                    System.out.println("SPLASH VIDEO: Video completed");
+                    checkSplashReadiness();
+                });
+                
+                splashVideoView.setOnErrorListener((mp, what, extra) -> {
+                    System.err.println("SPLASH VIDEO ERROR: Failed to play video - falling back to image");
+                    showFallbackImage();
+                    return true;
+                });
+                
+            } else {
+                showFallbackImage();
+            }
+            
+        } catch (Exception e) {
+            System.err.println("SPLASH VIDEO LOAD ERROR: " + e.getMessage());
+            showFallbackImage();
+        }
+    }
+
+    private void showFallbackImage() {
+        // في الإنتاج: عرض صورة افتراضية
+        splashVideoView.setVisibility(View.GONE);
+        findViewById(R.id.splash_fallback_image).setVisibility(View.VISIBLE);
+        System.out.println("SPLASH VIDEO: Showing fallback image");
+    }
+
+    private void startAppLoading() {
+        new Thread(() -> {
+            try {
+                // محاكاة تحميل التطبيق
+                for (int progress = 0; progress <= 100; progress += 5) {
+                    final int currentProgress = progress;
+                    runOnUiThread(() -> {
+                        updateLoadingProgress(currentProgress);
+                    });
+                    
+                    // تأخير عشوائي لمحاكاة التحميل الحقيقي
+                    Thread.sleep(300 + (int)(Math.random() * 200));
+                }
+                
+                appReady = true;
+                System.out.println("SPLASH VIDEO: App loading completed");
+                checkSplashReadiness();
+                
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }).start();
+    }
+
+    private void updateLoadingProgress(int progress) {
+        loadingProgressBar.setProgress(progress);
+        loadingText.setText(progress + "%");
+        
+        // تغيير لون النص حسب التقدم
+        if (progress < 30) {
+            loadingText.setTextColor(android.graphics.Color.RED);
+        } else if (progress < 70) {
+            loadingText.setTextColor(android.graphics.Color.YELLOW);
+        } else {
+            loadingText.setTextColor(android.graphics.Color.GREEN);
+        }
+    }
+
+    private void checkSplashReadiness() {
+        if (videoCompleted && appReady) {
+            handleSplashCompletion();
+        }
+    }
+
+    private void handleSplashCompletion() {
+        // التأكد من أن الفيديو انتهى
+        if (splashVideoView.isPlaying()) {
+            splashVideoView.stopPlayback();
+        }
+        
+        // الانتقال إلى الشاشة الرئيسية
+        navigateToMain();
+    }
+
+    private void navigateToMain() {
+        Intent intent = new Intent(this, MainActivity.class);
+        startActivity(intent);
+        finish();
+        
+        System.out.println("SPLASH VIDEO: Navigated to main activity");
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        if (splashVideoView != null) {
+            splashVideoView.stopPlayback();
+        }
+        System.out.println("SPLASH VIDEO: Activity destroyed");
+    }
+
+    // --- Getters ---
+    public boolean isVideoCompleted() { return videoCompleted; }
+    public boolean isAppReady() { return appReady; }
+    public int getCurrentProgress() { return loadingProgressBar.getProgress(); }
+    
+    /**
+     * إعادة تعيين الشاشة (للاختبارات)
+     */
+    public void reset() {
+        videoCompleted = false;
+        appReady = false;
+        loadingProgressBar.setProgress(0);
+        loadingText.setText("0%");
+        System.out.println("SPLASH VIDEO: Reset completed");
+    }
+}
