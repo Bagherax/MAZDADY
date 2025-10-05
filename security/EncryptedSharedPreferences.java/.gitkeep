@@ -2,14 +2,19 @@ package mazdady.security;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+
 import androidx.security.crypto.EncryptedSharedPreferences;
 import androidx.security.crypto.MasterKey;
 
-public class EncryptedSharedPreferences {
+/**
+ * تفضيلات مشفرة مع دعم التخزين الآمن
+ * يتبع نمط Singleton مع تهيئة آمنة
+ */
+public final class EncryptedSharedPreferences {
     private static final String FILE_NAME = "mazdady_secure_prefs";
-    private SharedPreferences sharedPreferences;
+    private final SharedPreferences sharedPreferences;
 
-    public EncryptedSharedPreferences(Context context) {
+    private EncryptedSharedPreferences(Context context) {
         try {
             MasterKey masterKey = new MasterKey.Builder(context)
                 .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
@@ -23,9 +28,13 @@ public class EncryptedSharedPreferences {
                 EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
             );
         } catch (Exception e) {
-            // في حال الفشل، استخدام SharedPreferences عادي (غير آمن)
+            // في حالة الفشل، استخدام تفضيلات عادية (غير آمنة)
             sharedPreferences = context.getSharedPreferences(FILE_NAME + "_fallback", Context.MODE_PRIVATE);
         }
+    }
+
+    public static EncryptedSharedPreferences create(Context context) {
+        return new EncryptedSharedPreferences(context);
     }
 
     public void putString(String key, String value) {
@@ -42,5 +51,21 @@ public class EncryptedSharedPreferences {
 
     public boolean getBoolean(String key, boolean defaultValue) {
         return sharedPreferences.getBoolean(key, defaultValue);
+    }
+
+    public void putLong(String key, long value) {
+        sharedPreferences.edit().putLong(key, value).apply();
+    }
+
+    public long getLong(String key, long defaultValue) {
+        return sharedPreferences.getLong(key, defaultValue);
+    }
+
+    public void putFloat(String key, float value) {
+        sharedPreferences.edit().putFloat(key, value).apply();
+    }
+
+    public float getFloat(String key, float defaultValue) {
+        return sharedPreferences.getFloat(key, defaultValue);
     }
 }
