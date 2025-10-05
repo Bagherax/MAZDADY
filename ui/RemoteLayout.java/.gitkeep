@@ -1,0 +1,177 @@
+package mazdady.ui;
+
+import android.content.Context;
+import android.util.AttributeSet;
+import android.view.LayoutInflater;
+import android.view.View;
+import android.widget.FrameLayout;
+
+import mazdady.admin.AdminConfig;
+import mazdady.network.NetworkManager;
+
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+
+/**
+ * تخطيطات عن بُعد مع دعم التحديث الديناميكي
+ * يتبع نمط Observer لإشعار النظام بالتغيرات
+ */
+public final class RemoteLayout extends FrameLayout {
+    private final NetworkManager networkManager;
+    private final LayoutCustomizer layoutCustomizer;
+    private final ConcurrentHashMap<String, View> remoteViews = new ConcurrentHashMap<>();
+    private volatile String currentLayoutId = "default";
+    private volatile boolean autoUpdate = true;
+
+    public RemoteLayout(Context context, AttributeSet attrs) {
+        super(context, attrs);
+        this.networkManager = NetworkManager.getInstance();
+        this.layoutCustomizer = new LayoutCustomizer();
+        initializeRemoteLayout();
+    }
+
+    private void initializeRemoteLayout() {
+        // تحميل التخطيط الافتراضي
+        loadDefaultLayout();
+        
+        // بدء التحديث التلقائي
+        if (autoUpdate) {
+            startAutoUpdate();
+        }
+    }
+
+    /**
+     * تحميل التخطيط الافتراضي
+     */
+    private void loadDefaultLayout() {
+        try {
+            // في الإنتاج: تحميل التخطيط الافتراضي من الموارد
+            LayoutInflater inflater = LayoutInflater.from(getContext());
+            View defaultLayout = inflater.inflate(R.layout.remote_default_layout, this, false);
+            addView(defaultLayout);
+            
+            System.out.println("REMOTE LAYOUT: Default layout loaded");
+        } catch (Exception e) {
+            System.err.println("DEFAULT LAYOUT ERROR: " + e.getMessage());
+        }
+    }
+
+    /**
+     * تحميل تخطيط عن بُعد غير متزامن
+     */
+    public CompletableFuture<Boolean> loadRemoteLayoutAsync(String layoutId) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                // التحقق من الكاش أولاً
+                if (remoteViews.containsKey(layoutId)) {
+                    post(() -> applyRemoteLayout(layoutId));
+                    return true;
+                }
+
+                // تحميل التخطيط من السيرفر
+                String layoutJson = networkManager.fetchRemoteLayout(layoutId);
+                if (layoutJson != null && !layoutJson.isEmpty()) {
+                    // في الإنتاج: تحليل JSON وتحويله إلى عرض
+                    View remoteView = parseLayoutJson(layoutJson);
+                    if (remoteView != null) {
+                        remoteViews.put(layoutId, remoteView);
+                        post(() -> applyRemoteLayout(layoutId));
+                        return true;
+                    }
+                }
+
+                return false;
+            } catch (Exception e) {
+                System.err.println("REMOTE LAYOUT LOAD ERROR: " + e.getMessage());
+                return false;
+            }
+        });
+    }
+
+    private View parseLayoutJson(String layoutJson) {
+        // في الإنتاج: استخدام مكتبة تحليل JSON
+        try {
+            // محاكاة تحليل التخطيط
+            LayoutInflater inflater = LayoutInflater.from(getContext());
+            return inflater.inflate(R.layout.remote_sample_layout, this, false);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private void applyRemoteLayout(String layoutId) {
+        View remoteView = remoteViews.get(layoutId);
+        if (remoteView != null) {
+            // إزالة التخطيط الحالي
+            removeAllViews();
+            
+            // تطبيق التخطيط الجديد
+            addView(remoteView);
+            
+            // تطبيق التخصيصات من الإدارة
+            AdminConfig.UIConfig uiConfig = AdminConfig.getInstance().getUIConfig();
+            layoutCustomizer.customizeLayout(this, uiConfig);
+            
+            this.currentLayoutId = layoutId;
+            System.out.println("REMOTE LAYOUT: Applied layout " + layoutId);
+        }
+    }
+
+    /**
+     * بدء التحديث التلقائي
+     */
+    private void startAutoUpdate() {
+        CompletableFuture.runAsync(() -> {
+            try {
+                // في الإنتاج: التحقق من التحديثات دورياً
+                Thread.sleep(30000); // كل 30 ثانية
+                
+                if (autoUpdate) {
+                    checkForLayoutUpdates();
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        });
+    }
+
+    private void checkForLayoutUpdates() {
+        try {
+            // في الإنتاج: التحقق من وجود تحديثات للتصميم
+            String latestLayoutId = networkManager.getLatestLayoutId();
+            if (latestLayoutId != null && !latestLayoutId.equals(currentLayoutId)) {
+                loadRemoteLayoutAsync(latestLayoutId);
+            }
+        } catch (Exception e) {
+            System.err.println("UPDATE CHECK ERROR: " + e.getMessage());
+        }
+    }
+
+    /**
+     * تحديث التخطيط ديناميكيًا
+     */
+    public void updateLayoutDynamically(String elementId, String property, Object value) {
+        try {
+            layoutCustomizer.updateLayoutDynamically(this, elementId, property, value);
+            System.out.println("REMOTE LAYOUT: Dynamic update applied to " + elementId);
+        } catch (Exception e) {
+            System.err.println("DYNAMIC UPDATE ERROR: " + e.getMessage());
+        }
+    }
+
+    /**
+     * تطبيق الثيم على التخطيط عن بُعد
+     */
+    public void applyThemeToRemoteLayout(ThemeMgr.Theme theme) {
+        ThemeMgr themeMgr = ThemeMgr.create(getContext());
+        themeMgr.applyTheme(this, theme);
+        System.out.println("REMOTE LAYOUT: Theme applied to remote layout");
+    }
+
+    // --- Getters/Setters ---
+    public String getCurrentLayoutId() { return currentLayoutId; }
+    public boolean isAutoUpdate() { return autoUpdate; }
+    public void setAutoUpdate(boolean autoUpdate) { this.autoUpdate = autoUpdate; }
+    public int getRemoteViewCount() { return remoteViews.size(); }
+    public void clearCache() { remoteViews.clear(); }
+}
