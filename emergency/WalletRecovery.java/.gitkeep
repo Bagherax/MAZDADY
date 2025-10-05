@@ -1,0 +1,188 @@
+package mazdady.emergency;
+
+import mazdady.user.UserManager;
+import mazdady.wallet.WalletManager;
+import mazdady.auth.KYCValidator;
+
+import java.time.Instant;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicReference;
+
+/**
+ * استرداد المحفظة مع دعم التحقق المتعدد العوامل
+ * يتبع نمط State لتمثيل مراحل الاسترداد
+ */
+public final class WalletRecovery {
+    private final AtomicReference<RecoveryState> currentState = new AtomicReference<>(new IdleState());
+    private static final WalletRecovery INSTANCE = new WalletRecovery();
+
+    private WalletRecovery() {}
+
+    public static WalletRecovery getInstance() {
+        return INSTANCE;
+    }
+
+    /**
+     * بدء عملية استرداد المحفظة غير المتزامنة
+     */
+    public CompletableFuture<RecoveryResult> startRecoveryAsync(String userId) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                RecoveryEvent event = new RecoveryEvent(userId, Instant.now());
+                RecoveryState newState = currentState.get().startRecovery(event);
+                currentState.set(newState);
+                
+                if (newState instanceof CompletedState) {
+                    return RecoveryResult.success("Wallet recovery completed successfully");
+                } else if (newState instanceof FailedState) {
+                    return RecoveryResult.failure("Wallet recovery failed");
+                } else {
+                    return RecoveryResult.inProgress("Recovery in progress");
+                }
+                
+            } catch (Exception e) {
+                return RecoveryResult.failure("Recovery error: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * التحقق من KYC للاسترداد
+     */
+    public CompletableFuture<Boolean> verifyKYCForRecovery(String userId) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                mazdady.auth.KYCValidator.KYCResult result = 
+                    KYCValidator.getInstance().startKYCVerificationAsync(userId).join();
+                return result.isSuccess();
+            } catch (Exception e) {
+                System.err.println("KYC VERIFICATION FAILED: " + e.getMessage());
+                return false;
+            }
+        });
+    }
+
+    /**
+     * استرداد المحفظة يدويًا
+     */
+    public boolean manualRecovery(String userId, String recoveryPhrase) {
+        // في الإنتاج: التحقق من عبارة الاسترداد
+        if ("valid_recovery_phrase".equals(recoveryPhrase)) {
+            WalletManager wallet = new WalletManager();
+            wallet.depositMAZDADY(1000.0); // استرداد رصيد افتراضي
+            System.out.println("WALLET RECOVERY: Manual recovery successful for " + userId);
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * حدث الاسترداد
+     */
+    private static final class RecoveryEvent {
+        private final String userId;
+        private final Instant timestamp;
+
+        public RecoveryEvent(String userId, Instant timestamp) {
+            this.userId = userId;
+            this.timestamp = timestamp;
+        }
+
+        public String getUserId() { return userId; }
+        public Instant getTimestamp() { return timestamp; }
+    }
+
+    /**
+     * واجهة حالة الاسترداد
+     */
+    private interface RecoveryState {
+        RecoveryState startRecovery(RecoveryEvent event);
+    }
+
+    // --- حالات الاسترداد ---
+    private static final class IdleState implements RecoveryState {
+        @Override
+        public RecoveryState startRecovery(RecoveryEvent event) {
+            System.out.println("WALLET RECOVERY: Starting recovery for " + event.getUserId());
+            return new VerificationState(event.getUserId());
+        }
+    }
+
+    private static final class VerificationState implements RecoveryState {
+        private final String userId;
+
+        public VerificationState(String userId) {
+            this.userId = userId;
+        }
+
+        @Override
+        public RecoveryState startRecovery(RecoveryEvent event) {
+            // في الإنتاج: بدء عملية التحقق
+            System.out.println("WALLET RECOVERY: Verification in progress for " + userId);
+            return new RecoveryStateImpl(userId);
+        }
+    }
+
+    private static final class RecoveryStateImpl implements RecoveryState {
+        private final String userId;
+
+        public RecoveryStateImpl(String userId) {
+            this.userId = userId;
+        }
+
+        @Override
+        public RecoveryState startRecovery(RecoveryEvent event) {
+            // في الإنتاج: تنفيذ الاسترداد الفعلي
+            WalletManager wallet = new WalletManager();
+            wallet.depositMAZDADY(500.0);
+            System.out.println("WALLET RECOVERY: Recovery completed for " + userId);
+            return new CompletedState();
+        }
+    }
+
+    private static final class CompletedState implements RecoveryState {
+        @Override
+        public RecoveryState startRecovery(RecoveryEvent event) {
+            return this;
+        }
+    }
+
+    private static final class FailedState implements RecoveryState {
+        @Override
+        public RecoveryState startRecovery(RecoveryEvent event) {
+            return this;
+        }
+    }
+
+    /**
+     * نتيجة الاسترداد
+     */
+    public static final class RecoveryResult {
+        private final Status status;
+        private final String message;
+
+        private RecoveryResult(Status status, String message) {
+            this.status = status;
+            this.message = message;
+        }
+
+        public static RecoveryResult success(String message) {
+            return new RecoveryResult(Status.SUCCESS, message);
+        }
+
+        public static RecoveryResult failure(String message) {
+            return new RecoveryResult(Status.FAILURE, message);
+        }
+
+        public static RecoveryResult inProgress(String message) {
+            return new RecoveryResult(Status.IN_PROGRESS, message);
+        }
+
+        public boolean isSuccess() { return status == Status.SUCCESS; }
+        public String getMessage() { return message; }
+
+        public enum Status {
+            SUCCESS, FAILURE, IN_PROGRESS
+        }
+    }
+}
