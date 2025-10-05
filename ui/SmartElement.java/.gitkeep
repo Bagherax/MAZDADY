@@ -42,6 +42,73 @@ public final class SmartElement extends View {
         this.gestureDetector = new GestureDetector(context, new GestureListener());
         this.popupMenu = new PopupMenu(context, this);
         this.onLongPressCallback = onLongPressCallback;
+        // أضف هذا إلى ملف SmartElement.java الموجود
+
+/**
+ * تعيين خلفية للعنصر من الهاتف
+ */
+public void setBackgroundImageFromPhone(Uri imageUri) {
+    if (imageUri == null) {
+        System.err.println("SMART ELEMENT: Invalid image URI");
+        return;
+    }
+    
+    ImageUploader uploader = ImageUploader.getInstance(getContext());
+    uploader.uploadImageFromPhoneAsync(getTag().toString(), imageUri)
+        .thenAccept(result -> {
+            if (result.isSuccess()) {
+                post(() -> {
+                    ElementBackgroundManager.getInstance(getContext())
+                        .setElementBackground(
+                            getTag().toString(),
+                            this,
+                            ElementBackgroundManager.BackgroundType.LOCAL_IMAGE,
+                            result.getFileName()
+                        );
+                    System.out.println("SMART ELEMENT: Background image set from phone");
+                });
+            } else {
+                System.err.println("SMART ELEMENT IMAGE ERROR: " + result.getMessage());
+            }
+        });
+}
+
+/**
+ * إزالة خلفية العنصر
+ */
+public void removeBackgroundImage() {
+    ElementBackgroundManager.getInstance(getContext())
+        .removeElementBackground(getTag().toString(), this);
+    System.out.println("SMART ELEMENT: Background image removed");
+}
+
+/**
+ * تعيين لون الخلفية
+ */
+public void setBackgroundColor(String colorHex) {
+    ElementBackgroundManager.getInstance(getContext())
+        .setElementBackground(
+            getTag().toString(),
+            this,
+            ElementBackgroundManager.BackgroundType.COLOR,
+            colorHex
+        );
+    System.out.println("SMART ELEMENT: Background color set to " + colorHex);
+}
+
+/**
+ * تعيين خلفية افتراضية
+ */
+public void setDefaultBackground() {
+    ElementBackgroundManager.getInstance(getContext())
+        .setElementBackground(
+            getTag().toString(),
+            this,
+            ElementBackgroundManager.BackgroundType.DEFAULT,
+            ""
+        );
+    System.out.println("SMART ELEMENT: Default background applied");
+}
         
         initializePaint();
         setupPopupMenu();
