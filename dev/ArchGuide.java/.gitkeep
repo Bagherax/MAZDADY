@@ -1,0 +1,113 @@
+package mazdady.dev;
+
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+
+/**
+ * دليل العمارة مع دعم التوثيق الديناميكي
+ * يتبع نمط Singleton لتوفير مرجع موحد
+ */
+public final class ArchGuide {
+    private final Map<String, ArchitectureComponent> components = new ConcurrentHashMap<>();
+    private static final ArchGuide INSTANCE = new ArchGuide();
+
+    private ArchGuide() {
+        initializeArchitecture();
+    }
+
+    public static ArchGuide getInstance() {
+        return INSTANCE;
+    }
+
+    private void initializeArchitecture() {
+        // تعريف مكونات العمارة
+        components.put("CORE", new ArchitectureComponent(
+            "Core Layer",
+            "الطبقة الأساسية التي تحتوي على نقاط الدخول والتهيئة",
+            "core/"
+        ));
+        components.put("USER", new ArchitectureComponent(
+            "User Layer",
+            "إدارة المستخدمين، المستويات، والاشتراكات",
+            "user/"
+        ));
+        components.put("WALLET", new ArchitectureComponent(
+            "Wallet Layer",
+            "إدارة المحفظة الرقمية والمعاملات",
+            "wallet/"
+        ));
+        components.put("TRADING", new ArchitectureComponent(
+            "Trading Layer",
+            "محرك التداول وفرق التداول الذكية",
+            "trading/, team/"
+        ));
+        components.put("ADMIN", new ArchitectureComponent(
+            "Admin Layer",
+            "لوحة التحكم الإدارية الكاملة",
+            "admin/"
+        ));
+        components.put("SECURITY", new ArchitectureComponent(
+            "Security Layer",
+            "الأمان المتقدم والتحقق من الهوية",
+            "security/, auth/"
+        ));
+    }
+
+    /**
+     * الحصول على وصف مكون العمارة
+     */
+    public String getComponentDescription(String componentName) {
+        ArchitectureComponent component = components.get(componentName);
+        return component != null ? component.getDescription() : "Component not found";
+    }
+
+    /**
+     * الحصول على مسار مكون العمارة
+     */
+    public String getComponentPath(String componentName) {
+        ArchitectureComponent component = components.get(componentName);
+        return component != null ? component.getPath() : "unknown/";
+    }
+
+    /**
+     * عرض دليل العمارة الكامل
+     */
+    public String getFullGuide() {
+        StringBuilder guide = new StringBuilder();
+        guide.append("🏗️ MAZDADY ARCHITECTURE GUIDE\n");
+        guide.append("================================\n\n");
+        
+        for (Map.Entry<String, ArchitectureComponent> entry : components.entrySet()) {
+            ArchitectureComponent component = entry.getValue();
+            guide.append(String.format(
+                "🔷 %s\n" +
+                "   الوصف: %s\n" +
+                "   المسار: %s\n\n",
+                component.getName(),
+                component.getDescription(),
+                component.getPath()
+            ));
+        }
+        
+        return guide.toString();
+    }
+
+    /**
+     * مكون العمارة
+     */
+    private static final class ArchitectureComponent {
+        private final String name;
+        private final String description;
+        private final String path;
+
+        public ArchitectureComponent(String name, String description, String path) {
+            this.name = name;
+            this.description = description;
+            this.path = path;
+        }
+
+        public String getName() { return name; }
+        public String getDescription() { return description; }
+        public String getPath() { return path; }
+    }
+}
