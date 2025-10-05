@@ -1,68 +1,265 @@
 package mazdady.core;
 
+import mazdady.admin.AdminConfig;
+import mazdady.user.User;
 import mazdady.user.UserManager;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Predicate;
 
 /**
- * مدير تبديل الميزات مع دعم التقييم الديناميكي
- * يتبع نمط Strategy لتحديد شروط التفعيل
+ * تبديل الميزات الديناميكي مع تتبع الاستخدام
+ * يتبع نمط Strategy لفصل استراتيجيات التبديل
  */
 public final class FeatureToggle {
-    private final Map<String, Feature> features = new ConcurrentHashMap<>();
-    private static final FeatureToggle INSTANCE = new FeatureToggle();
+    private final Map<String, FeatureConfig> featureConfigs = new ConcurrentHashMap<>();
+    private final Map<String, AtomicBoolean> featureStates = new ConcurrentHashMap<>();
+    private final Map<String, FeatureUsageTracker> usageTrackers = new ConcurrentHashMap<>();
+    private static FeatureToggle instance;
 
     private FeatureToggle() {
         initializeDefaultFeatures();
     }
 
-    public static FeatureToggle getInstance() {
-        return INSTANCE;
+    public static synchronized FeatureToggle getInstance() {
+        if (instance == null) {
+            instance = new FeatureToggle();
+        }
+        return instance;
     }
 
     private void initializeDefaultFeatures() {
-        features.put("payment_tools", new Feature(true, user -> user.getLevel() >= 3));
-        features.put("advanced_analytics", new Feature(false, user -> user.hasActiveSubscription()));
-        features.put("floating_ad", new Feature(true, user -> true));
-        features.put("team_trading", new Feature(true, user -> true));
-    }
-
-    public boolean isEnabled(String feature) {
-        Feature f = features.get(feature);
-        return f != null && f.isEnabled();
-    }
-
-    public boolean isAvailableForUser(String feature) {
-        Feature f = features.get(feature);
-        return f != null && f.isAvailableForUser(UserManager.getInstance(null).getCurrentUser());
-    }
-
-    public void setFeature(String feature, boolean enabled) {
-        features.compute(feature, (k, v) -> 
-            v != null ? new Feature(enabled, v.userCondition) : new Feature(enabled, user -> true)
-        );
+        // الميزات الافتراضية
+        featureConfigs.put("payment_tools", new FeatureConfig(
+            true,
+            user -> user.getLevel() >= 3,
+            "أدوات الدفع"
+        ));
+        
+        featureConfigs.put("advanced_analytics", new FeatureConfig(
+            false,
+            user -> user.hasActiveSubscription(),
+            "تحليلات متقدمة"
+        ));
+        
+        featureConfigs.put("floating_ad", new FeatureConfig(
+            true,
+            user -> true,
+            "إعلان عائم"
+        ));
+        
+        featureConfigs.put("team_trading", new FeatureConfig(
+            true,
+            user -> user.getLevel() >= 5,
+            "تداول فرق"
+        ));
+        
+        featureConfigs.put("magic_update", new FeatureConfig(
+            true,
+            user -> user.isAdmin(),
+            "تحديث سحري"
+        ));
+        
+        // تهيئة الحالات
+        featureConfigs.keySet().forEach(featureId -> {
+            FeatureConfig config = featureConfigs.get(featureId);
+            featureStates.put(featureId, new AtomicBoolean(config.isEnabledByDefault()));
+            usageTrackers.put(featureId, new FeatureUsageTracker(featureId));
+        });
+        
+        System.out.println("FEATURE TOGGLE: Initialized " + featureConfigs.size() + " features");
     }
 
     /**
-     * ميزة مع شرط المستخدم
+     * التحقق من توفر ميزة للمستخدم
      */
-    private static final class Feature {
-        private final boolean enabled;
-        private final Predicate<mazdady.user.User> userCondition;
+    public boolean isFeatureAvailable(String featureId) {
+        AtomicBoolean state = featureStates.get(featureId);
+        if (state == null) {
+            return false;
+        }
+        
+        FeatureConfig config = featureConfigs.get(featureId);
+        if (config == null) {
+            return state.get();
+        }
+        
+        User user = UserManager.getInstance(null).getCurrentUser();
+        return state.get() && config.getUserCondition().test(user);
+    }
 
-        Feature(boolean enabled, Predicate<mazdady.user.User> userCondition) {
-            this.enabled = enabled;
+    /**
+     * تفعيل ميزة
+     */
+    public void enableFeature(String featureId) {
+        AtomicBoolean state = featureStates.get(featureId);
+        if (state != null) {
+            state.set(true);
+            System.out.println("FEATURE TOGGLE: Enabled feature " + featureId);
+        }
+    }
+
+    /**
+     * تعطيل ميزة
+     */
+    public void disableFeature(String featureId) {
+        AtomicBoolean state = featureStates.get(featureId);
+        if (state != null) {
+            state.set(false);
+            System.out.println("FEATURE TOGGLE: Disabled feature " + featureId);
+        }
+    }
+
+    /**
+     * تتبع استخدام ميزة
+     */
+    public void trackFeatureUsage(String featureId, String userId) {
+        FeatureUsageTracker tracker = usageTrackers.get(featureId);
+        if (tracker != null) {
+            tracker.incrementUsage(userId);
+        }
+    }
+
+    /**
+     * الحصول على تقرير استخدام الميزات
+     */
+    public FeatureUsageReport getUsageReport(String featureId) {
+        FeatureUsageTracker tracker = usageTrackers.get(featureId);
+        return tracker != null ? tracker.getUsageReport() : FeatureUsageReport.empty();
+    }
+
+    /**
+     * تحديث إعدادات الميزات من الإعدادات الإدارية
+     */
+    public void updateFromAdminConfig(AdminConfig.FeatureConfig adminFeatureConfig) {
+        if (adminFeatureConfig == null) return;
+        
+        String featureId = adminFeatureConfig.getFeatureId();
+        FeatureConfig existingConfig = featureConfigs.get(featureId);
+        
+        if (existingConfig != null) {
+            // تحديث الحالة
+            AtomicBoolean state = featureStates.get(featureId);
+            if (state != null) {
+                state.set(adminFeatureConfig.isEnabled());
+            }
+            
+            // تحديث الشرط
+            existingConfig.setUserCondition(user -> 
+                user.getLevel() >= adminFeatureConfig.getRequiredLevel()
+            );
+            
+            System.out.println("FEATURE TOGGLE: Updated feature " + featureId + 
+                             " from admin config");
+        }
+    }
+
+    /**
+     * إعدادات الميزة
+     */
+    private static final class FeatureConfig {
+        private final boolean enabledByDefault;
+        private volatile Predicate<User> userCondition;
+        private final String displayName;
+
+        public FeatureConfig(boolean enabledByDefault, Predicate<User> userCondition, String displayName) {
+            this.enabledByDefault = enabledByDefault;
             this.userCondition = userCondition;
+            this.displayName = displayName;
         }
 
-        boolean isEnabled() {
-            return enabled;
+        // Getters/Setters
+        public boolean isEnabledByDefault() { return enabledByDefault; }
+        public Predicate<User> getUserCondition() { return userCondition; }
+        public void setUserCondition(Predicate<User> userCondition) { this.userCondition = userCondition; }
+        public String getDisplayName() { return displayName; }
+    }
+
+    /**
+     * متتبع استخدام الميزات
+     */
+    private static final class FeatureUsageTracker {
+        private final String featureId;
+        private final Map<String, Integer> userUsage = new ConcurrentHashMap<>();
+        private final AtomicBoolean isActive = new AtomicBoolean(true);
+
+        public FeatureUsageTracker(String featureId) {
+            this.featureId = featureId;
         }
 
-        boolean isAvailableForUser(mazdady.user.User user) {
-            return enabled && userCondition.test(user);
+        public void incrementUsage(String userId) {
+            if (!isActive.get()) return;
+            
+            userUsage.compute(userId, (k, v) -> v == null ? 1 : v + 1);
+            System.out.println("FEATURE USAGE: " + featureId + " used by " + userId + 
+                             " (" + userUsage.get(userId) + " times)");
         }
+
+        public FeatureUsageReport getUsageReport() {
+            int totalUsers = userUsage.size();
+            int totalUsage = userUsage.values().stream().mapToInt(Integer::intValue).sum();
+            double averageUsage = totalUsers > 0 ? (double) totalUsage / totalUsers : 0;
+            
+            return new FeatureUsageReport(totalUsers, totalUsage, averageUsage);
+        }
+
+        public void setActive(boolean active) { isActive.set(active); }
+        public boolean isActive() { return isActive.get(); }
+        public Map<String, Integer> getUserUsage() { return new ConcurrentHashMap<>(userUsage); }
+    }
+
+    /**
+     * تقرير استخدام الميزات
+     */
+    public static final class FeatureUsageReport {
+        private final int totalUsers;
+        private final int totalUsage;
+        private final double averageUsage;
+
+        public FeatureUsageReport(int totalUsers, int totalUsage, double averageUsage) {
+            this.totalUsers = totalUsers;
+            this.totalUsage = totalUsage;
+            this.averageUsage = averageUsage;
+        }
+
+        public static FeatureUsageReport empty() {
+            return new FeatureUsageReport(0, 0, 0);
+        }
+
+        // Getters
+        public int getTotalUsers() { return totalUsers; }
+        public int getTotalUsage() { return totalUsage; }
+        public double getAverageUsage() { return averageUsage; }
+        
+        public String getFormattedReport() {
+            return "Users: " + totalUsers + " - " +
+                   "Usage: " + totalUsage + " - " +
+                   "Avg: " + String.format("%.2f", averageUsage);
+        }
+    }
+
+    // --- Getters ---
+    public Map<String, FeatureConfig> getFeatureConfigs() { return new ConcurrentHashMap<>(featureConfigs); }
+    public Map<String, AtomicBoolean> getFeatureStates() { return new ConcurrentHashMap<>(featureStates); }
+    public Map<String, FeatureUsageTracker> getUsageTrackers() { return new ConcurrentHashMap<>(usageTrackers); }
+    public int getFeatureCount() { return featureConfigs.size(); }
+    public int getEnabledFeatureCount() { 
+        return (int) featureStates.values().stream().filter(AtomicBoolean::get).count(); 
+    }
+    
+    /**
+     * إعادة تعيين المتتبعات (للاختبارات)
+     */
+    public void resetUsageTrackers() {
+        usageTrackers.values().forEach(tracker -> {
+            try {
+                tracker.getUserUsage().clear();
+            } catch (Exception e) {
+                // تجاهل الأخطاء
+            }
+        });
+        System.out.println("FEATURE TOGGLE: Usage trackers reset");
     }
 }
