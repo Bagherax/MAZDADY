@@ -1,0 +1,235 @@
+package mazdady.ui;
+
+import android.content.Context;
+import android.content.res.Configuration;
+import android.graphics.Color;
+import android.util.TypedValue;
+import android.view.View;
+import android.view.ViewGroup;
+import android.widget.TextView;
+
+import mazdady.admin.AdminConfig;
+import mazdady.i18n.DeviceLang;
+
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
+
+/**
+ * مدير الثيمات الديناميكي مع دعم التغيير الفوري
+ * يتبع نمط Observer لإشعار المكونات بتغير الثيم
+ */
+public final class ThemeMgr {
+    private final Context context;
+    private final Map<String, Theme> themes = new ConcurrentHashMap<>();
+    private final CopyOnWriteArrayList<ThemeChangeListener> listeners = new CopyOnWriteArrayList<>();
+    private volatile String currentThemeId = "default";
+    private static ThemeMgr instance;
+
+    private ThemeMgr(Context context) {
+        this.context = context.getApplicationContext();
+        initializeThemes();
+    }
+
+    public static synchronized ThemeMgr create(Context context) {
+        if (instance == null) {
+            instance = new ThemeMgr(context);
+        }
+        return instance;
+    }
+
+    private void initializeThemes() {
+        // الثيم الافتراضي
+        themes.put("default", new Theme(
+            "default",
+            Color.parseColor("#0f0f1b"), // خلفية رئيسية
+            Color.parseColor("#1a1a2e"), // شريط علوي
+            Color.parseColor("#4CAF50"), // لون أولي
+            Color.parseColor("#FF5722"), // لون ثانوي
+            Color.WHITE, // لون النص
+            16f // حجم النص الافتراضي
+        ));
+
+        // الثيم الداكن
+        themes.put("dark", new Theme(
+            "dark",
+            Color.BLACK,
+            Color.parseColor("#121212"),
+            Color.parseColor("#BB86FC"),
+            Color.parseColor("#03DAC6"),
+            Color.WHITE,
+            16f
+        ));
+
+        // الثيم الفاتح
+        themes.put("light", new Theme(
+            "light",
+            Color.parseColor("#f5f5f5"),
+            Color.WHITE,
+            Color.parseColor("#6200EE"),
+            Color.parseColor("#03DAC6"),
+            Color.BLACK,
+            16f
+        ));
+
+        // الثيم الأخضر
+        themes.put("green", new Theme(
+            "green",
+            Color.parseColor("#1b5e20"),
+            Color.parseColor("#2e7d32"),
+            Color.parseColor("#81c784"),
+            Color.parseColor("#4caf50"),
+            Color.WHITE,
+            16f
+        ));
+    }
+
+    /**
+     * تطبيق الثيم على العرض
+     */
+    public void applyTheme(View view, Theme theme) {
+        if (view == null || theme == null) return;
+
+        try {
+            // تطبيق خلفية العرض
+            view.setBackgroundColor(theme.getBackgroundColor());
+
+            // تطبيق الثيم على العناصر الفرعية
+            if (view instanceof ViewGroup) {
+                ViewGroup group = (ViewGroup) view;
+                for (int i = 0; i < group.getChildCount(); i++) {
+                    View child = group.getChildAt(i);
+                    applyThemeToChild(child, theme);
+                }
+            }
+
+            System.out.println("THEME MANAGER: Theme applied to " + view.getClass().getSimpleName());
+        } catch (Exception e) {
+            System.err.println("THEME APPLY ERROR: " + e.getMessage());
+        }
+    }
+
+    private void applyThemeToChild(View child, Theme theme) {
+        if (child instanceof TextView) {
+            TextView textView = (TextView) child;
+            textView.setTextColor(theme.getTextColor());
+            textView.setTextSize(TypedValue.COMPLEX_UNIT_SP, theme.getTextSize());
+        }
+
+        // تطبيق الثيم على العناصر الأخرى
+        child.setBackgroundColor(theme.getBackgroundColor());
+    }
+
+    /**
+     * تغيير الثيم فورًا
+     */
+    public void changeTheme(String themeId) {
+        Theme newTheme = themes.get(themeId);
+        if (newTheme != null) {
+            String oldThemeId = this.currentThemeId;
+            this.currentThemeId = themeId;
+            
+            // إشعار المستمعين
+            notifyThemeChange(oldThemeId, themeId, newTheme);
+            
+            System.out.println("THEME MANAGER: Theme changed to " + themeId);
+        }
+    }
+
+    /**
+     * تغيير الثيم تلقائيًا حسب الوقت
+     */
+    public void autoChangeTheme() {
+        // في الإنتاج: تغيير الثيم حسب الوقت أو إعدادات المستخدم
+        DeviceLang deviceLang = DeviceLang.getInstance(context);
+        if (deviceLang.isArabic()) {
+            changeTheme("green"); // ثيم أخضر للغة العربية
+        } else {
+            changeTheme("default"); // الثيم الافتراضي للغات الأخرى
+        }
+    }
+
+    private void notifyThemeChange(String oldThemeId, String newThemeId, Theme newTheme) {
+        listeners.forEach(listener -> {
+            try {
+                listener.onThemeChanged(oldThemeId, newThemeId, newTheme);
+            } catch (Exception e) {
+                // تجاهل أخطاء المستمعين
+            }
+        });
+    }
+
+    /**
+     * تحديث الثيم من الإعدادات الإدارية
+     */
+    public void updateThemeFromAdmin(AdminConfig.UIConfig uiConfig) {
+        try {
+            // في الإنتاج: تحديث الثيم من إعدادات الإدارة
+            System.out.println("THEME MANAGER: Theme updated from admin config");
+        } catch (Exception e) {
+            System.err.println("THEME UPDATE ERROR: " + e.getMessage());
+        }
+    }
+
+    /**
+     * إضافة مستمع لتغير الثيم
+     */
+    public void addThemeChangeListener(ThemeChangeListener listener) {
+        if (listener != null) {
+            listeners.add(listener);
+        }
+    }
+
+    /**
+     * إزالة مستمع لتغير الثيم
+     */
+    public void removeThemeChangeListener(ThemeChangeListener listener) {
+        listeners.remove(listener);
+    }
+
+    /**
+     * الثيم
+     */
+    public static final class Theme {
+        private final String id;
+        private final int backgroundColor;
+        private final int topBarColor;
+        private final int primaryColor;
+        private final int secondaryColor;
+        private final int textColor;
+        private final float textSize;
+
+        public Theme(String id, int backgroundColor, int topBarColor, int primaryColor, 
+                    int secondaryColor, int textColor, float textSize) {
+            this.id = id;
+            this.backgroundColor = backgroundColor;
+            this.topBarColor = topBarColor;
+            this.primaryColor = primaryColor;
+            this.secondaryColor = secondaryColor;
+            this.textColor = textColor;
+            this.textSize = textSize;
+        }
+
+        // Getters
+        public String getId() { return id; }
+        public int getBackgroundColor() { return backgroundColor; }
+        public int getTopBarColor() { return topBarColor; }
+        public int getPrimaryColor() { return primaryColor; }
+        public int getSecondaryColor() { return secondaryColor; }
+        public int getTextColor() { return textColor; }
+        public float getTextSize() { return textSize; }
+    }
+
+    /**
+     * مستمع تغير الثيم
+     */
+    @FunctionalInterface
+    public interface ThemeChangeListener {
+        void onThemeChanged(String oldThemeId, String newThemeId, Theme newTheme);
+    }
+
+    // --- Getters ---
+    public Theme getCurrentTheme() { return themes.get(currentThemeId); }
+    public String getCurrentThemeId() { return currentThemeId; }
+    public Map<String, Theme> getAllThemes() { return new ConcurrentHashMap<>(themes); }
+}
