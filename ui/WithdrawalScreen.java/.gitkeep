@@ -1,0 +1,348 @@
+package mazdady.ui;
+
+import android.content.Context;
+import android.graphics.Color;
+import android.util.AttributeSet;
+import android.view.Gravity;
+import android.view.View;
+import android.widget.*;
+
+import mazdady.auth.KYCValidator;
+import mazdady.user.User;
+import mazdady.user.UserManager;
+import mazdady.wallet.WalletManager;
+
+import java.util.concurrent.CompletableFuture;
+
+/**
+ * شاشة السحب المتقدمة مع دعم التحقق المتعدد المستويات
+ * يتبع نمط State لتمثيل حالات السحب المختلفة
+ */
+public final class WithdrawalScreen extends LinearLayout {
+    private final EditText amountEditText;
+    private final Spinner methodSpinner;
+    private final Button withdrawButton;
+    private final TextView balanceView;
+    private final TextView feeView;
+    private final TextView netAmountView;
+    private final ProgressBar loadingIndicator;
+    private final TextView statusView;
+    private final WithdrawalStateManager stateManager;
+
+    public WithdrawalScreen(Context context, AttributeSet attrs) {
+        super(context, attrs);
+        this.stateManager = new WithdrawalStateManager();
+        setOrientation(VERTICAL);
+        setPadding(20, 20, 20, 20);
+        
+        // تهيئة العناصر
+        this.amountEditText = createAmountInput();
+        this.methodSpinner = createMethodSelector();
+        this.withdrawButton = createWithdrawButton();
+        this.balanceView = createBalanceView();
+        this.feeView = createFeeView();
+        this.netAmountView = createNetAmountView();
+        this.loadingIndicator = createLoadingIndicator();
+        this.statusView = createStatusView();
+        
+        // إضافة العناصر للشاشة
+        addView(createHeader());
+        addView(balanceView);
+        addView(amountEditText);
+        addView(methodSpinner);
+        addView(createAmountCalculator());
+        addView(withdrawButton);
+        addView(loadingIndicator);
+        addView(statusView);
+        
+        // تحميل البيانات الأولية
+        loadInitialData();
+        
+        System.out.println("WITHDRAWAL SCREEN: Initialized");
+    }
+
+    private TextView createHeader() {
+        TextView header = new TextView(getContext());
+        header.setText("سحب الأرباح");
+        header.setTextSize(24);
+        header.setTextColor(Color.WHITE);
+        header.setGravity(Gravity.CENTER);
+        header.setPadding(0, 0, 0, 30);
+        return header;
+    }
+
+    private EditText createAmountInput() {
+        EditText editText = new EditText(getContext());
+        editText.setHint("أدخل المبلغ المراد سحبه");
+        editText.setTextColor(Color.WHITE);
+        editText.setHintTextColor(Color.GRAY);
+        editText.setInputType(android.text.InputType.TYPE_CLASS_NUMBER | android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL);
+        
+        // حساب الرسوم تلقائيًا
+        editText.addTextChangedListener(new android.text.TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+            
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+                updateCalculations();
+            }
+            
+            @Override
+            public void afterTextChanged(android.text.Editable s) {}
+        });
+        
+        return editText;
+    }
+
+    private Spinner createMethodSelector() {
+        Spinner spinner = new Spinner(getContext());
+        ArrayAdapter<String> adapter = new ArrayAdapter<>(
+            getContext(),
+            android.R.layout.simple_spinner_item,
+            new String[]{"محفظة رقمية", "تحويل بنكي", "تحويل داخلي"}
+        );
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        spinner.setAdapter(adapter);
+        return spinner;
+    }
+
+    private Button createWithdrawButton() {
+        Button button = new Button(getContext());
+        button.setText("سحب الأرباح");
+        button.setBackgroundColor(Color.parseColor("#4CAF50"));
+        button.setTextColor(Color.WHITE);
+        button.setOnClickListener(this::handleWithdraw);
+        return button;
+    }
+
+    private TextView createBalanceView() {
+        TextView textView = new TextView(getContext());
+        textView.setTextSize(16);
+        textView.setTextColor(Color.WHITE);
+        return textView;
+    }
+
+    private TextView createFeeView() {
+        TextView textView = new TextView(getContext());
+        textView.setTextSize(14);
+        textView.setTextColor(Color.GRAY);
+        return textView;
+    }
+
+    private TextView createNetAmountView() {
+        TextView textView = new TextView(getContext());
+        textView.setTextSize(18);
+        textView.setTextColor(Color.parseColor("#FFC107"));
+        textView.setPadding(0, 10, 0, 10);
+        return textView;
+    }
+
+    private ProgressBar createLoadingIndicator() {
+        ProgressBar progressBar = new ProgressBar(getContext());
+        progressBar.setVisibility(View.GONE);
+        return progressBar;
+    }
+
+    private TextView createStatusView() {
+        TextView textView = new TextView(getContext());
+        textView.setTextSize(14);
+        textView.setGravity(Gravity.CENTER);
+        return textView;
+    }
+
+    private LinearLayout createAmountCalculator() {
+        LinearLayout layout = new LinearLayout(getContext());
+        layout.setOrientation(HORIZONTAL);
+        layout.setPadding(0, 10, 0, 10);
+        
+        TextView quickButton1 = createQuickAmountButton("100");
+        TextView quickButton2 = createQuickAmountButton("500");
+        TextView quickButton3 = createQuickAmountButton("1000");
+        
+        layout.addView(quickButton1);
+        layout.addView(quickButton2);
+        layout.addView(quickButton3);
+        
+        return layout;
+    }
+
+    private TextView createQuickAmountButton(String amount) {
+        TextView button = new TextView(getContext());
+        button.setText(amount);
+        button.setTextSize(14);
+        button.setTextColor(Color.WHITE);
+        button.setBackgroundResource(android.R.drawable.btn_default);
+        button.setPadding(20, 10, 20, 10);
+        button.setClickable(true);
+        button.setOnClickListener(v -> {
+            amountEditText.setText(amount);
+            updateCalculations();
+        });
+        return button;
+    }
+
+    private void loadInitialData() {
+        User user = UserManager.getInstance(null).getCurrentUser();
+        balanceView.setText("الرصيد المتاح: " + String.format("%.2f", user.getBalance()) + " MAZDADY");
+        updateCalculations();
+    }
+
+    private void updateCalculations() {
+        try {
+            String amountStr = amountEditText.getText().toString();
+            if (amountStr.isEmpty()) {
+                feeView.setText("الرسوم: 0.00 MAZDADY");
+                netAmountView.setText("المبلغ الصافي: 0.00 MAZDADY");
+                return;
+            }
+            
+            double amount = Double.parseDouble(amountStr);
+            double fee = calculateWithdrawalFee(amount);
+            double netAmount = amount - fee;
+            
+            feeView.setText("الرسوم (" + String.format("%.1f", (fee/amount)*100) + "%): " + 
+                          String.format("%.2f", fee) + " MAZDADY");
+            netAmountView.setText("المبلغ الصافي: " + String.format("%.2f", netAmount) + " MAZDADY");
+            
+        } catch (NumberFormatException e) {
+            feeView.setText("الرسوم: 0.00 MAZDADY");
+            netAmountView.setText("المبلغ الصافي: 0.00 MAZDADY");
+        }
+    }
+
+    private double calculateWithdrawalFee(double amount) {
+        // في الإنتاج: حساب الرسوم حسب طريقة السحب
+        return amount * 0.05; // 5% رسوم افتراضية
+    }
+
+    private void handleWithdraw(View view) {
+        try {
+            double amount = Double.parseDouble(amountEditText.getText().toString());
+            String method = (String) methodSpinner.getSelectedItem();
+            
+            // التحقق من صحة المبلغ
+            User user = UserManager.getInstance(null).getCurrentUser();
+            if (amount > user.getBalance()) {
+                showStatus("الرصيد غير كافٍ", false);
+                return;
+            }
+            
+            // التحقق من KYC
+            if (!user.isKYCVerified()) {
+                showStatus("يجب توثيق الهوية أولاً", false);
+                return;
+            }
+            
+            // بدء عملية السحب
+            initiateWithdrawal(amount, method);
+            
+        } catch (NumberFormatException e) {
+            showStatus("الرجاء إدخال مبلغ صحيح", false);
+        }
+    }
+
+    private void initiateWithdrawal(double amount, String method) {
+        // عرض مؤشر التحميل
+        loadingIndicator.setVisibility(View.VISIBLE);
+        withdrawButton.setEnabled(false);
+        showStatus("جاري معالجة السحب...", true);
+        
+        // تنفيذ السحب في الخلفية
+        CompletableFuture.supplyAsync(() -> {
+            try {
+                WalletManager wallet = new WalletManager();
+                boolean success = wallet.withdrawMAZDADY(amount);
+                
+                if (success) {
+                    UserManager.getInstance(null).updateBalance(
+                        UserManager.getInstance(null).getCurrentUser().getBalance() - amount
+                    );
+                    return WithdrawalResult.success("تم السحب بنجاح");
+                } else {
+                    return WithdrawalResult.failure("فشل في عملية السحب");
+                }
+                
+            } catch (Exception e) {
+                return WithdrawalResult.failure("خطأ في السحب: " + e.getMessage());
+            }
+        }).thenAccept(result -> {
+            post(() -> {
+                loadingIndicator.setVisibility(View.GONE);
+                withdrawButton.setEnabled(true);
+                showStatus(result.getMessage(), result.isSuccess());
+                
+                if (result.isSuccess()) {
+                    loadInitialData(); // تحديث الرصيد
+                }
+            });
+        });
+    }
+
+    private void showStatus(String message, boolean isSuccess) {
+        statusView.setText(message);
+        statusView.setTextColor(isSuccess ? Color.GREEN : Color.RED);
+    }
+
+    /**
+     * نتيجة السحب
+     */
+    private static final class WithdrawalResult {
+        private final boolean success;
+        private final String message;
+
+        private WithdrawalResult(boolean success, String message) {
+            this.success = success;
+            this.message = message;
+        }
+
+        public static WithdrawalResult success(String message) {
+            return new WithdrawalResult(true, message);
+        }
+
+        public static WithdrawalResult failure(String message) {
+            return new WithdrawalResult(false, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public String getMessage() { return message; }
+    }
+
+    /**
+     * مدير حالات السحب
+     */
+    private static final class WithdrawalStateManager {
+        private volatile WithdrawalState currentState = WithdrawalState.IDLE;
+
+        public void setState(WithdrawalState state) {
+            this.currentState = state;
+            System.out.println("WITHDRAWAL STATE: Changed to " + state);
+        }
+
+        public WithdrawalState getCurrentState() {
+            return currentState;
+        }
+
+        public enum WithdrawalState {
+            IDLE, PROCESSING, VERIFYING, CONFIRMING, COMPLETED, FAILED
+        }
+    }
+
+    // --- Getters ---
+    public double getCurrentAmount() {
+        try {
+            return Double.parseDouble(amountEditText.getText().toString());
+        } catch (NumberFormatException e) {
+            return 0.0;
+        }
+    }
+    
+    public String getSelectedMethod() {
+        return (String) methodSpinner.getSelectedItem();
+    }
+    
+    public void setAmount(double amount) {
+        amountEditText.setText(String.valueOf(amount));
+        updateCalculations();
+    }
+}
