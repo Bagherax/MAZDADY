@@ -1,0 +1,209 @@
+package mazdady.ui;
+
+import android.content.Context;
+import android.graphics.Canvas;
+import android.graphics.Color;
+import android.graphics.Paint;
+import android.graphics.Rect;
+import android.util.AttributeSet;
+import android.view.GestureDetector;
+import android.view.MotionEvent;
+import android.view.View;
+import android.widget.PopupMenu;
+import android.widget.Toast;
+
+import java.util.concurrent.CompletableFuture;
+import java.util.function.Consumer;
+
+/**
+ * عنصر ذكي يمكن تعديله بالضغط الطويل
+ * يتبع نمط Observer لإعلام النظام بالتغيرات
+ */
+public final class SmartElement extends View {
+    private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final GestureDetector gestureDetector;
+    private final PopupMenu popupMenu;
+    private final Consumer<SmartElement> onLongPressCallback;
+    private volatile boolean isEditable = false;
+    private static SmartElement instance;
+
+    public SmartElement(Context context, AttributeSet attrs) {
+        super(context, attrs);
+        this.gestureDetector = new GestureDetector(context, new GestureListener());
+        this.popupMenu = new PopupMenu(context, this);
+        this.onLongPressCallback = null;
+        
+        initializePaint();
+        setupPopupMenu();
+    }
+
+    public SmartElement(Context context, AttributeSet attrs, Consumer<SmartElement> onLongPressCallback) {
+        super(context, attrs);
+        this.gestureDetector = new GestureDetector(context, new GestureListener());
+        this.popupMenu = new PopupMenu(context, this);
+        this.onLongPressCallback = onLongPressCallback;
+        
+        initializePaint();
+        setupPopupMenu();
+    }
+
+    private void initializePaint() {
+        paint.setColor(Color.WHITE);
+        paint.setTextSize(16f);
+        paint.setTextAlign(Paint.Align.CENTER);
+    }
+
+    private void setupPopupMenu() {
+        popupMenu.getMenu().add("إخفاء").setOnMenuItemClickListener(item -> {
+            setVisibility(View.GONE);
+            Toast.makeText(getContext(), "تم إخفاء العنصر", Toast.LENGTH_SHORT).show();
+            return true;
+        });
+        
+        popupMenu.getMenu().add("إظهار").setOnMenuItemClickListener(item -> {
+            setVisibility(View.VISIBLE);
+            Toast.makeText(getContext(), "تم إظهار العنصر", Toast.LENGTH_SHORT).show();
+            return true;
+        });
+        
+        popupMenu.getMenu().add("تغيير اللون").setOnMenuItemClickListener(item -> {
+            changeColor();
+            return true;
+        });
+        
+        popupMenu.getMenu().add("تعيين الخلفية").setOnMenuItemClickListener(item -> {
+            setWallpaper();
+            return true;
+        });
+        
+        popupMenu.getMenu().add("نقل الموضع").setOnMenuItemClickListener(item -> {
+            movePosition();
+            return true;
+        });
+        
+        popupMenu.getMenu().add("تغيير الحجم").setOnMenuItemClickListener(item -> {
+            resizeElement();
+            return true;
+        });
+        
+        popupMenu.getMenu().add("إضافة تفاعل").setOnMenuItemClickListener(item -> {
+            addInteraction();
+            return true;
+        });
+        
+        popupMenu.getMenu().add("حذف العنصر").setOnMenuItemClickListener(item -> {
+            removeFromParent();
+            Toast.makeText(getContext(), "تم حذف العنصر", Toast.LENGTH_SHORT).show();
+            return true;
+        });
+    }
+
+    @Override
+    public boolean onTouchEvent(MotionEvent event) {
+        if (gestureDetector.onTouchEvent(event)) {
+            return true;
+        }
+        return super.onTouchEvent(event);
+    }
+
+    private class GestureListener extends GestureDetector.SimpleOnGestureListener {
+        @Override
+        public void onLongPress(MotionEvent e) {
+            showPopupMenu(e.getX(), e.getY());
+            
+            if (onLongPressCallback != null) {
+                onLongPressCallback.accept(SmartElement.this);
+            }
+        }
+    }
+
+    private void showPopupMenu(float x, float y) {
+        popupMenu.show();
+        System.out.println("SMART ELEMENT: Long press detected - Showing menu");
+    }
+
+    private void changeColor() {
+        // في الإنتاج: عرض محدد ألوان
+        int newColor = Color.parseColor("#4CAF50");
+        setBackgroundColor(newColor);
+        Toast.makeText(getContext(), "تم تغيير اللون", Toast.LENGTH_SHORT).show();
+    }
+
+    private void setWallpaper() {
+        // في الإنتاج: اختيار خلفية من المخزن
+        setBackgroundResource(android.R.drawable.ic_menu_gallery);
+        Toast.makeText(getContext(), "تم تعيين الخلفية", Toast.LENGTH_SHORT).show();
+    }
+
+    private void movePosition() {
+        // في الإنتاج: السماح بسحب العنصر
+        Toast.makeText(getContext(), "يمكنك سحب العنصر لتغيير موضعه", Toast.LENGTH_SHORT).show();
+    }
+
+    private void resizeElement() {
+        // في الإنتاج: عرض محدد الأبعاد
+        ViewGroup.LayoutParams params = getLayoutParams();
+        params.width = 200;
+        params.height = 80;
+        setLayoutParams(params);
+        Toast.makeText(getContext(), "تم تغيير الحجم", Toast.LENGTH_SHORT).show();
+    }
+
+    private void addInteraction() {
+        // في الإنتاج: تحديد نوع التفاعل
+        Toast.makeText(getContext(), "تم إضافة تفاعل جديد", Toast.LENGTH_SHORT).show();
+    }
+
+    private void removeFromParent() {
+        if (getParent() instanceof ViewGroup) {
+            ((ViewGroup) getParent()).removeView(this);
+        }
+    }
+
+    /**
+     * تفعيل وضع التعديل
+     */
+    public void enableEditing() {
+        this.isEditable = true;
+        Toast.makeText(getContext(), "وضع التعديل مفعل", Toast.LENGTH_SHORT).show();
+    }
+
+    /**
+     * تعطيل وضع التعديل
+     */
+    public void disableEditing() {
+        this.isEditable = false;
+        Toast.makeText(getContext(), "وضع التعديل معطل", Toast.LENGTH_SHORT).show();
+    }
+
+    // --- Getters/Setters ---
+    public boolean isEditable() { return isEditable; }
+    public void setEditable(boolean editable) { this.isEditable = editable; }
+
+    /**
+     * رسم العنصر
+     */
+    @Override
+    protected void onDraw(Canvas canvas) {
+        super.onDraw(canvas);
+        
+        try {
+            // رسم إطار حول العنصر إذا كان قابل للتعديل
+            if (isEditable) {
+                Rect rect = new Rect(0, 0, getWidth(), getHeight());
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setColor(Color.BLUE);
+                paint.setStrokeWidth(4f);
+                canvas.drawRect(rect, paint);
+                
+                // رسم أيقونة التعديل
+                paint.setStyle(Paint.Style.FILL);
+                paint.setColor(Color.WHITE);
+                canvas.drawText("⚙️", getWidth() / 2f, getHeight() / 2f, paint);
+            }
+            
+        } catch (Exception e) {
+            System.err.println("SMART ELEMENT DRAW ERROR: " + e.getMessage());
+        }
+    }
+}
