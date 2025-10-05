@@ -2,26 +2,130 @@ package mazdady.user;
 
 import mazdady.admin.AdminConfig;
 
-public class LevelManager {
-    public static int calculateLevel(double totalProfit) {
-        // من config.json: weekly_limits = [0, 10, 30, 60, 100, 200, 500, 1000]
-        double[] limits = AdminConfig.getInstance().getWeeklyLimits();
-        for (int i = limits.length - 1; i >= 0; i--) {
-            if (totalProfit >= limits[i]) {
-                return i;
+import java.util.concurrent.atomic.AtomicInteger;
+
+/**
+ * مدير المستويات مع دعم الترقية التلقائية
+ * يتبع نمط Strategy لفصل استراتيجيات الترقية
+ */
+public final class LevelManager {
+    private static LevelManager instance;
+
+    private LevelManager() {}
+
+    public static synchronized LevelManager getInstance() {
+        if (instance == null) {
+            instance = new LevelManager();
+        }
+        return instance;
+    }
+
+    /**
+     * حساب المستوى الحالي للمستخدم
+     */
+    public int calculateCurrentLevel(User user) {
+        if (user == null) return 1;
+        
+        double totalProfit = user.getBalance();
+        int communityPoints = user.getCommunityPoints();
+        int referralCount = user.getReferralCount();
+        
+        // حساب النقاط الإجمالية
+        int totalPoints = (int) (totalProfit / 100) + // 1 نقطة لكل 100 MAZDADY ربح
+                         (communityPoints / 10) +     // 1 نقطة لكل 10 نقطة مجتمعية
+                         (referralCount * 5);         // 5 نقاط لكل إحالة
+        
+        // تحويل النقاط إلى مستوى
+        return pointsToLevel(totalPoints);
+    }
+
+    /**
+     * تحويل النقاط إلى مستوى
+     */
+    private int pointsToLevel(int points) {
+        AdminConfig.LevelConfig levelConfig = AdminConfig.getInstance().getLevelConfig();
+        int[] thresholds = levelConfig.getLevelThresholds();
+        
+        for (int i = thresholds.length - 1; i >= 0; i--) {
+            if (points >= thresholds[i]) {
+                return i + 1;
             }
         }
         return 1; // الحد الأدنى
     }
 
-    public static boolean canAccessFeature(String featureId, int userLevel) {
-        // مثال: "payment_tools" يتطلب المستوى 3
-        if ("payment_tools".equals(featureId)) {
-            return userLevel >= 3;
+    /**
+     * التحقق من إمكانية الوصول إلى ميزة
+     */
+    public boolean canAccessFeature(User user, String featureId) {
+        if (user == null || featureId == null) return false;
+        
+        int userLevel = user.getLevel();
+        AdminConfig.FeatureConfig featureConfig = AdminConfig.getInstance().getFeatureConfig();
+        int requiredLevel = featureConfig.getRequiredLevel(featureId);
+        
+        return userLevel >= requiredLevel;
+    }
+
+    /**
+     * ترقية المستخدم تلقائيًا
+     */
+    public boolean promoteUser(User user) {
+        if (user == null) return false;
+        
+        int currentLevel = user.getLevel();
+        int newLevel = calculateCurrentLevel(user);
+        
+        if (newLevel > currentLevel) {
+            user.setLevel(newLevel);
+            System.out.println("LEVEL MANAGER: User " + user.getUserId() + 
+                             " promoted to level " + newLevel);
+            return true;
         }
-        if ("advanced_analytics".equals(featureId)) {
-            return userLevel >= 5;
+        return false;
+    }
+
+    /**
+     * التحقق من مستوى المستخدم
+     */
+    public LevelInfo getLevelInfo(User user) {
+        if (user == null) return LevelInfo.defaultLevel();
+        
+        int level = user.getLevel();
+        AdminConfig.LevelConfig levelConfig = AdminConfig.getInstance().getLevelConfig();
+        
+        return new LevelInfo(
+            level,
+            levelConfig.getLevelName(level),
+            levelConfig.getLevelBenefits(level),
+            levelConfig.getNextLevelThreshold(level)
+        );
+    }
+
+    /**
+     * معلومات المستوى
+     */
+    public static final class LevelInfo {
+        private final int level;
+        private final String levelName;
+        private final String[] benefits;
+        private final int nextLevelThreshold;
+
+        public LevelInfo(int level, String levelName, String[] benefits, int nextLevelThreshold) {
+            this.level = level;
+            this.levelName = levelName;
+            this.benefits = benefits;
+            this.nextLevelThreshold = nextLevelThreshold;
         }
-        return true; // الميزات الأساسية متاحة للجميع
+
+        public static LevelInfo defaultLevel() {
+            return new LevelInfo(1, "مبتدئ", new String[]{"وصول أساسي"}, 100);
+        }
+
+        // Getters
+        public int getLevel() { return level; }
+        public String getLevelName() { return levelName; }
+        public String[] getBenefits() { return benefits; }
+        public int getNextLevelThreshold() { return nextLevelThreshold; }
     }
 }
