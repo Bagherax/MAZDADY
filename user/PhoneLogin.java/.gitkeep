@@ -1,0 +1,144 @@
+package mazdady.user;
+
+import mazdady.auth.PhoneVerification;
+import mazdady.security.DeviceFingerprint;
+
+import java.util.concurrent.CompletableFuture;
+import java.util.function.Consumer;
+
+/**
+ * تسجيل الدخول عبر الهاتف مع دعم التحقق المتقدم
+ * يتبع نمط Strategy لفصل استراتيجيات التحقق
+ */
+public final class PhoneLogin {
+    private final PhoneVerification phoneVerification;
+    private final DeviceFingerprint deviceFingerprint;
+    private static PhoneLogin instance;
+
+    private PhoneLogin(PhoneVerification phoneVerification, DeviceFingerprint deviceFingerprint) {
+        this.phoneVerification = phoneVerification;
+        this.deviceFingerprint = deviceFingerprint;
+    }
+
+    public static synchronized PhoneLogin getInstance(PhoneVerification phoneVerification, 
+                                                   DeviceFingerprint deviceFingerprint) {
+        if (instance == null) {
+            instance = new PhoneLogin(phoneVerification, deviceFingerprint);
+        }
+        return instance;
+    }
+
+    /**
+     * بدء تسجيل الدخول عبر الهاتف غير المتزامن
+     */
+    public CompletableFuture<LoginResult> startPhoneLoginAsync(String phoneNumber) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                // التحقق من صحة رقم الهاتف
+                if (!isValidPhoneNumber(phoneNumber)) {
+                    return LoginResult.failure("Invalid phone number format");
+                }
+                
+                // التحقق من حدود المعدل
+                if (isRateLimited(phoneNumber)) {
+                    return LoginResult.failure("Too many login attempts. Please try again later.");
+                }
+                
+                // إرسال رمز التحقق
+                PhoneVerification.VerificationResult result = 
+                    phoneVerification.startVerification(phoneNumber);
+                
+                if (result.isSuccess()) {
+                    // تسجيل بصمة الجهاز
+                    String deviceId = deviceFingerprint.getUniqueDeviceId();
+                    System.out.println("PHONE LOGIN: Device fingerprint - " + deviceId);
+                    
+                    return LoginResult.pendingVerification(phoneNumber, 
+                        "Verification code sent to " + phoneNumber);
+                } else {
+                    return LoginResult.failure(result.getMessage());
+                }
+                
+            } catch (Exception e) {
+                return LoginResult.failure("Phone login failed: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * التحقق من رمز التسجيل
+     */
+    public CompletableFuture<LoginResult> verifyCodeAsync(String phoneNumber, String code) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                PhoneVerification.VerificationResult result = 
+                    phoneVerification.verifyCode(phoneNumber, code);
+                
+                if (result.isSuccess()) {
+                    // إنشاء جلسة مستخدم
+                    User user = UserManager.getInstance(null).getUserById(
+                        "user_" + phoneNumber.hashCode()
+                    );
+                    if (user == null) {
+                        user = new User("user_" + phoneNumber.hashCode());
+                        user.setPhoneNumber(phoneNumber);
+                        UserManager.getInstance(null).setCurrentUser(user);
+                    }
+                    
+                    // تحديث تاريخ آخر نشاط
+                    user.updateLastActivity();
+                    
+                    return LoginResult.success(user, "Login successful");
+                } else {
+                    return LoginResult.failure(result.getMessage());
+                }
+                
+            } catch (Exception e) {
+                return LoginResult.failure("Code verification failed: " + e.getMessage());
+            }
+        });
+    }
+
+    private boolean isValidPhoneNumber(String phoneNumber) {
+        return phoneNumber != null && phoneNumber.matches("^\\+?[1-9]\\d{1,14}$");
+    }
+
+    private boolean isRateLimited(String phoneNumber) {
+        // في الإنتاج: التحقق من حدود المعدل باستخدام Redis أو قاعدة بيانات
+        return false; // محاكاة عدم التقييد
+    }
+
+    /**
+     * نتيجة تسجيل الدخول
+     */
+    public static final class LoginResult {
+        private final boolean success;
+        private final boolean pendingVerification;
+        private final User user;
+        private final String message;
+
+        private LoginResult(boolean success, boolean pendingVerification, User user, String message) {
+            this.success = success;
+            this.pendingVerification = pendingVerification;
+            this.user = user;
+            this.message = message;
+        }
+
+        public static LoginResult success(User user, String message) {
+            return new LoginResult(true, false, user, message);
+        }
+
+        public static LoginResult pendingVerification(String phoneNumber, String message) {
+            return new LoginResult(false, true, null, message);
+        }
+
+        public static LoginResult failure(String message) {
+            return new LoginResult(false, false, null, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public boolean isPendingVerification() { return pendingVerification; }
+        public User getUser() { return user; }
+        public String getMessage() { return message; }
+    }
+}
