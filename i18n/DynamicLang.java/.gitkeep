@@ -1,0 +1,96 @@
+package mazdady.i18n;
+
+import android.content.Context;
+
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CompletableFuture;
+
+/**
+ * تحميل اللغات الديناميكي مع دعم التحديثات الحية
+ * يتبع نمط Strategy لفصل مصادر التحميل
+ */
+public final class DynamicLang {
+    private final Map<String, LanguagePack> languagePacks = new ConcurrentHashMap<>();
+    private final Context context;
+    private static DynamicLang instance;
+
+    private DynamicLang(Context context) {
+        this.context = context.getApplicationContext();
+    }
+
+    public static synchronized DynamicLang getInstance(Context context) {
+        if (instance == null) {
+            instance = new DynamicLang(context);
+        }
+        return instance;
+    }
+
+    /**
+     * تحميل حزمة لغة غير متزامن
+     */
+    public CompletableFuture<LanguagePack> loadLanguageAsync(String languageCode) {
+        return CompletableFuture.supplyAsync(() -> {
+            LanguagePack pack = languagePacks.get(languageCode);
+            if (pack == null) {
+                // في الإنتاج: تحميل من السيرفر أو الموارد
+                pack = new LanguagePack(languageCode);
+                languagePacks.put(languageCode, pack);
+                System.out.println("DYNAMIC LANG: Loaded language pack " + languageCode);
+            }
+            return pack;
+        });
+    }
+
+    /**
+     * تطبيق لغة فورًا
+     */
+    public void applyLanguage(String languageCode) {
+        DeviceLang.getInstance(context).setLanguage(languageCode);
+        TranslationManager.getInstance(context).changeLanguage(languageCode);
+        System.out.println("DYNAMIC LANG: Applied language " + languageCode);
+    }
+
+    /**
+     * تحديث حزمة لغة
+     */
+    public void updateLanguagePack(String languageCode, Map<String, String> translations) {
+        LanguagePack pack = languagePacks.get(languageCode);
+        if (pack != null) {
+            pack.updateTranslations(translations);
+            System.out.println("DYNAMIC LANG: Updated language pack " + languageCode);
+        }
+    }
+
+    /**
+     * حزمة اللغة
+     */
+    public static final class LanguagePack {
+        private final String languageCode;
+        private final Map<String, String> translations = new ConcurrentHashMap<>();
+
+        public LanguagePack(String languageCode) {
+            this.languageCode = languageCode;
+            // في الإنتاج: تحميل الترجمات من الملفات أو السيرفر
+            initializeDefaultTranslations();
+        }
+
+        private void initializeDefaultTranslations() {
+            translations.put("buy_button", languageCode.equals("ar") ? "شراء" : "Buy");
+            translations.put("sell_button", languageCode.equals("ar") ? "بيع" : "Sell");
+            translations.put("balance_label", languageCode.equals("ar") ? "الرصيد: {0} MAZDADY" : "Balance: {0} MAZDADY");
+        }
+
+        public void updateTranslations(Map<String, String> newTranslations) {
+            translations.putAll(newTranslations);
+        }
+
+        public String getTranslation(String key) {
+            return translations.getOrDefault(key, key);
+        }
+
+        public String getLanguageCode() {
+            return languageCode;
+        }
+    }
+}
