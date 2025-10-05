@@ -72,8 +72,7 @@ public final class WalletManager {
                     
                     // تسجيل المعاملة
                     String userId = UserManager.getInstance(null).getCurrentUser().getUserId();
-                    transactionHistory.addTransaction(
-                        userId,
+                    transactionHistory.recordTransaction(
                         TransactionHistory.TransactionType.WITHDRAWAL,
                         amount,
                         "MAZDADY_WALLET",
@@ -104,8 +103,7 @@ public final class WalletManager {
         
         // تسجيل المعاملة
         String userId = UserManager.getInstance(null).getCurrentUser().getUserId();
-        transactionHistory.addTransaction(
-            userId,
+        transactionHistory.recordTransaction(
             TransactionHistory.TransactionType.DEPOSIT,
             amount,
             "EXTERNAL_SOURCE",
