@@ -1,0 +1,220 @@
+package mazdady.admin;
+
+import mazdady.ui.VideoUploader;
+import mazdady.user.UserManager;
+
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CompletableFuture;
+
+/**
+ * مدير الفيديوهات مع دعم التحكم الإداري
+ * يتبع نمط Facade لتوفير واجهة موحدة
+ */
+public final class VideoManager {
+    private final VideoUploader videoUploader;
+    private final Map<String, VideoConfig> videoConfigs = new ConcurrentHashMap<>();
+    private static VideoManager instance;
+
+    private VideoManager(VideoUploader videoUploader) {
+        this.videoUploader = videoUploader;
+        initializeVideoConfigs();
+    }
+
+    public static synchronized VideoManager getInstance(VideoUploader videoUploader) {
+        if (instance == null) {
+            instance = new VideoManager(videoUploader);
+        }
+        return instance;
+    }
+
+    private void initializeVideoConfigs() {
+        // إعدادات الفيديو الافتراضية
+        videoConfigs.put("splash", new VideoConfig(
+            true,           // مفعل
+            10000,          // مدة 10 ثواني
+            "https://raw.githubusercontent.com/BAGHERAX/MAZDADY/main/videos/splash_default.mp4",
+            "splash_background.png"
+        ));
+        
+        videoConfigs.put("intro", new VideoConfig(
+            true,
+            15000,          // مدة 15 ثانية
+            "https://raw.githubusercontent.com/BAGHERAX/MAZDADY/main/videos/intro_default.mp4",
+            "intro_background.png"
+        ));
+        
+        videoConfigs.put("promo", new VideoConfig(
+            false,          // غير مفعل افتراضيًا
+            30000,          // مدة 30 ثانية
+            "https://raw.githubusercontent.com/BAGHERAX/MAZDADY/main/videos/promo_default.mp4",
+            "promo_background.png"
+        ));
+        
+        System.out.println("VIDEO MANAGER: Initialized with " + videoConfigs.size() + " video configs");
+    }
+
+    /**
+     * رفع فيديو جديد من لوحة التحكم
+     */
+    public CompletableFuture<VideoResult> uploadNewVideoAsync(
+        String videoType,
+        String videoUrl,
+        long durationMs,
+        String backgroundImage
+    ) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                // تحديث إعدادات الفيديو
+                VideoConfig config = new VideoConfig(
+                    true,           // تفعيل تلقائي
+                    durationMs,
+                    videoUrl,
+                    backgroundImage
+                );
+                
+                videoConfigs.put(videoType, config);
+                
+                // في الإنتاج: تحديث config.json
+                updateConfigFile(videoType, config);
+                
+                System.out.println("VIDEO MANAGER: Uploaded new " + videoType + " video - " + videoUrl);
+                
+                return VideoResult.success("Video uploaded and activated successfully");
+                
+            } catch (Exception e) {
+                return VideoResult.failure("Video upload failed: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * تفعيل/تعطيل فيديو
+     */
+    public VideoResult toggleVideo(String videoType, boolean enabled) {
+        VideoConfig config = videoConfigs.get(videoType);
+        if (config == null) {
+            return VideoResult.failure("Video type not found: " + videoType);
+        }
+        
+        config.setEnabled(enabled);
+        
+        // في الإنتاج: تحديث config.json
+        updateConfigFile(videoType, config);
+        
+        System.out.println("VIDEO MANAGER: " + (enabled ? "Enabled" : "Disabled") + 
+                         " video " + videoType);
+        
+        return VideoResult.success("Video " + videoType + " " + (enabled ? "enabled" : "disabled"));
+    }
+
+    /**
+     * تحديث مدة الفيديو
+     */
+    public VideoResult updateVideoDuration(String videoType, long durationMs) {
+        VideoConfig config = videoConfigs.get(videoType);
+        if (config == null) {
+            return VideoResult.failure("Video type not found: " + videoType);
+        }
+        
+        config.setDurationMs(durationMs);
+        
+        // في الإنتاج: تحديث config.json
+        updateConfigFile(videoType, config);
+        
+        System.out.println("VIDEO MANAGER: Updated " + videoType + " duration to " + durationMs + "ms");
+        
+        return VideoResult.success("Video duration updated successfully");
+    }
+
+    /**
+     * تحديث خلفية شريط التحميل
+     */
+    public VideoResult updateLoadingBarBackground(String videoType, String backgroundImage) {
+        VideoConfig config = videoConfigs.get(videoType);
+        if (config == null) {
+            return VideoResult.failure("Video type not found: " + videoType);
+        }
+        
+        config.setBackgroundImage(backgroundImage);
+        
+        // في الإنتاج: تحديث config.json
+        updateConfigFile(videoType, config);
+        
+        System.out.println("VIDEO MANAGER: Updated loading bar background for " + videoType);
+        
+        return VideoResult.success("Loading bar background updated successfully");
+    }
+
+    private void updateConfigFile(String videoType, VideoConfig config) {
+        // في الإنتاج: تحديث server/config.json
+        System.out.println("VIDEO MANAGER: Config updated for " + videoType);
+    }
+
+    /**
+     * الحصول على إعدادات فيديو
+     */
+    public VideoConfig getVideoConfig(String videoType) {
+        return videoConfigs.get(videoType);
+    }
+
+    /**
+     * الحصول على جميع إعدادات الفيديوهات
+     */
+    public Map<String, VideoConfig> getAllVideoConfigs() {
+        return new ConcurrentHashMap<>(videoConfigs);
+    }
+
+    /**
+     * إعدادات الفيديو
+     */
+    public static final class VideoConfig {
+        private volatile boolean enabled;
+        private volatile long durationMs;
+        private volatile String videoUrl;
+        private volatile String backgroundImage;
+
+        public VideoConfig(boolean enabled, long durationMs, String videoUrl, String backgroundImage) {
+            this.enabled = enabled;
+            this.durationMs = durationMs;
+            this.videoUrl = videoUrl;
+            this.backgroundImage = backgroundImage;
+        }
+
+        // Getters
+        public boolean isEnabled() { return enabled; }
+        public long getDurationMs() { return durationMs; }
+        public String getVideoUrl() { return videoUrl; }
+        public String getBackgroundImage() { return backgroundImage; }
+
+        // Setters
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
+        public void setDurationMs(long durationMs) { this.durationMs = durationMs; }
+        public void setVideoUrl(String videoUrl) { this.videoUrl = videoUrl; }
+        public void setBackgroundImage(String backgroundImage) { this.backgroundImage = backgroundImage; }
+    }
+
+    /**
+     * نتيجة الفيديو
+     */
+    public static final class VideoResult {
+        private final boolean success;
+        private final String message;
+
+        private VideoResult(boolean success, String message) {
+            this.success = success;
+            this.message = message;
+        }
+
+        public static VideoResult success(String message) {
+            return new VideoResult(true, message);
+        }
+
+        public static VideoResult failure(String message) {
+            return new VideoResult(false, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public String getMessage() { return message; }
+    }
+}
