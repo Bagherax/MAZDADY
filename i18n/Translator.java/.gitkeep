@@ -1,0 +1,74 @@
+package mazdady.i18n;
+
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Function;
+
+/**
+ * مترجم بسيط مع دعم الترجمة الفورية
+ * يتبع نمط Strategy لفصل محركات الترجمة
+ */
+public final class Translator {
+    private final Map<String, Function<String, String>> translationEngines = new ConcurrentHashMap<>();
+    private static Translator instance;
+
+    private Translator() {
+        initializeTranslationEngines();
+    }
+
+    public static synchronized Translator getInstance() {
+        if (instance == null) {
+            instance = new Translator();
+        }
+        return instance;
+    }
+
+    private void initializeTranslationEngines() {
+        // محرك ترجمة بسيط (في الإنتاج: استخدام Google Translate API)
+        translationEngines.put("ar-en", this::translateArabicToEnglish);
+        translationEngines.put("en-ar", this::translateEnglishToArabic);
+    }
+
+    /**
+     * ترجمة نص من لغة إلى أخرى
+     */
+    public String translate(String text, String sourceLang, String targetLang) {
+        if (sourceLang.equals(targetLang)) {
+            return text;
+        }
+        
+        String engineKey = sourceLang + "-" + targetLang;
+        Function<String, String> engine = translationEngines.get(engineKey);
+        
+        if (engine != null) {
+            return engine.apply(text);
+        }
+        
+        // ترجمة افتراضية
+        return "[Translated] " + text;
+    }
+
+    // --- محركات الترجمة ---
+    private String translateArabicToEnglish(String arabicText) {
+        // في الإنتاج: استخدام NLP متقدم
+        if (arabicText.contains("شراء")) return "Buy";
+        if (arabicText.contains("بيع")) return "Sell";
+        if (arabicText.contains("الرصيد")) return "Balance";
+        return "Translated: " + arabicText;
+    }
+
+    private String translateEnglishToArabic(String englishText) {
+        // في الإنتاج: استخدام NLP متقدم
+        if (englishText.contains("Buy")) return "شراء";
+        if (englishText.contains("Sell")) return "بيع";
+        if (englishText.contains("Balance")) return "الرصيد";
+        return "مترجم: " + englishText;
+    }
+
+    /**
+     * إضافة محرك ترجمة مخصص
+     */
+    public void addTranslationEngine(String sourceLang, String targetLang, Function<String, String> engine) {
+        translationEngines.put(sourceLang + "-" + targetLang, engine);
+    }
+}
