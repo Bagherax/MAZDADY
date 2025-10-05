@@ -1,0 +1,200 @@
+package mazdady.trading;
+
+import mazdady.user.User;
+
+import java.time.Instant;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.stream.Collectors;
+
+/**
+ * سجل التداولات مع دعم التحليل المتقدم
+ * يتبع نمط Observer لإعلام النظام بالمعاملات
+ */
+public final class TradingHistory {
+    private final CopyOnWriteArrayList<TradeRecord> tradeRecords = new CopyOnWriteArrayList<>();
+    private static TradingHistory instance;
+
+    private TradingHistory() {}
+
+    public static synchronized TradingHistory getInstance() {
+        if (instance == null) {
+            instance = new TradingHistory();
+        }
+        return instance;
+    }
+
+    /**
+     * تسجيل صفقة تداول
+     */
+    public TradeRecord recordTrade(
+        String tradeId,
+        String userId,
+        double amount,
+        AdvancedTradingEngine.TradeType tradeType,
+        double initialPrice,
+        double finalPrice,
+        double profitLoss,
+        String status
+    ) {
+        TradeRecord record = new TradeRecord(
+            tradeId,
+            userId,
+            amount,
+            tradeType,
+            initialPrice,
+            finalPrice,
+            profitLoss,
+            status,
+            Instant.now()
+        );
+        
+        tradeRecords.add(record);
+        System.out.println("TRADING HISTORY: Recorded trade - " + record);
+        
+        return record;
+    }
+
+    /**
+     * الحصول على سجل تداولات المستخدم
+     */
+    public List<TradeRecord> getUserTrades(String userId) {
+        return tradeRecords.stream()
+            .filter(record -> userId.equals(record.getUserId()))
+            .collect(Collectors.toList());
+    }
+
+    /**
+     * الحصول على أحدث التداولات
+     */
+    public List<TradeRecord> getRecentTrades(int limit) {
+        return tradeRecords.stream()
+            .sorted((r1, r2) -> r2.getTimestamp().compareTo(r1.getTimestamp()))
+            .limit(limit)
+            .collect(Collectors.toList());
+    }
+
+    /**
+     * حساب إجمالي الأرباح والخسائر
+     */
+    public ProfitLossSummary getProfitLossSummary(String userId) {
+        List<TradeRecord> userTrades = getUserTrades(userId);
+        
+        double totalProfit = userTrades.stream()
+            .filter(record -> "PROFIT".equals(record.getStatus()))
+            .mapToDouble(TradeRecord::getProfitLoss)
+            .sum();
+            
+        double totalLoss = userTrades.stream()
+            .filter(record -> "LOSS".equals(record.getStatus()))
+            .mapToDouble(TradeRecord::getProfitLoss)
+            .sum();
+            
+        int totalTrades = userTrades.size();
+        int profitableTrades = (int) userTrades.stream()
+            .filter(record -> "PROFIT".equals(record.getStatus()))
+            .count();
+            
+        double winRate = totalTrades > 0 ? (double) profitableTrades / totalTrades * 100 : 0;
+        
+        return new ProfitLossSummary(totalProfit, totalLoss, totalTrades, winRate);
+    }
+
+    /**
+     * سجل الصفقة
+     */
+    public static final class TradeRecord {
+        private final String tradeId;
+        private final String userId;
+        private final double amount;
+        private final AdvancedTradingEngine.TradeType tradeType;
+        private final double initialPrice;
+        private final double finalPrice;
+        private final double profitLoss;
+        private final String status;
+        private final Instant timestamp;
+
+        public TradeRecord(String tradeId, String userId, double amount, 
+                          AdvancedTradingEngine.TradeType tradeType,
+                          double initialPrice, double finalPrice,
+                          double profitLoss, String status, Instant timestamp) {
+            this.tradeId = tradeId;
+            this.userId = userId;
+            this.amount = amount;
+            this.tradeType = tradeType;
+            this.initialPrice = initialPrice;
+            this.finalPrice = finalPrice;
+            this.profitLoss = profitLoss;
+            this.status = status;
+            this.timestamp = timestamp;
+        }
+
+        // Getters
+        public String getTradeId() { return tradeId; }
+        public String getUserId() { return userId; }
+        public double getAmount() { return amount; }
+        public AdvancedTradingEngine.TradeType getTradeType() { return tradeType; }
+        public double getInitialPrice() { return initialPrice; }
+        public double getFinalPrice() { return finalPrice; }
+        public double getProfitLoss() { return profitLoss; }
+        public String getStatus() { return status; }
+        public Instant getTimestamp() { return timestamp; }
+
+        @Override
+        public String toString() {
+            return "TradeRecord{" +
+                "id='" + tradeId + '\'' +
+                ", user='" + userId + '\'' +
+                ", amount=" + amount +
+                ", type=" + tradeType +
+                ", initial=" + String.format("%.4f", initialPrice) +
+                ", final=" + String.format("%.4f", finalPrice) +
+                ", profitLoss=" + String.format("%.4f", profitLoss) +
+                ", status='" + status + '\'' +
+                ", timestamp=" + timestamp +
+                '}';
+        }
+    }
+
+    /**
+     * ملخص الأرباح والخسائر
+     */
+    public static final class ProfitLossSummary {
+        private final double totalProfit;
+        private final double totalLoss;
+        private final int totalTrades;
+        private final double winRate;
+
+        public ProfitLossSummary(double totalProfit, double totalLoss, int totalTrades, double winRate) {
+            this.totalProfit = totalProfit;
+            this.totalLoss = totalLoss;
+            this.totalTrades = totalTrades;
+            this.winRate = winRate;
+        }
+
+        public double getNetProfit() { return totalProfit - totalLoss; }
+        public double getTotalProfit() { return totalProfit; }
+        public double getTotalLoss() { return totalLoss; }
+        public int getTotalTrades() { return totalTrades; }
+        public double getWinRate() { return winRate; }
+
+        @Override
+        public String toString() {
+            return "ProfitLossSummary{" +
+                "netProfit=" + String.format("%.4f", getNetProfit()) +
+                ", totalProfit=" + String.format("%.4f", totalProfit) +
+                ", totalLoss=" + String.format("%.4f", totalLoss) +
+                ", totalTrades=" + totalTrades +
+                ", winRate=" + String.format("%.2f", winRate) + "%" +
+                '}';
+        }
+    }
+
+    /**
+     * مسح سجل التداولات (للاختبارات)
+     */
+    public void clearHistory() {
+        tradeRecords.clear();
+        System.out.println("TRADING HISTORY: Cleared all trade records");
+    }
+}
