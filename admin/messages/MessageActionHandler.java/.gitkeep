@@ -1,0 +1,458 @@
+package mazdady.admin.messages;
+
+import mazdady.user.User;
+import mazdady.user.UserManager;
+import mazdady.wallet.WalletManager;
+import mazdady.admin.AdminConfig;
+import mazdady.security.SecurityMonitor;
+
+/**
+ * معالج إجراءات الرسائل مع دعم استراتيجيات متعددة
+ * يتبع نمط Strategy لفصل استراتيجيات الإجراءات
+ */
+public abstract class MessageActionHandler {
+    protected final UserManager userManager = UserManager.getInstance(null);
+    protected final WalletManager walletManager = new WalletManager();
+    protected final SecurityMonitor securityMonitor = new SecurityMonitor(null);
+
+    /**
+     * تنفيذ الإجراء على الرسالة
+     */
+    public abstract UserMessageManager.ActionResult execute(
+        UserMessageManager.UserMessage message,
+        Object... params
+    );
+
+    /**
+     * التحقق من صلاحيات الادمن
+     */
+    protected boolean isAdminAuthorized() {
+        // في الإنتاج: التحقق من صلاحيات الادمن
+        return true; // محاكاة الاعتماد
+    }
+
+    /**
+     * الحصول على المستخدم من الرسالة
+     */
+    protected User getUserFromMessage(UserMessageManager.UserMessage message) {
+        return userManager.getUserById(message.getUserId());
+    }
+
+    /**
+     * تسجيل الإجراء في السجل الأمني
+     */
+    protected void logAction(String actionType, String userId, String details) {
+        System.out.println("MESSAGE ACTION: " + actionType + " executed on user " + userId + 
+                         " - Details: " + details);
+        securityMonitor.reportSuspiciousActivity(userId, "ADMIN_ACTION_" + actionType);
+    }
+
+    // --- استراتيجيات الإجراءات ---
+    
+    /**
+     * إرسال هدية للمستخدم
+     */
+    public static final class SendGiftActionHandler extends MessageActionHandler {
+        @Override
+        public UserMessageManager.ActionResult execute(
+            UserMessageManager.UserMessage message,
+            Object... params
+        ) {
+            if (!isAdminAuthorized()) {
+                return UserMessageManager.ActionResult.failure("Unauthorized admin action");
+            }
+
+            try {
+                User user = getUserFromMessage(message);
+                if (user == null) {
+                    return UserMessageManager.ActionResult.failure("User not found");
+                }
+
+                double giftAmount = params.length > 0 ? ((Number) params[0]).doubleValue() : 100.0;
+                String giftReason = params.length > 1 ? params[1].toString() : "Admin gift";
+
+                // إرسال الهدية
+                walletManager.depositMAZDADY(giftAmount);
+                user.setBalance(user.getBalance() + giftAmount);
+
+                // إضافة ملاحظة إدارية
+                message.setAdminNotes("Gift sent: " + giftAmount + " MAZDADY - Reason: " + giftReason);
+
+                // تسجيل الإجراء
+                logAction("SEND_GIFT", user.getUserId(), 
+                         giftAmount + " MAZDADY - " + giftReason);
+
+                System.out.println("MESSAGE ACTION: Sent gift of " + giftAmount + 
+                                 " MAZDADY to user " + user.getUserId());
+
+                return UserMessageManager.ActionResult.success(
+                    "Gift of " + giftAmount + " MAZDADY sent to user " + user.getUserId()
+                );
+
+            } catch (Exception e) {
+                return UserMessageManager.ActionResult.failure(
+                    "Send gift failed: " + e.getMessage()
+                );
+            }
+        }
+    }
+
+    /**
+     * حظر المستخدم
+     */
+    public static final class BanUserActionHandler extends MessageActionHandler {
+        @Override
+        public UserMessageManager.ActionResult execute(
+            UserMessageManager.UserMessage message,
+            Object... params
+        ) {
+            if (!isAdminAuthorized()) {
+                return UserMessageManager.ActionResult.failure("Unauthorized admin action");
+            }
+
+            try {
+                User user = getUserFromMessage(message);
+                if (user == null) {
+                    return UserMessageManager.ActionResult.failure("User not found");
+                }
+
+                String banReason = params.length > 0 ? params[0].toString() : "Violation of terms";
+
+                // حظر المستخدم
+                user.setBanned(true);
+                user.setBanReason(banReason);
+
+                // تسجيل الإجراء
+                logAction("BAN_USER", user.getUserId(), banReason);
+
+                System.out.println("MESSAGE ACTION: Banned user " + user.getUserId() + 
+                                 " - Reason: " + banReason);
+
+                return UserMessageManager.ActionResult.success(
+                    "User " + user.getUserId() + " banned successfully"
+                );
+
+            } catch (Exception e) {
+                return UserMessageManager.ActionResult.failure(
+                    "Ban user failed: " + e.getMessage()
+                );
+            }
+        }
+    }
+
+    /**
+     * تحذير المستخدم
+     */
+    public static final class WarnUserActionHandler extends MessageActionHandler {
+        @Override
+        public UserMessageManager.ActionResult execute(
+            UserMessageManager.UserMessage message,
+            Object... params
+        ) {
+            if (!isAdminAuthorized()) {
+                return UserMessageManager.ActionResult.failure("Unauthorized admin action");
+            }
+
+            try {
+                User user = getUserFromMessage(message);
+                if (user == null) {
+                    return UserMessageManager.ActionResult.failure("User not found");
+                }
+
+                String warningReason = params.length > 0 ? params[0].toString() : "Policy violation";
+                int warningPoints = params.length > 1 ? ((Number) params[1]).intValue() : 1;
+
+                // إضافة نقاط تحذير
+                user.addWarningPoints(warningPoints);
+                user.setLastWarningReason(warningReason);
+
+                // تسجيل الإجراء
+                logAction("WARN_USER", user.getUserId(), 
+                         warningReason + " (" + warningPoints + " points)");
+
+                System.out.println("MESSAGE ACTION: Warned user " + user.getUserId() + 
+                                 " - Points: " + warningPoints + " - Reason: " + warningReason);
+
+                return UserMessageManager.ActionResult.success(
+                    "User " + user.getUserId() + " warned successfully"
+                );
+
+            } catch (Exception e) {
+                return UserMessageManager.ActionResult.failure(
+                    "Warn user failed: " + e.getMessage()
+                );
+            }
+        }
+    }
+
+    /**
+     * تعليق الحساب لفترة معينة
+     */
+    public static final class SuspendAccountActionHandler extends MessageActionHandler {
+        @Override
+        public UserMessageManager.ActionResult execute(
+            UserMessageManager.UserMessage message,
+            Object... params
+        ) {
+            if (!isAdminAuthorized()) {
+                return UserMessageManager.ActionResult.failure("Unauthorized admin action");
+            }
+
+            try {
+                User user = getUserFromMessage(message);
+                if (user == null) {
+                    return UserMessageManager.ActionResult.failure("User not found");
+                }
+
+                int suspensionDays = params.length > 0 ? ((Number) params[0]).intValue() : 7;
+                String suspensionReason = params.length > 1 ? params[1].toString() : "Account review";
+
+                // تعليق الحساب
+                user.setSuspended(true);
+                user.setSuspensionEndDate(
+                    System.currentTimeMillis() + (suspensionDays * 24L * 60 * 60 * 1000)
+                );
+                user.setSuspensionReason(suspensionReason);
+
+                // تسجيل الإجراء
+                logAction("SUSPEND_ACCOUNT", user.getUserId(), 
+                         suspensionReason + " (" + suspensionDays + " days)");
+
+                System.out.println("MESSAGE ACTION: Suspended account " + user.getUserId() + 
+                                 " for " + suspensionDays + " days - Reason: " + suspensionReason);
+
+                return UserMessageManager.ActionResult.success(
+                    "Account " + user.getUserId() + " suspended for " + suspensionDays + " days"
+                );
+
+            } catch (Exception e) {
+                return UserMessageManager.ActionResult.failure(
+                    "Suspend account failed: " + e.getMessage()
+                );
+            }
+        }
+    }
+
+    /**
+     * حذف الرسالة
+     */
+    public static final class DeleteMessageActionHandler extends MessageActionHandler {
+        @Override
+        public UserMessageManager.ActionResult execute(
+            UserMessageManager.UserMessage message,
+            Object... params
+        ) {
+            if (!isAdminAuthorized()) {
+                return UserMessageManager.ActionResult.failure("Unauthorized admin action");
+            }
+
+            try {
+                // حذف الرسالة من النظام
+                UserMessageManager.getInstance().deleteMessage(message.getMessageId());
+
+                // تسجيل الإجراء
+                logAction("DELETE_MESSAGE", message.getUserId(), 
+                         "Message deleted: " + message.getMessageId());
+
+                System.out.println("MESSAGE ACTION: Deleted message " + message.getMessageId());
+
+                return UserMessageManager.ActionResult.success(
+                    "Message " + message.getMessageId() + " deleted successfully"
+                );
+
+            } catch (Exception e) {
+                return UserMessageManager.ActionResult.failure(
+                    "Delete message failed: " + e.getMessage()
+                );
+            }
+        }
+    }
+
+    /**
+     * الرد على المستخدم
+     */
+    public static final class ReplyToUserActionHandler extends MessageActionHandler {
+        @Override
+        public UserMessageManager.ActionResult execute(
+            UserMessageManager.UserMessage message,
+            Object... params
+        ) {
+            if (!isAdminAuthorized()) {
+                return UserMessageManager.ActionResult.failure("Unauthorized admin action");
+            }
+
+            try {
+                String replyContent = params.length > 0 ? params[0].toString() : "Thank you for your message";
+
+                // إرسال الرد للمستخدم
+                System.out.println("MESSAGE ACTION: Replying to user " + message.getUserId() + 
+                                 " - Content: " + replyContent);
+
+                // في الإنتاج: إرسال إشعار للمستخدم
+                // NotificationManager.getInstance().sendNotification(
+                //     message.getUserId(), 
+                //     "Admin Reply", 
+                //     replyContent
+                // );
+
+                // تسجيل الإجراء
+                logAction("REPLY_TO_USER", message.getUserId(), replyContent);
+
+                return UserMessageManager.ActionResult.success(
+                    "Reply sent to user " + message.getUserId()
+                );
+
+            } catch (Exception e) {
+                return UserMessageManager.ActionResult.failure(
+                    "Reply to user failed: " + e.getMessage()
+                );
+            }
+        }
+    }
+
+    /**
+     * إعادة توجيه الرسالة إلى فريق الدعم
+     */
+    public static final class ForwardToSupportActionHandler extends MessageActionHandler {
+        @Override
+        public UserMessageManager.ActionResult execute(
+            UserMessageManager.UserMessage message,
+            Object... params
+        ) {
+            if (!isAdminAuthorized()) {
+                return UserMessageManager.ActionResult.failure("Unauthorized admin action");
+            }
+
+            try {
+                String supportTeam = params.length > 0 ? params[0].toString() : "GENERAL_SUPPORT";
+
+                // إعادة توجيه الرسالة
+                System.out.println("MESSAGE ACTION: Forwarding message " + message.getMessageId() + 
+                                 " to " + supportTeam);
+
+                // في الإنتاج: إضافة الرسالة إلى قائمة فريق الدعم
+                // SupportTeamManager.getInstance().addToQueue(supportTeam, message);
+
+                // تسجيل الإجراء
+                logAction("FORWARD_TO_SUPPORT", message.getUserId(), 
+                         "Forwarded to " + supportTeam);
+
+                return UserMessageManager.ActionResult.success(
+                    "Message forwarded to " + supportTeam + " support team"
+                );
+
+            } catch (Exception e) {
+                return UserMessageManager.ActionResult.failure(
+                    "Forward to support failed: " + e.getMessage()
+                );
+            }
+        }
+    }
+
+    /**
+     * وضع علامة على الرسالة كمقروءة
+     */
+    public static final class MarkAsReadActionHandler extends MessageActionHandler {
+        @Override
+        public UserMessageManager.ActionResult execute(
+            UserMessageManager.UserMessage message,
+            Object... params
+        ) {
+            if (!isAdminAuthorized()) {
+                return UserMessageManager.ActionResult.failure("Unauthorized admin action");
+            }
+
+            try {
+                message.setRead(true);
+
+                // تسجيل الإجراء
+                logAction("MARK_AS_READ", message.getUserId(), 
+                         "Message marked as read: " + message.getMessageId());
+
+                System.out.println("MESSAGE ACTION: Marked message " + message.getMessageId() + " as read");
+
+                return UserMessageManager.ActionResult.success(
+                    "Message marked as read"
+                );
+
+            } catch (Exception e) {
+                return UserMessageManager.ActionResult.failure(
+                    "Mark as read failed: " + e.getMessage()
+                );
+            }
+        }
+    }
+
+    /**
+     * وضع علامة على الرسالة كمهمة
+     */
+    public static final class MarkAsImportantActionHandler extends MessageActionHandler {
+        @Override
+        public UserMessageManager.ActionResult execute(
+            UserMessageManager.UserMessage message,
+            Object... params
+        ) {
+            if (!isAdminAuthorized()) {
+                return UserMessageManager.ActionResult.failure("Unauthorized admin action");
+            }
+
+            try {
+                message.setImportant(true);
+
+                // تسجيل الإجراء
+                logAction("MARK_AS_IMPORTANT", message.getUserId(), 
+                         "Message marked as important: " + message.getMessageId());
+
+                System.out.println("MESSAGE ACTION: Marked message " + message.getMessageId() + " as important");
+
+                return UserMessageManager.ActionResult.success(
+                    "Message marked as important"
+                );
+
+            } catch (Exception e) {
+                return UserMessageManager.ActionResult.failure(
+                    "Mark as important failed: " + e.getMessage()
+                );
+            }
+        }
+    }
+
+    /**
+     * تصدير الرسالة
+     */
+    public static final class ExportMessageActionHandler extends MessageActionHandler {
+        @Override
+        public UserMessageManager.ActionResult execute(
+            UserMessageManager.UserMessage message,
+            Object... params
+        ) {
+            if (!isAdminAuthorized()) {
+                return UserMessageManager.ActionResult.failure("Unauthorized admin action");
+            }
+
+            try {
+                String exportFormat = params.length > 0 ? params[0].toString() : "JSON";
+
+                // تصدير الرسالة
+                System.out.println("MESSAGE ACTION: Exporting message " + message.getMessageId() + 
+                                 " in " + exportFormat + " format");
+
+                // في الإنتاج: تصدير إلى ملف أو قاعدة بيانات
+                // ExportManager.getInstance().exportMessage(message, exportFormat);
+
+                // تسجيل الإجراء
+                logAction("EXPORT_MESSAGE", message.getUserId(), 
+                         "Exported in " + exportFormat + " format");
+
+                return UserMessageManager.ActionResult.success(
+                    "Message exported successfully in " + exportFormat + " format"
+                );
+
+            } catch (Exception e) {
+                return UserMessageManager.ActionResult.failure(
+                    "Export message failed: " + e.getMessage()
+                );
+            }
+        }
+    }
+}
