@@ -1,101 +1,186 @@
 package mazdady.bot;
 
 import mazdady.trading.PriceEngine;
-import mazdady.trading.OrderBook;
 import mazdady.user.User;
+import mazdady.user.UserManager;
 
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 
 /**
  * بوت تعليمي مع دعم التفاعل الذكي
- * يساعد المستخدمين على تعلم التداول
+ * يتبع نمط Observer لإعلام المستخدم بالنصائح
  */
 public final class TeachingBot extends TradingBot {
-    private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
-    private final User targetUser;
+    private final ScheduledExecutorService teachingScheduler = Executors.newSingleThreadScheduledExecutor();
+    private final PriceEngine priceEngine;
 
-    public TeachingBot(String botId, PriceEngine priceEngine, OrderBook orderBook, User targetUser) {
-        super(botId, priceEngine, orderBook);
-        this.targetUser = targetUser;
-        setBehavior(new AdaptiveTeachingBehavior());
+    public TeachingBot(String botId, PriceEngine priceEngine) {
+        super(botId, priceEngine);
+        this.priceEngine = priceEngine;
+        setCapital(1000.0); // رأس مال تعليمي
     }
 
     @Override
-    protected void executeTradingStrategy() {
-        scheduler.scheduleAtFixedRate(
-            this::provideEducationalInsights,
-            0,
-            60,
-            TimeUnit.SECONDS
-        );
-    }
-
-    private void provideEducationalInsights() {
-        if (!isActive()) return;
-        
-        BotBehavior behavior = currentBehavior.get();
-        if (behavior != null) {
-            behavior.execute(this);
+    public void start() {
+        if (isActive.compareAndSet(false, true)) {
+            teachingScheduler.scheduleAtFixedRate(
+                this::provideEducationalInsights,
+                0,
+                60,
+                TimeUnit.SECONDS
+            );
+            
+            System.out.println("TEACHING BOT: Started - ID: " + getBotId());
         }
     }
 
-    private void sendInsight(String insight) {
-        // في الإنتاج: إرسال إشعار للمستخدم
-        logger.accept("TEACHING: " + insight);
+    @Override
+    public void stop() {
+        if (isActive.compareAndSet(true, false)) {
+            teachingScheduler.shutdown();
+            System.out.println("TEACHING BOT: Stopped - ID: " + getBotId());
+        }
     }
 
     /**
-     * سلوك التعليم التكيفي
+     * تقديم رؤى تعليمية تلقائية
      */
-    private final class AdaptiveTeachingBehavior implements BotBehavior {
-        @Override
-        public String getName() {
-            return "ADAPTIVE_TEACHING";
-        }
-
-        @Override
-        public void execute(TradingBot bot) {
+    private void provideEducationalInsights() {
+        if (!isActive.get()) return;
+        
+        try {
+            User user = UserManager.getInstance(null).getCurrentUser();
             double currentPrice = priceEngine.getCurrentPrice();
             double trend = priceEngine.getMarketTrend();
             double volatility = priceEngine.getVolatility();
             
-            String insight;
-            
-            if (targetUser.getLevel() <= 2) {
-                // مستخدم مبتدئ
-                insight = generateBeginnerInsight(currentPrice, trend, volatility);
-            } else if (targetUser.getLevel() <= 5) {
-                // مستخدم متوسط
-                insight = generateIntermediateInsight(currentPrice, trend, volatility);
-            } else {
-                // مستخدم متقدم
-                insight = generateAdvancedInsight(currentPrice, trend, volatility);
+            String insight = generateEducationalInsight(user, currentPrice, trend, volatility);
+            if (insight != null && !insight.isEmpty()) {
+                notifyUserInsight(user.getUserId(), insight);
             }
             
-            sendInsight(insight);
+        } catch (Exception e) {
+            System.err.println("TEACHING BOT ERROR: " + e.getMessage());
         }
+    }
 
-        private String generateBeginnerInsight(double price, double trend, double volatility) {
-            if (trend > 0) {
-                return "السوق صاعد! السعر الحالي: " + String.format("%.2f", price) + " MAZDADY";
+    private String generateEducationalInsight(User user, double price, double trend, double volatility) {
+        // توليد نصائح تعليمية بناءً على مستوى المستخدم
+        if (user.getLevel() <= 2) {
+            // مستخدم مبتدئ
+            if (trend > 0.5) {
+                return "💡 نصيحة تعليمية: السوق صاعد! جرب شراء كمية صغيرة الآن.";
+            } else if (trend < -0.5) {
+                return "💡 نصيحة تعليمية: السوق هابط! انتظر حتى يرتد.";
             } else {
-                return "السوق هابط! السعر الحالي: " + String.format("%.2f", price) + " MAZDADY";
+                return "💡 نصيحة تعليمية: السوق مستقر! راقب التغيرات.";
             }
-        }
-
-        private String generateIntermediateInsight(double price, double trend, double volatility) {
-            return "التقلب: " + String.format("%.1f", volatility * 100) + "% | الاتجاه: " + 
-                   (trend > 0 ? "صاعد" : "هابط") + " | السعر: " + String.format("%.2f", price);
-        }
-
-        private String generateAdvancedInsight(double price, double trend, double volatility) {
+        } else if (user.getLevel() <= 5) {
+            // مستخدم متوسط
+            return "📊 تحليل السوق: التقلب " + String.format("%.1f", volatility * 100) + 
+                   "% | الاتجاه " + (trend > 0 ? "صاعد" : "هابط") + 
+                   " | السعر " + String.format("%.2f", price);
+        } else {
+            // مستخدم متقدم
             double support = price * 0.95;
             double resistance = price * 1.05;
-            return "تحليل متقدم: الدعم = " + String.format("%.2f", support) + 
+            return "🔮 تحليل متقدم: الدعم = " + String.format("%.2f", support) + 
                    ", المقاومة = " + String.format("%.2f", resistance) + 
                    ", التقلب = " + String.format("%.1f", volatility * 100) + "%";
         }
+    }
+
+    private void notifyUserInsight(String userId, String insight) {
+        // في الإنتاج: إرسال إشعار للمستخدم
+        System.out.println("TEACHING BOT: Insight for " + userId + " - " + insight);
+    }
+
+    /**
+     * تنفيذ صفقة تجارية
+     */
+    @Override
+    public void executeTrade(TradeType tradeType, double amount) {
+        if (!isActive.get() || amount <= 0) return;
+        
+        try {
+            User user = UserManager.getInstance(null).getCurrentUser();
+            double userBalance = user.getBalance();
+            
+            if (userBalance < amount) {
+                notifyUserInsight(user.getUserId(), "⚠️ رصيدك غير كافٍ لتنفيذ هذه الصفقة.");
+                return;
+            }
+            
+            if (tradeType == TradeType.BUY) {
+                priceEngine.executeBuyOrder(getBotId(), amount);
+                user.setBalance(userBalance - amount);
+                notifyUserInsight(user.getUserId(), "✅ تم تنفيذ صفقة شراء بقيمة " + amount + " MAZDADY");
+            } else if (tradeType == TradeType.SELL) {
+                priceEngine.executeSellOrder(getBotId(), amount);
+                user.setBalance(userBalance + amount);
+                notifyUserInsight(user.getUserId(), "✅ تم تنفيذ صفقة بيع بقيمة " + amount + " MAZDADY");
+            }
+            
+        } catch (Exception e) {
+            System.err.println("TEACHING BOT TRADE ERROR: " + e.getMessage());
+        }
+    }
+
+    /**
+     * الحصول على حالة البوت التعليمي
+     */
+    public TeachingStatus getTeachingStatus() {
+        User user = UserManager.getInstance(null).getCurrentUser();
+        return new TeachingStatus(
+            user.getLevel(),
+            user.getBalance(),
+            priceEngine.getCurrentPrice(),
+            isActive.get()
+        );
+    }
+
+    /**
+     * حالة البوت التعليمي
+     */
+    public static final class TeachingStatus {
+        private final int userLevel;
+        private final double userBalance;
+        private final double currentPrice;
+        private final boolean active;
+
+        public TeachingStatus(int userLevel, double userBalance, double currentPrice, boolean active) {
+            this.userLevel = userLevel;
+            this.userBalance = userBalance;
+            this.currentPrice = currentPrice;
+            this.active = active;
+        }
+
+        // Getters
+        public int getUserLevel() { return userLevel; }
+        public double getUserBalance() { return userBalance; }
+        public double getCurrentPrice() { return currentPrice; }
+        public boolean isActive() { return active; }
+        
+        public String getFormattedStatus() {
+            return "User Level: " + userLevel + " - " +
+                   "Balance: " + String.format("%.2f", userBalance) + " MAZDADY - " +
+                   "Price: " + String.format("%.4f", currentPrice) + " MAZDADY - " +
+                   "Status: " + (active ? "ACTIVE" : "INACTIVE");
+        }
+    }
+
+    // --- Getters ---
+    public PriceEngine getPriceEngine() { return priceEngine; }
+    public boolean isTeachingActive() { return isActive.get(); }
+    
+    /**
+     * إيقاف البوت التعليمي (للاختبارات)
+     */
+    public void shutdown() {
+        stop();
+        System.out.println("TEACHING BOT: Shutdown completed - ID: " + getBotId());
     }
 }
