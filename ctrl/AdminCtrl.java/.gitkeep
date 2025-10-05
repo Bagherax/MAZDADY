@@ -1,80 +1,403 @@
 package mazdady.ctrl;
 
-import mazdady.admin.AdminDashboard;
-import mazdady.admin.AdminController;
+import mazdady.admin.AdminConfig;
+import mazdady.security.SecurityMonitor;
 import mazdady.user.User;
+import mazdady.user.UserManager;
 
+import java.time.Instant;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 
 /**
- * وحدة تحكم الإدارة المركزية مع دعم الأوامر المتقدمة
+ * وحدة تحكم إدارية متقدمة مع دعم الأوامر الآمنة
  * يتبع نمط Command لفصل الأوامر عن التنفيذ
  */
 public final class AdminCtrl {
-    private final AdminController adminController;
-    private static final AdminCtrl INSTANCE = new AdminCtrl();
+    private final AdminConfig adminConfig;
+    private final SecurityMonitor securityMonitor;
+    private final UserManager userManager;
+    private final ConcurrentHashMap<String, AdminCommand> commandRegistry = new ConcurrentHashMap<>();
+    private static AdminCtrl instance;
 
-    private AdminCtrl() {
-        this.adminController = new AdminController();
+    private AdminCtrl(
+        AdminConfig adminConfig,
+        SecurityMonitor securityMonitor,
+        UserManager userManager
+    ) {
+        this.adminConfig = adminConfig;
+        this.securityMonitor = securityMonitor;
+        this.userManager = userManager;
+        initializeCommandRegistry();
     }
 
-    public static AdminCtrl getInstance() {
-        return INSTANCE;
+    public static synchronized AdminCtrl getInstance(
+        AdminConfig adminConfig,
+        SecurityMonitor securityMonitor,
+        UserManager userManager
+    ) {
+        if (instance == null) {
+            instance = new AdminCtrl(adminConfig, securityMonitor, userManager);
+        }
+        return instance;
+    }
+
+    private void initializeCommandRegistry() {
+        commandRegistry.put("ENABLE_FEATURE", new EnableFeatureCommand());
+        commandRegistry.put("DISABLE_FEATURE", new DisableFeatureCommand());
+        commandRegistry.put("UPDATE_WITHDRAWAL_TAX", new UpdateWithdrawalTaxCommand());
+        commandRegistry.put("SET_USER_LEVEL", new SetUserLevelCommand());
+        commandRegistry.put("FREEZE_USER_ACCOUNT", new FreezeUserAccountCommand());
+        commandRegistry.put("UNFREEZE_USER_ACCOUNT", new UnfreezeUserAccountCommand());
+        commandRegistry.put("BAN_USER", new BanUserCommand());
+        commandRegistry.put("UNBAN_USER", new UnbanUserCommand());
+        commandRegistry.put("UPDATE_UI_CONFIG", new UpdateUIConfigCommand());
+        commandRegistry.put("TRIGGER_EMERGENCY_BOT", new TriggerEmergencyBotCommand());
+        
+        System.out.println("ADMIN CTRL: Registered " + commandRegistry.size() + " admin commands");
     }
 
     /**
-     * تفعيل ميزة إداريًا
+     * تنفيذ أمر إداري غير متزامن
      */
-    public CompletableFuture<Boolean> enableFeatureAsync(String featureId) {
+    public CompletableFuture<AdminResult> executeAdminCommandAsync(
+        String adminId,
+        String commandType,
+        Object... params
+    ) {
         return CompletableFuture.supplyAsync(() -> {
             try {
-                adminController.enablePaymentTools(); // مثال
-                System.out.println("ADMIN: Feature " + featureId + " enabled");
-                return true;
+                // 1. التحقق من صلاحيات الادمن
+                if (!isAdminAuthorized(adminId)) {
+                    securityMonitor.reportSuspiciousActivity(
+                        adminId, 
+                        "UNAUTHORIZED_ADMIN_COMMAND_" + commandType
+                    );
+                    return AdminResult.failure("Unauthorized admin access");
+                }
+                
+                // 2. الحصول على الأمر
+                AdminCommand command = commandRegistry.get(commandType);
+                if (command == null) {
+                    return AdminResult.failure("Unsupported command: " + commandType);
+                }
+                
+                // 3. تنفيذ الأمر
+                AdminResult result = command.execute(params);
+                
+                // 4. تسجيل الأمر في السجل الأمني
+                securityMonitor.logAdminAction(
+                    adminId,
+                    commandType,
+                    paramsToString(params),
+                    result.isSuccess()
+                );
+                
+                System.out.println("ADMIN CTRL: Executed " + commandType + " - Result: " + result.getMessage());
+                
+                return result;
+                
             } catch (Exception e) {
-                System.err.println("ADMIN ERROR: " + e.getMessage());
-                return false;
+                return AdminResult.failure("Admin command execution failed: " + e.getMessage());
             }
         });
     }
 
+    private boolean isAdminAuthorized(String adminId) {
+        User adminUser = userManager.getUserById(adminId);
+        return adminUser != null && adminUser.isAdmin();
+    }
+
+    private String paramsToString(Object... params) {
+        if (params == null || params.length == 0) return "[]";
+        
+        StringBuilder sb = new StringBuilder("[");
+        for (int i = 0; i < params.length; i++) {
+            if (i > 0) sb.append(", ");
+            sb.append(params[i] != null ? params[i].toString() : "null");
+        }
+        sb.append("]");
+        return sb.toString();
+    }
+
+    // --- أوامر إدارية ---
+    
     /**
-     * تغيير ضريبة السحب
+     * أمر تفعيل ميزة
      */
-    public void updateWithdrawalTax(String method, double rate) {
-        adminController.updateBankWithdrawalTax(rate);
-        System.out.println("ADMIN: Withdrawal tax for " + method + " set to " + rate + "%");
+    private final class EnableFeatureCommand implements AdminCommand {
+        @Override
+        public AdminResult execute(Object... params) {
+            try {
+                if (params.length < 1) {
+                    return AdminResult.failure("Feature ID required");
+                }
+                
+                String featureId = params[0].toString();
+                adminConfig.getFeatureToggleManager().toggleFeature(featureId, true);
+                
+                System.out.println("ADMIN COMMAND: Feature " + featureId + " enabled");
+                return AdminResult.success("Feature " + featureId + " enabled successfully");
+                
+            } catch (Exception e) {
+                return AdminResult.failure("Enable feature failed: " + e.getMessage());
+            }
+        }
     }
 
     /**
-     * تغيير مستوى المستخدم
+     * أمر تعطيل ميزة
      */
-    public void setUserLevel(String userId, int level) {
-        adminController.setUserLevel(userId, level);
-        System.out.println("ADMIN: User " + userId + " level set to " + level);
+    private final class DisableFeatureCommand implements AdminCommand {
+        @Override
+        public AdminResult execute(Object... params) {
+            try {
+                if (params.length < 1) {
+                    return AdminResult.failure("Feature ID required");
+                }
+                
+                String featureId = params[0].toString();
+                adminConfig.getFeatureToggleManager().toggleFeature(featureId, false);
+                
+                System.out.println("ADMIN COMMAND: Feature " + featureId + " disabled");
+                return AdminResult.success("Feature " + featureId + " disabled successfully");
+                
+            } catch (Exception e) {
+                return AdminResult.failure("Disable feature failed: " + e.getMessage());
+            }
+        }
     }
 
     /**
-     * تجميد حساب المستخدم
+     * أمر تحديث ضريبة السحب
      */
-    public void freezeUserAccount(String userId) {
-        adminController.freezeUserAccount(userId);
-        System.out.println("ADMIN: Account " + userId + " frozen");
+    private final class UpdateWithdrawalTaxCommand implements AdminCommand {
+        @Override
+        public AdminResult execute(Object... params) {
+            try {
+                if (params.length < 2) {
+                    return AdminResult.failure("Method and rate required");
+                }
+                
+                String method = params[0].toString();
+                double rate = ((Number) params[1]).doubleValue();
+                
+                adminConfig.getWithdrawalTaxController().setTaxRate(method, rate);
+                
+                System.out.println("ADMIN COMMAND: Withdrawal tax for " + method + " set to " + rate + "%");
+                return AdminResult.success("Withdrawal tax updated successfully");
+                
+            } catch (Exception e) {
+                return AdminResult.failure("Update withdrawal tax failed: " + e.getMessage());
+            }
+        }
     }
 
     /**
-     * تنفيذ أمر إداري عام
+     * أمر تعيين مستوى المستخدم
      */
-    public void executeAdminCommand(AdminCommand command) {
-        command.execute();
+    private final class SetUserLevelCommand implements AdminCommand {
+        @Override
+        public AdminResult execute(Object... params) {
+            try {
+                if (params.length < 2) {
+                    return AdminResult.failure("User ID and level required");
+                }
+                
+                String userId = params[0].toString();
+                int level = ((Number) params[1]).intValue();
+                
+                User user = userManager.getUserById(userId);
+                if (user != null) {
+                    user.setLevel(level);
+                    System.out.println("ADMIN COMMAND: User " + userId + " level set to " + level);
+                    return AdminResult.success("User level updated successfully");
+                } else {
+                    return AdminResult.failure("User not found: " + userId);
+                }
+                
+            } catch (Exception e) {
+                return AdminResult.failure("Set user level failed: " + e.getMessage());
+            }
+        }
     }
 
     /**
-     * واجهة أمر إداري
+     * أمر تجميد حساب المستخدم
+     */
+    private final class FreezeUserAccountCommand implements AdminCommand {
+        @Override
+        public AdminResult execute(Object... params) {
+            try {
+                if (params.length < 1) {
+                    return AdminResult.failure("User ID required");
+                }
+                
+                String userId = params[0].toString();
+                User user = userManager.getUserById(userId);
+                if (user != null) {
+                    user.setSuspended(true);
+                    System.out.println("ADMIN COMMAND: User " + userId + " account frozen");
+                    return AdminResult.success("User account frozen successfully");
+                } else {
+                    return AdminResult.failure("User not found: " + userId);
+                }
+                
+            } catch (Exception e) {
+                return AdminResult.failure("Freeze user account failed: " + e.getMessage());
+            }
+        }
+    }
+
+    /**
+     * أمر إلغاء تجميد حساب المستخدم
+     */
+    private final class UnfreezeUserAccountCommand implements AdminCommand {
+        @Override
+        public AdminResult execute(Object... params) {
+            try {
+                if (params.length < 1) {
+                    return AdminResult.failure("User ID required");
+                }
+                
+                String userId = params[0].toString();
+                User user = userManager.getUserById(userId);
+                if (user != null) {
+                    user.setSuspended(false);
+                    System.out.println("ADMIN COMMAND: User " + userId + " account unfrozen");
+                    return AdminResult.success("User account unfrozen successfully");
+                } else {
+                    return AdminResult.failure("User not found: " + userId);
+                }
+                
+            } catch (Exception e) {
+                return AdminResult.failure("Unfreeze user account failed: " + e.getMessage());
+            }
+        }
+    }
+
+    /**
+     * أمر حظر المستخدم
+     */
+    private final class BanUserCommand implements AdminCommand {
+        @Override
+        public AdminResult execute(Object... params) {
+            try {
+                if (params.length < 1) {
+                    return AdminResult.failure("User ID required");
+                }
+                
+                String userId = params[0].toString();
+                User user = userManager.getUserById(userId);
+                if (user != null) {
+                    user.setBanned(true);
+                    System.out.println("ADMIN COMMAND: User " + userId + " banned");
+                    return AdminResult.success("User banned successfully");
+                } else {
+                    return AdminResult.failure("User not found: " + userId);
+                }
+                
+            } catch (Exception e) {
+                return AdminResult.failure("Ban user failed: " + e.getMessage());
+            }
+        }
+    }
+
+    /**
+     * أمر إلغاء حظر المستخدم
+     */
+    private final class UnbanUserCommand implements AdminCommand {
+        @Override
+        public AdminResult execute(Object... params) {
+            try {
+                if (params.length < 1) {
+                    return AdminResult.failure("User ID required");
+                }
+                
+                String userId = params[0].toString();
+                User user = userManager.getUserById(userId);
+                if (user != null) {
+                    user.setBanned(false);
+                    System.out.println("ADMIN COMMAND: User " + userId + " unbanned");
+                    return AdminResult.success("User unbanned successfully");
+                } else {
+                    return AdminResult.failure("User not found: " + userId);
+                }
+                
+            } catch (Exception e) {
+                return AdminResult.failure("Unban user failed: " + e.getMessage());
+            }
+        }
+    }
+
+    /**
+     * أمر تحديث إعدادات الواجهة
+     */
+    private final class UpdateUIConfigCommand implements AdminCommand {
+        @Override
+        public AdminResult execute(Object... params) {
+            try {
+                if (params.length < 1) {
+                    return AdminResult.failure("UI config required");
+                }
+                
+                // في الإنتاج: تحديث إعدادات الواجهة
+                System.out.println("ADMIN COMMAND: UI config updated");
+                return AdminResult.success("UI config updated successfully");
+                
+            } catch (Exception e) {
+                return AdminResult.failure("Update UI config failed: " + e.getMessage());
+            }
+        }
+    }
+
+    /**
+     * أمر تفعيل بوت الطوارئ
+     */
+    private final class TriggerEmergencyBotCommand implements AdminCommand {
+        @Override
+        public AdminResult execute(Object... params) {
+            try {
+                // في الإنتاج: تفعيل بوت الطوارئ
+                System.out.println("ADMIN COMMAND: Emergency bot triggered");
+                return AdminResult.success("Emergency bot triggered successfully");
+                
+            } catch (Exception e) {
+                return AdminResult.failure("Trigger emergency bot failed: " + e.getMessage());
+            }
+        }
+    }
+
+    /**
+     * واجهة الأمر الإداري
      */
     @FunctionalInterface
-    public interface AdminCommand {
-        void execute();
+    private interface AdminCommand {
+        AdminResult execute(Object... params);
+    }
+
+    /**
+     * نتيجة الأمر الإداري
+     */
+    public static final class AdminResult {
+        private final boolean success;
+        private final String message;
+
+        private AdminResult(boolean success, String message) {
+            this.success = success;
+            this.message = message;
+        }
+
+        public static AdminResult success(String message) {
+            return new AdminResult(true, message);
+        }
+
+        public static AdminResult failure(String message) {
+            return new AdminResult(false, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public String getMessage() { return message; }
     }
 }
