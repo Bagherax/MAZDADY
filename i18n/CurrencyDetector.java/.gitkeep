@@ -1,0 +1,97 @@
+package mazdady.i18n;
+
+import android.content.Context;
+import android.telephony.TelephonyManager;
+
+import java.util.Locale;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+
+/**
+ * كاشف العملات مع دعم الكشف التلقائي حسب المنطقة
+ * يتبع نمط Singleton مع تهيئة ذكية
+ */
+public final class CurrencyDetector {
+    private final Context context;
+    private final Map<String, String> regionToCurrency = new ConcurrentHashMap<>();
+    private static CurrencyDetector instance;
+
+    private CurrencyDetector(Context context) {
+        this.context = context.getApplicationContext();
+        initializeCurrencyMap();
+    }
+
+    public static synchronized CurrencyDetector getInstance(Context context) {
+        if (instance == null) {
+            instance = new CurrencyDetector(context);
+        }
+        return instance;
+    }
+
+    private void initializeCurrencyMap() {
+        // تهيئة خريطة العملات الأساسية
+        regionToCurrency.put("US", "USD");
+        regionToCurrency.put("SA", "SAR");
+        regionToCurrency.put("EG", "EGP");
+        regionToCurrency.put("AE", "AED");
+        regionToCurrency.put("GB", "GBP");
+        regionToCurrency.put("EU", "EUR");
+        // يمكن توسيعها حسب الحاجة
+    }
+
+    /**
+     * اكتشاف العملة الحالية تلقائيًا
+     */
+    public String detectCurrency() {
+        // 1. محاولة الحصول من إعدادات النظام
+        String systemCurrency = getSystemCurrency();
+        if (systemCurrency != null) {
+            return systemCurrency;
+        }
+        
+        // 2. محاولة الحصول من شبكة الهاتف
+        String networkCurrency = getNetworkCurrency();
+        if (networkCurrency != null) {
+            return networkCurrency;
+        }
+        
+        // 3. استخدام العملة الافتراضية
+        return "USD";
+    }
+
+    /**
+     * الحصول على العملة حسب المنطقة
+     */
+    public String getCurrencyForRegion(String regionCode) {
+        return regionToCurrency.getOrDefault(regionCode, "USD");
+    }
+
+    private String getSystemCurrency() {
+        try {
+            Locale locale = context.getResources().getConfiguration().locale;
+            return locale.getCountry();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private String getNetworkCurrency() {
+        try {
+            TelephonyManager tm = (TelephonyManager) context.getSystemService(Context.TELEPHONY_SERVICE);
+            if (tm != null && tm.getNetworkCountryIso() != null) {
+                String countryCode = tm.getNetworkCountryIso().toUpperCase();
+                return getCurrencyForRegion(countryCode);
+            }
+        } catch (SecurityException e) {
+            // إذن الهاتف غير ممنوح
+        }
+        return null;
+    }
+
+    /**
+     * إضافة خريطة عملة مخصصة
+     */
+    public void addCurrencyMapping(String regionCode, String currencyCode) {
+        regionToCurrency.put(regionCode, currencyCode);
+    }
+}
