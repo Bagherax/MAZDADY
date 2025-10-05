@@ -1,0 +1,155 @@
+package mazdady.admin.secure;
+
+import mazdady.security.SecureStorage;
+import mazdady.user.UserManager;
+
+import java.security.MessageDigest;
+import java.util.Base64;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicBoolean;
+
+/**
+ * مصادق الادمن مع دعم التحقق الآمن
+ * يتبع نمط Singleton مع تهيئة آمنة
+ */
+public final class AdminAuthenticator {
+    private static final String MASTER_PASSWORD_HASH = 
+        "AbedLatifMAZDADYBagherax@78885444450843"; // في الإنتاج: SHA-256 مشفرة
+    private final SecureStorage secureStorage;
+    private final AtomicBoolean isAdminAuthenticated = new AtomicBoolean(false);
+    private static AdminAuthenticator instance;
+
+    private AdminAuthenticator(SecureStorage secureStorage) {
+        this.secureStorage = secureStorage;
+        checkStoredAuthentication();
+    }
+
+    public static synchronized AdminAuthenticator getInstance(SecureStorage secureStorage) {
+        if (instance == null) {
+            instance = new AdminAuthenticator(secureStorage);
+        }
+        return instance;
+    }
+
+    /**
+     * التحقق من كلمة المرور السرية غير متزامن
+     */
+    public CompletableFuture<AuthResult> authenticateAsync(String password) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                if (password == null || password.isEmpty()) {
+                    return AuthResult.failure("Password cannot be empty");
+                }
+                
+                // التحقق من صحة كلمة المرور
+                if (isValidMasterPassword(password)) {
+                    isAdminAuthenticated.set(true);
+                    secureStorage.putBoolean("admin_authenticated", true);
+                    secureStorage.putLong("admin_auth_timestamp", System.currentTimeMillis());
+                    
+                    System.out.println("ADMIN AUTHENTICATOR: Admin authenticated successfully");
+                    return AuthResult.success("Authentication successful");
+                } else {
+                    System.err.println("ADMIN AUTHENTICATOR: Invalid admin password attempt");
+                    return AuthResult.failure("Invalid password");
+                }
+                
+            } catch (Exception e) {
+                return AuthResult.failure("Authentication failed: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * التحقق من صحة كلمة المرور الرئيسية
+     */
+    private boolean isValidMasterPassword(String password) {
+        try {
+            String hashedInput = sha256(password);
+            String storedHash = secureStorage.getString("master_password_hash", MASTER_PASSWORD_HASH);
+            return hashedInput.equals(storedHash);
+        } catch (Exception e) {
+            System.err.println("PASSWORD VALIDATION ERROR: " + e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * التحقق من المصادقة المخزنة
+     */
+    private void checkStoredAuthentication() {
+        try {
+            boolean isAuthenticated = secureStorage.getBoolean("admin_authenticated", false);
+            long authTimestamp = secureStorage.getLong("admin_auth_timestamp", 0);
+            long currentTime = System.currentTimeMillis();
+            
+            // صلاحية المصادقة = 24 ساعة
+            if (isAuthenticated && (currentTime - authTimestamp) < 24 * 60 * 60 * 1000) {
+                isAdminAuthenticated.set(true);
+                System.out.println("ADMIN AUTHENTICATOR: Restored admin authentication from storage");
+            } else {
+                // مسح المصادقة القديمة
+                secureStorage.putBoolean("admin_authenticated", false);
+                isAdminAuthenticated.set(false);
+                System.out.println("ADMIN AUTHENTICATOR: Cleared expired admin authentication");
+            }
+            
+        } catch (Exception e) {
+            System.err.println("AUTH STORAGE CHECK ERROR: " + e.getMessage());
+        }
+    }
+
+    /**
+     * تسجيل الخروج من الوضع الإداري
+     */
+    public void logout() {
+        isAdminAuthenticated.set(false);
+        secureStorage.putBoolean("admin_authenticated", false);
+        secureStorage.remove("admin_auth_timestamp");
+        System.out.println("ADMIN AUTHENTICATOR: Admin logged out");
+    }
+
+    /**
+     * التحقق من حالة المصادقة الإدارية
+     */
+    public boolean isAdminAuthenticated() {
+        return isAdminAuthenticated.get();
+    }
+
+    /**
+     * تشفير SHA-256
+     */
+    private String sha256(String input) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(input.getBytes("UTF-8"));
+            return Base64.getEncoder().encodeToString(hash);
+        } catch (Exception e) {
+            throw new RuntimeException("SHA-256 hashing failed", e);
+        }
+    }
+
+    /**
+     * نتيجة المصادقة
+     */
+    public static final class AuthResult {
+        private final boolean success;
+        private final String message;
+
+        private AuthResult(boolean success, String message) {
+            this.success = success;
+            this.message = message;
+        }
+
+        public static AuthResult success(String message) {
+            return new AuthResult(true, message);
+        }
+
+        public static AuthResult failure(String message) {
+            return new AuthResult(false, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public String getMessage() { return message; }
+    }
+}
