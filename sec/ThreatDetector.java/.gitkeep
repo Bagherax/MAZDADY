@@ -1,0 +1,154 @@
+package mazdady.sec;
+
+import mazdady.user.User;
+
+import java.time.Instant;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
+
+/**
+ * كاشف التهديدات مع دعم الكشف التلقائي
+ * يتبع نمط Observer لإعلام النظام بالتهديدات
+ */
+public final class ThreatDetector {
+    private final ConcurrentHashMap<String, ThreatProfile> threatProfiles = new ConcurrentHashMap<>();
+    private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+    private final Consumer<ThreatEvent> threatListener;
+    private static ThreatDetector instance;
+
+    private ThreatDetector(Consumer<ThreatEvent> threatListener) {
+        this.threatListener = threatListener;
+        startThreatMonitoring();
+    }
+
+    public static ThreatDetector create(Consumer<ThreatEvent> threatListener) {
+        return new ThreatDetector(threatListener);
+    }
+
+    private void startThreatMonitoring() {
+        scheduler.scheduleAtFixedRate(
+            this::scanForThreats,
+            0,
+            30,
+            TimeUnit.SECONDS
+        );
+    }
+
+    /**
+     * الإبلاغ عن نشاط مشبوه
+     */
+    public void reportSuspiciousActivity(String userId, String activityType, String details) {
+        ThreatProfile profile = threatProfiles.computeIfAbsent(
+            userId,
+            k -> new ThreatProfile(userId)
+        );
+        
+        profile.addSuspiciousActivity(activityType, details);
+        
+        // التحقق من مستوى التهديد
+        if (profile.getThreatLevel() >= ThreatLevel.HIGH) {
+            notifyThreat(new ThreatEvent(userId, ThreatLevel.HIGH, 
+                "High threat level detected: " + activityType, Instant.now()));
+        }
+    }
+
+    private void scanForThreats() {
+        threatProfiles.values().forEach(profile -> {
+            if (profile.getThreatLevel() == ThreatLevel.CRITICAL) {
+                notifyThreat(new ThreatEvent(profile.getUserId(), ThreatLevel.CRITICAL,
+                    "Critical threat detected", Instant.now()));
+            }
+        });
+    }
+
+    private void notifyThreat(ThreatEvent event) {
+        threatListener.accept(event);
+    }
+
+    /**
+     * حدث التهديد
+     */
+    public static final class ThreatEvent {
+        private final String userId;
+        private final ThreatLevel level;
+        private final String description;
+        private final Instant timestamp;
+
+        public ThreatEvent(String userId, ThreatLevel level, String description, Instant timestamp) {
+            this.userId = userId;
+            this.level = level;
+            this.description = description;
+            this.timestamp = timestamp;
+        }
+
+        public String getUserId() { return userId; }
+        public ThreatLevel getLevel() { return level; }
+        public String getDescription() { return description; }
+        public Instant getTimestamp() { return timestamp; }
+    }
+
+    /**
+     * ملف التهديد
+     */
+    private static final class ThreatProfile {
+        private final String userId;
+        private final java.util.Queue<SuspiciousActivity> activities = 
+            new java.util.concurrent.ConcurrentLinkedQueue<>();
+        private volatile ThreatLevel currentLevel = ThreatLevel.LOW;
+
+        public ThreatProfile(String userId) {
+            this.userId = userId;
+        }
+
+        public void addSuspiciousActivity(String type, String details) {
+            activities.offer(new SuspiciousActivity(type, details, System.currentTimeMillis()));
+            updateThreatLevel();
+        }
+
+        private void updateThreatLevel() {
+            int activityCount = activities.size();
+            if (activityCount >= 10) {
+                currentLevel = ThreatLevel.CRITICAL;
+            } else if (activityCount >= 5) {
+                currentLevel = ThreatLevel.HIGH;
+            } else if (activityCount >= 2) {
+                currentLevel = ThreatLevel.MEDIUM;
+            } else {
+                currentLevel = ThreatLevel.LOW;
+            }
+        }
+
+        public ThreatLevel getThreatLevel() {
+            return currentLevel;
+        }
+
+        public String getUserId() {
+            return userId;
+        }
+    }
+
+    /**
+     * نشاط مشبوه
+     */
+    private static final class SuspiciousActivity {
+        private final String type;
+        private final String details;
+        private final long timestamp;
+
+        public SuspiciousActivity(String type, String details, long timestamp) {
+            this.type = type;
+            this.details = details;
+            this.timestamp = timestamp;
+        }
+    }
+
+    /**
+     * مستويات التهديد
+     */
+    public enum ThreatLevel {
+        LOW, MEDIUM, HIGH, CRITICAL
+    }
+}
