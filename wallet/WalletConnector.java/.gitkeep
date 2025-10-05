@@ -1,48 +1,179 @@
 package mazdady.wallet;
 
-import android.content.Context;
 import mazdady.user.UserManager;
+import mazdady.security.SecureStorage;
 
-public class WalletConnector {
-    private String walletAddress;
-    private String blockchainNetwork; // "ETH", "BSC", "SOL"
-    private boolean isConnected = false;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicReference;
 
-    public WalletConnector() {}
+/**
+ * رابط المحفظة الخارجية مع دعم الشبكات المتعددة
+ * يتبع نمط Strategy لفصل استراتيجيات الربط
+ */
+public final class WalletConnector {
+    private final SecureStorage secureStorage;
+    private final AtomicReference<WalletConnection> currentConnection = new AtomicReference<>();
+    private static WalletConnector instance;
 
-    public void connectWallet(String address, String network) {
-        if (isValidAddress(address, network)) {
-            this.walletAddress = address;
-            this.blockchainNetwork = network;
-            this.isConnected = true;
-            
-            // ربط بالمستخدم الحالي
-            UserManager.getInstance(null).getCurrentUser()
-                      .setWalletAddress(address);
+    private WalletConnector(SecureStorage secureStorage) {
+        this.secureStorage = secureStorage;
+    }
+
+    public static synchronized WalletConnector getInstance(SecureStorage secureStorage) {
+        if (instance == null) {
+            instance = new WalletConnector(secureStorage);
+        }
+        return instance;
+    }
+
+    /**
+     * ربط محفظة خارجية غير متزامن
+     */
+    public CompletableFuture<ConnectionResult> connectWalletAsync(
+        String address, 
+        BlockchainNetwork network
+    ) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                // التحقق من صحة العنوان
+                CryptoAddressValidator validator = CryptoAddressValidator.getInstance();
+                if (!validator.isValidAddress(address, network)) {
+                    return ConnectionResult.failure("Invalid wallet address for " + network);
+                }
+                
+                // التحقق من الأمان
+                if (isSecurityRisk(address, network)) {
+                    return ConnectionResult.failure("Security risk detected for this address");
+                }
+                
+                // ربط المحفظة
+                WalletConnection connection = new WalletConnection(
+                    address, 
+                    network, 
+                    System.currentTimeMillis()
+                );
+                
+                currentConnection.set(connection);
+                
+                // حفظ العنوان في التخزين الآمن
+                secureStorage.putString("wallet_address", address);
+                secureStorage.putString("wallet_network", network.name());
+                
+                // ربط العنوان بحساب المستخدم
+                UserManager.getInstance(null).getCurrentUser().setWalletAddress(address);
+                
+                System.out.println("WALLET CONNECTOR: Connected to " + address + " on " + network);
+                return ConnectionResult.success("Wallet connected successfully");
+                
+            } catch (Exception e) {
+                return ConnectionResult.failure("Wallet connection failed: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * فصل المحفظة
+     */
+    public void disconnectWallet() {
+        WalletConnection connection = currentConnection.get();
+        if (connection != null) {
+            currentConnection.set(null);
+            secureStorage.remove("wallet_address");
+            secureStorage.remove("wallet_network");
+            UserManager.getInstance(null).getCurrentUser().setWalletAddress(null);
+            System.out.println("WALLET CONNECTOR: Disconnected from " + connection.getAddress());
         }
     }
 
-    private boolean isValidAddress(String address, String network) {
-        switch (network.toUpperCase()) {
-            case "ETH":
-            case "BSC":
-                return address.matches("^0x[a-fA-F0-9]{40}$");
-            case "SOL":
-                return address.length() == 44;
-            default:
-                return false;
-        }
-    }
-
+    /**
+     * التحقق من حالة الربط
+     */
     public boolean isConnected() {
-        return isConnected && walletAddress != null;
+        WalletConnection connection = currentConnection.get();
+        return connection != null && connection.isValid();
     }
 
-    public String getWalletAddress() {
-        return walletAddress;
+    /**
+     * التحقق من خطر الأمان
+     */
+    private boolean isSecurityRisk(String address, BlockchainNetwork network) {
+        // في الإنتاج: التحقق من قوائم العناوين المحظورة
+        return false; // محاكاة عدم وجود خطر
     }
 
-    public String getBlockchainNetwork() {
-        return blockchainNetwork;
+    /**
+     * الحصول على عنوان المحفظة الحالي
+     */
+    public String getCurrentWalletAddress() {
+        WalletConnection connection = currentConnection.get();
+        return connection != null ? connection.getAddress() : null;
+    }
+
+    /**
+     * الحصول على شبكة المحفظة الحالية
+     */
+    public BlockchainNetwork getCurrentNetwork() {
+        WalletConnection connection = currentConnection.get();
+        return connection != null ? connection.getNetwork() : BlockchainNetwork.UNKNOWN;
+    }
+
+    /**
+     * نتيجة الربط
+     */
+    public static final class ConnectionResult {
+        private final boolean success;
+        private final String message;
+
+        private ConnectionResult(boolean success, String message) {
+            this.success = success;
+            this.message = message;
+        }
+
+        public static ConnectionResult success(String message) {
+            return new ConnectionResult(true, message);
+        }
+
+        public static ConnectionResult failure(String message) {
+            return new ConnectionResult(false, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public String getMessage() { return message; }
+    }
+
+    /**
+     * اتصال المحفظة
+     */
+    private static final class WalletConnection {
+        private final String address;
+        private final BlockchainNetwork network;
+        private final long connectedAt;
+        private volatile boolean valid = true;
+
+        public WalletConnection(String address, BlockchainNetwork network, long connectedAt) {
+            this.address = address;
+            this.network = network;
+            this.connectedAt = connectedAt;
+        }
+
+        public boolean isValid() {
+            return valid && (System.currentTimeMillis() - connectedAt) < 24 * 60 * 60 * 1000;
+        }
+
+        public void invalidate() {
+            this.valid = false;
+        }
+
+        // Getters
+        public String getAddress() { return address; }
+        public BlockchainNetwork getNetwork() { return network; }
+        public long getConnectedAt() { return connectedAt; }
+    }
+
+    /**
+     * شبكات البلوك تشين المدعومة
+     */
+    public enum BlockchainNetwork {
+        ETHEREUM, BINANCE_SMART_CHAIN, SOLANA, BITCOIN, POLKADOT, TRON, UNKNOWN
     }
 }
