@@ -1,46 +1,121 @@
 package mazdady.arch;
 
+import mazdady.user.UserManager;
+import mazdady.security.SecurityMonitor;
+import mazdady.wallet.WalletManager;
+import mazdady.trading.PriceEngine;
+import mazdady.bot.BotController;
+import mazdady.admin.AdminConfig;
+
 import java.lang.reflect.Constructor;
-import java.lang.reflect.Parameter;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Supplier;
 
 /**
- * محلل التبعيات الديناميكي باستخدام Reflection
- * يدعم التحميل الكسول والحقن التلقائي
+ * محلل التبعيات المتقدم مع دعم الحل الديناميكي
+ * يتبع نمط Strategy لفصل استراتيجيات الحل
  */
 public final class DependencyResolver {
-    private final DIContainer container;
-    private final Map<Class<?>, Object> lazyInstances;
+    private final Map<Class<?>, Supplier<Object>> bindings = new ConcurrentHashMap<>();
+    private final Map<Class<?>, Object> singletons = new ConcurrentHashMap<>();
+    private static DependencyResolver instance;
 
     private DependencyResolver() {
-        this.container = DIContainer.getInstance();
-        this.lazyInstances = new ConcurrentHashMap<>();
+        initializeBindings();
     }
 
-    private static class Holder {
-        static final DependencyResolver INSTANCE = new DependencyResolver();
+    public static synchronized DependencyResolver getInstance() {
+        if (instance == null) {
+            instance = new DependencyResolver();
+        }
+        return instance;
     }
 
-    public static DependencyResolver getInstance() {
-        return Holder.INSTANCE;
+    private void initializeBindings() {
+        // ربط المكونات الأساسية
+        bind(UserManager.class, () -> UserManager.getInstance(null));
+        bind(SecurityMonitor.class, () -> SecurityMonitor.getInstance(null));
+        bind(WalletManager.class, WalletManager::new);
+        bind(PriceEngine.class, () -> PriceEngine.getInstance());
+        bind(BotController.class, () -> BotController.getInstance());
+        bind(AdminConfig.class, () -> AdminConfig.getInstance());
+        
+        // ربط المكونات المتقدمة
+        bind(BusinessInteractor.class, () -> 
+            BusinessInteractor.getInstance(
+                UserManager.getInstance(null),
+                SecurityMonitor.getInstance(null)
+            )
+        );
+        
+        bind(ContractValidator.class, () -> 
+            ContractValidator.getInstance(SecurityMonitor.getInstance(null))
+        );
+        
+        bind(DIContainer.class, () -> 
+            DIContainer.getInstance(
+                UserManager.getInstance(null),
+                SecurityMonitor.getInstance(null),
+                WalletManager.getInstance(),
+                PriceEngine.getInstance(),
+                BotController.getInstance(),
+                AdminConfig.getInstance()
+            )
+        );
+        
+        bind(UseCaseExecutor.class, () -> 
+            UseCaseExecutor.getInstance(
+                UserManager.getInstance(null),
+                SecurityMonitor.getInstance(null),
+                WalletManager.getInstance(),
+                PriceEngine.getInstance(),
+                BotController.getInstance(),
+                AdminConfig.getInstance()
+            )
+        );
     }
 
     /**
-     * إنشاء مثيل مع حقن التبعيات تلقائيًا
+     * ربط واجهة بتنفيذ معين
+     */
+    public <T> void bind(Class<T> interfaceType, Supplier<T> implementation) {
+        bindings.put(interfaceType, () -> implementation.get());
+    }
+
+    /**
+     * ربط كـ Singleton
+     */
+    public <T> void bindSingleton(Class<T> interfaceType, Supplier<T> implementation) {
+        bindings.put(interfaceType, () -> singletons.computeIfAbsent(interfaceType, k -> implementation.get()));
+    }
+
+    /**
+     * الحصول على مثيل من المحلل
      */
     @SuppressWarnings("unchecked")
+    public <T> T get(Class<T> type) {
+        Supplier<Object> supplier = bindings.get(type);
+        if (supplier == null) {
+            throw new IllegalStateException("No binding found for: " + type.getName());
+        }
+        return (T) supplier.get();
+    }
+
+    /**
+     * حل التبعيات لفئة معينة
+     */
     public <T> T resolve(Class<T> type) {
         try {
             // محاولة الحصول من الحاوية أولاً
             try {
-                return container.get(type);
+                return get(type);
             } catch (IllegalStateException e) {
                 // إذا لم يكن مربوطًا، إنشاء يدويًا
             }
 
             // التحقق من وجود مثيل كسول
-            Object instance = lazyInstances.get(type);
+            Object instance = singletons.get(type);
             if (instance != null) {
                 return (T) instance;
             }
@@ -55,16 +130,15 @@ public final class DependencyResolver {
             primaryConstructor.setAccessible(true);
 
             // حل التبعيات للمعلمات
-            Parameter[] parameters = primaryConstructor.getParameters();
-            Object[] args = new Object[parameters.length];
-            for (int i = 0; i < parameters.length; i++) {
-                Class<?> paramType = parameters[i].getType();
-                args[i] = resolve(paramType);
+            Class<?>[] parameterTypes = primaryConstructor.getParameterTypes();
+            Object[] args = new Object[parameterTypes.length];
+            for (int i = 0; i < parameterTypes.length; i++) {
+                args[i] = resolve(parameterTypes[i]);
             }
 
             // إنشاء المثيل
             T newInstance = (T) primaryConstructor.newInstance(args);
-            lazyInstances.put(type, newInstance);
+            singletons.put(type, newInstance);
             return newInstance;
 
         } catch (Exception e) {
@@ -75,9 +149,25 @@ public final class DependencyResolver {
     /**
      * استثناء مخصص لأخطاء تحليل التبعيات
      */
-    public static class ResolutionException extends RuntimeException {
+    public static final class ResolutionException extends RuntimeException {
         public ResolutionException(String message, Throwable cause) {
             super(message, cause);
         }
+    }
+
+    // --- Getters ---
+    public int getBindingCount() { return bindings.size(); }
+    public int getSingletonCount() { return singletons.size(); }
+    public boolean hasBinding(Class<?> type) { return bindings.containsKey(type); }
+    public boolean hasSingleton(Class<?> type) { return singletons.containsKey(type); }
+    
+    /**
+     * إعادة تهيئة الحاوية (للاختبارات)
+     */
+    public void reset() {
+        bindings.clear();
+        singletons.clear();
+        initializeBindings();
+        System.out.println("DEPENDENCY RESOLVER: Reset completed");
     }
 }
