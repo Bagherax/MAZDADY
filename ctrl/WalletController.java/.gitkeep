@@ -1,10 +1,12 @@
 package mazdady.ctrl;
 
 import mazdady.wallet.WalletManager;
-import mazdady.wallet.WalletConnector;
+import mazdady.user.User;
 import mazdady.user.UserManager;
+import mazdady.security.SecureStorage;
 
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * وحدة تحكم المحفظة مع دعم العمليات الآمنة
@@ -12,59 +14,168 @@ import java.util.concurrent.CompletableFuture;
  */
 public final class WalletController {
     private final WalletManager walletManager;
-    private final WalletConnector walletConnector;
-    private static final WalletController INSTANCE = new WalletController();
+    private final UserManager userManager;
+    private final SecureStorage secureStorage;
+    private static WalletController instance;
 
-    private WalletController() {
-        this.walletManager = new WalletManager();
-        this.walletConnector = new WalletConnector();
+    private WalletController(WalletManager walletManager, UserManager userManager, SecureStorage secureStorage) {
+        this.walletManager = walletManager;
+        this.userManager = userManager;
+        this.secureStorage = secureStorage;
     }
 
-    public static WalletController getInstance() {
-        return INSTANCE;
+    public static synchronized WalletController getInstance(WalletManager walletManager, 
+                                                          UserManager userManager, 
+                                                          SecureStorage secureStorage) {
+        if (instance == null) {
+            instance = new WalletController(walletManager, userManager, secureStorage);
+        }
+        return instance;
     }
 
     /**
      * ربط محفظة خارجية غير متزامن
      */
-    public CompletableFuture<Boolean> connectWalletAsync(String address, String network) {
+    public CompletableFuture<WalletResult> connectWalletAsync(String userId, String address, String network) {
         return CompletableFuture.supplyAsync(() -> {
             try {
-                walletConnector.connectWallet(address, network);
-                UserManager.getInstance(null).getCurrentUser().setWalletAddress(address);
-                System.out.println("WALLET: Connected to " + address + " on " + network);
-                return true;
-            } catch (Exception e) {
-                System.err.println("WALLET ERROR: " + e.getMessage());
-                return false;
-            }
-        });
-    }
-
-    /**
-     * سحب الأرباح غير المتزامن
-     */
-    public CompletableFuture<Boolean> withdrawAsync(double amount) {
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                boolean success = walletManager.withdrawMAZDADY(amount);
-                if (success) {
-                    System.out.println("WALLET: Withdrawal of " + amount + " MAZDADY successful");
+                User user = userManager.getUserById(userId);
+                if (user == null) {
+                    return WalletResult.failure("User not found");
                 }
-                return success;
+                
+                // التحقق من صحة العنوان
+                if (!isValidWalletAddress(address, network)) {
+                    return WalletResult.failure("Invalid wallet address for " + network);
+                }
+                
+                // ربط المحفظة
+                boolean success = walletManager.getConnector().connectWallet(address, network);
+                
+                if (success) {
+                    user.setWalletAddress(address);
+                    secureStorage.putString("user_wallet_" + userId, address);
+                    
+                    System.out.println("WALLET CONTROLLER: Connected wallet " + address + 
+                                     " for user " + userId + " on " + network);
+                    
+                    return WalletResult.success("Wallet connected successfully");
+                } else {
+                    return WalletResult.failure("Wallet connection failed");
+                }
+                
             } catch (Exception e) {
-                System.err.println("WALLET ERROR: " + e.getMessage());
-                return false;
+                return WalletResult.failure("Wallet connection error: " + e.getMessage());
             }
         });
     }
 
     /**
-     * الحصول على رصيد المحفظة
+     * سحب MAZDADY غير متزامن
      */
-    public double getBalance() {
-        return walletManager.getBalance();
+    public CompletableFuture<WalletResult> withdrawMAZDADYAsync(String userId, double amount) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                User user = userManager.getUserById(userId);
+                if (user == null) {
+                    return WalletResult.failure("User not found");
+                }
+                
+                // التحقق من الرصيد
+                if (user.getBalance() < amount) {
+                    return WalletResult.failure("Insufficient balance");
+                }
+                
+                // التحقق من KYC
+                if (!user.isKYCVerified()) {
+                    return WalletResult.failure("KYC verification required");
+                }
+                
+                // تنفيذ السحب
+                boolean success = walletManager.withdrawMAZDADY(amount);
+                
+                if (success) {
+                    // خصم المبلغ من الرصيد
+                    user.setBalance(user.getBalance() - amount);
+                    user.addWeeklyWithdrawn(amount);
+                    
+                    System.out.println("WALLET CONTROLLER: Withdrew " + amount + 
+                                     " MAZDADY for user " + userId);
+                    
+                    return WalletResult.success("Withdrawal completed successfully");
+                } else {
+                    return WalletResult.failure("Withdrawal execution failed");
+                }
+                
+            } catch (Exception e) {
+                return WalletResult.failure("Withdrawal error: " + e.getMessage());
+            }
+        });
     }
 
     /**
-  
+     * إيداع MAZDADY
+     */
+    public CompletableFuture<WalletResult> depositMAZDADYAsync(String userId, double amount) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                User user = userManager.getUserById(userId);
+                if (user == null) {
+                    return WalletResult.failure("User not found");
+                }
+                
+                // إيداع المبلغ
+                walletManager.depositMAZDADY(amount);
+                user.setBalance(user.getBalance() + amount);
+                
+                System.out.println("WALLET CONTROLLER: Deposited " + amount + 
+                                 " MAZDADY for user " + userId);
+                
+                return WalletResult.success("Deposit completed successfully");
+                
+            } catch (Exception e) {
+                return WalletResult.failure("Deposit error: " + e.getMessage());
+            }
+        });
+    }
+
+    private boolean isValidWalletAddress(String address, String network) {
+        if (address == null || address.isEmpty()) return false;
+        
+        switch (network.toUpperCase()) {
+            case "ETHEREUM":
+            case "BINANCE_SMART_CHAIN":
+                return address.matches("^0x[a-fA-F0-9]{40}$");
+            case "SOLANA":
+                return address.length() == 44;
+            case "BITCOIN":
+                return address.matches("^(1|3|bc1)[a-zA-HJ-NP-Za-km-z]{25,42}$");
+            default:
+                return false;
+        }
+    }
+
+    /**
+     * نتيجة المحفظة
+     */
+    public static final class WalletResult {
+        private final boolean success;
+        private final String message;
+
+        private WalletResult(boolean success, String message) {
+            this.success = success;
+            this.message = message;
+        }
+
+        public static WalletResult success(String message) {
+            return new WalletResult(true, message);
+        }
+
+        public static WalletResult failure(String message) {
+            return new WalletResult(false, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public String getMessage() { return message; }
+    }
+}
