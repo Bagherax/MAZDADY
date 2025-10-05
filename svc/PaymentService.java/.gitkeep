@@ -1,0 +1,79 @@
+package mazdady.svc;
+
+import mazdady.wallet.WalletManager;
+
+import java.util.concurrent.CompletableFuture;
+
+/**
+ * خدمة الدفع مع دعم طرق متعددة
+ * يتبع نمط Facade لتوفير واجهة موحدة
+ */
+public final class PaymentService {
+    private static PaymentService instance;
+
+    private PaymentService() {}
+
+    public static synchronized PaymentService getInstance() {
+        if (instance == null) {
+            instance = new PaymentService();
+        }
+        return instance;
+    }
+
+    /**
+     * معالجة دفع غير متزامن
+     */
+    public CompletableFuture<PaymentResult> processPaymentAsync(double amount, PaymentMethod method) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                WalletManager wallet = new WalletManager();
+                
+                if (wallet.getBalance() < amount) {
+                    return PaymentResult.failure("Insufficient balance");
+                }
+                
+                boolean success = wallet.withdrawMAZDADY(amount);
+                if (success) {
+                    System.out.println("PAYMENT PROCESSED: " + amount + " MAZDADY via " + method);
+                    return PaymentResult.success("Payment processed successfully");
+                } else {
+                    return PaymentResult.failure("Payment execution failed");
+                }
+                
+            } catch (Exception e) {
+                return PaymentResult.failure("Payment processing error: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * طرق الدفع المتاحة
+     */
+    public enum PaymentMethod {
+        MAZDADY_WALLET, CRYPTO_WALLET, BANK_TRANSFER, MOBILE_WALLET
+    }
+
+    /**
+     * نتيجة الدفع
+     */
+    public static final class PaymentResult {
+        private final boolean success;
+        private final String message;
+
+        private PaymentResult(boolean success, String message) {
+            this.success = success;
+            this.message = message;
+        }
+
+        public static PaymentResult success(String message) {
+            return new PaymentResult(true, message);
+        }
+
+        public static PaymentResult failure(String message) {
+            return new PaymentResult(false, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public String getMessage() { return message; }
+    }
+}
