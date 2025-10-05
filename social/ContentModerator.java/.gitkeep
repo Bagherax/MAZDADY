@@ -1,0 +1,128 @@
+package mazdady.social;
+
+import java.util.Arrays;
+import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Pattern;
+
+/**
+ * مُعدّل المحتوى مع دعم الكشف التلقائي
+ * يتبع نمط Strategy لفصل قواعد التعديل
+ */
+public final class ContentModerator {
+    private final ConcurrentHashMap<String, ModerationRule> moderationRules = new ConcurrentHashMap<>();
+    private static ContentModerator instance;
+
+    private ContentModerator() {
+        initializeModerationRules();
+    }
+
+    public static synchronized ContentModerator getInstance() {
+        if (instance == null) {
+            instance = new ContentModerator();
+        }
+        return instance;
+    }
+
+    private void initializeModerationRules() {
+        // قاعدة الكشف عن المحتوى غير اللائق
+        moderationRules.put("inappropriate_content", new InappropriateContentRule());
+        
+        // قاعدة الكشف عن الروابط المشبوهة
+        moderationRules.put("suspicious_links", new SuspiciousLinksRule());
+        
+        // قاعدة الكشف عن البريد العشوائي
+        moderationRules.put("spam_detection", new SpamDetectionRule());
+    }
+
+    /**
+     * تعديل المحتوى
+     */
+    public ModerationResult moderateContent(String content, String userId) {
+        for (ModerationRule rule : moderationRules.values()) {
+            ModerationResult result = rule.checkContent(content, userId);
+            if (!result.isApproved()) {
+                return result;
+            }
+        }
+        return ModerationResult.approved("Content approved");
+    }
+
+    /**
+     * واجهة قاعدة التعديل
+     */
+    @FunctionalInterface
+    private interface ModerationRule {
+        ModerationResult checkContent(String content, String userId);
+    }
+
+    // --- قواعد التعديل ---
+    private static final class InappropriateContentRule implements ModerationRule {
+        private static final List<String> INAPPROPRIATE_WORDS = Arrays.asList(
+            "badword1", "badword2", "badword3" // في الإنتاج: قائمة كاملة
+        );
+
+        @Override
+        public ModerationResult checkContent(String content, String userId) {
+            String lowerContent = content.toLowerCase();
+            for (String word : INAPPROPRIATE_WORDS) {
+                if (lowerContent.contains(word)) {
+                    return ModerationResult.rejected("Inappropriate content detected");
+                }
+            }
+            return ModerationResult.approved("No inappropriate content found");
+        }
+    }
+
+    private static final class SuspiciousLinksRule implements ModerationRule {
+        private static final Pattern URL_PATTERN = Pattern.compile(
+            "https?://[\\w.-]+\\.[\\w.-]+[/\\w.-]*"
+        );
+
+        @Override
+        public ModerationResult checkContent(String content, String userId) {
+            if (URL_PATTERN.matcher(content).find()) {
+                // في الإنتاج: التحقق من القائمة السوداء للروابط
+                if (content.contains("suspicious-domain.com")) {
+                    return ModerationResult.rejected("Suspicious link detected");
+                }
+            }
+            return ModerationResult.approved("No suspicious links found");
+        }
+    }
+
+    private static final class SpamDetectionRule implements ModerationRule {
+        @Override
+        public ModerationResult checkContent(String content, String userId) {
+            // في الإنتاج: تحليل أنماط البريد العشوائي
+            if (content.length() > 1000) {
+                return ModerationResult.rejected("Content too long - potential spam");
+            }
+            return ModerationResult.approved("Content length acceptable");
+        }
+    }
+
+    /**
+     * نتيجة التعديل
+     */
+    public static final class ModerationResult {
+        private final boolean approved;
+        private final String reason;
+
+        private ModerationResult(boolean approved, String reason) {
+            this.approved = approved;
+            this.reason = reason;
+        }
+
+        public static ModerationResult approved(String reason) {
+            return new ModerationResult(true, reason);
+        }
+
+        public static ModerationResult rejected(String reason) {
+            return new ModerationResult(false, reason);
+        }
+
+        public boolean isApproved() { return approved; }
+        public String getReason() { return reason; }
+    }
+}
