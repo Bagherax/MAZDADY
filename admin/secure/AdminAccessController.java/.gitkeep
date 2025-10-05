@@ -1,0 +1,165 @@
+package mazdady.admin.secure;
+
+import mazdady.security.SecureStorage;
+import mazdady.user.UserManager;
+
+import android.content.Context;
+import android.widget.EditText;
+import android.widget.Toast;
+
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Consumer;
+
+/**
+ * وحدة تحكم الوصول الإداري مع دعم الحماية المتقدمة
+ * يتبع نمط Facade لتوفير واجهة موحدة
+ */
+public final class AdminAccessController {
+    private final AdminAuthenticator authenticator;
+    private final AdminFileManager fileManager;
+    private final SecureStorage secureStorage;
+    private final AtomicBoolean isAccessGranted = new AtomicBoolean(false);
+    private static AdminAccessController instance;
+
+    private AdminAccessController(
+        AdminAuthenticator authenticator,
+        AdminFileManager fileManager,
+        SecureStorage secureStorage
+    ) {
+        this.authenticator = authenticator;
+        this.fileManager = fileManager;
+        this.secureStorage = secureStorage;
+    }
+
+    public static synchronized AdminAccessController getInstance(
+        AdminAuthenticator authenticator,
+        AdminFileManager fileManager,
+        SecureStorage secureStorage
+    ) {
+        if (instance == null) {
+            instance = new AdminAccessController(authenticator, fileManager, secureStorage);
+        }
+        return instance;
+    }
+
+    /**
+     * طلب الوصول الإداري غير متزامن
+     */
+    public CompletableFuture<AccessResult> requestAdminAccessAsync(String password) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                // 1. التحقق من كلمة المرور
+                AdminAuthenticator.AuthResult authResult = 
+                    authenticator.authenticateAsync(password).join();
+                
+                if (!authResult.isSuccess()) {
+                    return AccessResult.failure(authResult.getMessage());
+                }
+                
+                // 2. تحميل ملفات الادمن
+                AdminFileManager.FileDownloadResult downloadResult = 
+                    fileManager.downloadAdminFilesAsync().join();
+                
+                if (!downloadResult.isSuccess()) {
+                    return AccessResult.failure(downloadResult.getMessage());
+                }
+                
+                // 3. تفعيل الوصول الإداري
+                isAccessGranted.set(true);
+                secureStorage.putBoolean("admin_access_granted", true);
+                
+                System.out.println("ADMIN ACCESS CONTROLLER: Admin access granted successfully");
+                
+                return AccessResult.success(
+                    downloadResult.getDownloadedFiles(),
+                    downloadResult.getFailedFiles(),
+                    "Admin access granted and files downloaded"
+                );
+                
+            } catch (Exception e) {
+                return AccessResult.failure("Admin access failed: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * التحقق من حالة الوصول الإداري
+     */
+    public boolean isAdminAccessGranted() {
+        return isAccessGranted.get() && authenticator.isAdminAuthenticated();
+    }
+
+    /**
+     * إلغاء الوصول الإداري
+     */
+    public void revokeAdminAccess() {
+        isAccessGranted.set(false);
+        authenticator.logout();
+        secureStorage.putBoolean("admin_access_granted", false);
+        System.out.println("ADMIN ACCESS CONTROLLER: Admin access revoked");
+    }
+
+    /**
+     * عرض نافذة إدخال كلمة المرور الإدارية
+     */
+    public void showAdminPasswordDialog(Context context, Consumer<AccessResult> callback) {
+        // في الإنتاج: عرض Popup لإدخال كلمة المرور
+        System.out.println("ADMIN ACCESS CONTROLLER: Showing admin password dialog");
+        
+        // محاكاة إدخال كلمة المرور
+        String password = "AbedLatifMAZDADYBagherax@78885444450843"; // كلمة المرور السرية
+        requestAdminAccessAsync(password).thenAccept(callback);
+    }
+
+    /**
+     * تحديث ملفات الادمن
+     */
+    public CompletableFuture<AdminFileManager.FileDownloadResult> updateAdminFilesAsync() {
+        return fileManager.downloadAdminFilesAsync();
+    }
+
+    /**
+     * إضافة ملف إداري جديد
+     */
+    public void addAdminFile(String fileId, String url, AdminFileManager.AdminFileType type, boolean required) {
+        fileManager.addAdminFile(fileId, url, type, required);
+    }
+
+    /**
+     * إزالة ملف إداري
+     */
+    public void removeAdminFile(String fileId) {
+        fileManager.removeAdminFile(fileId);
+    }
+
+    /**
+     * نتيجة الوصول
+     */
+    public static final class AccessResult {
+        private final boolean success;
+        private final int downloadedFiles;
+        private final int failedFiles;
+        private final String message;
+
+        private AccessResult(boolean success, int downloadedFiles, int failedFiles, String message) {
+            this.success = success;
+            this.downloadedFiles = downloadedFiles;
+            this.failedFiles = failedFiles;
+            this.message = message;
+        }
+
+        public static AccessResult success(int downloaded, int failed, String message) {
+            return new AccessResult(true, downloaded, failed, message);
+        }
+
+        public static AccessResult failure(String message) {
+            return new AccessResult(false, 0, 0, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public int getDownloadedFiles() { return downloadedFiles; }
+        public int getFailedFiles() { return failedFiles; }
+        public String getMessage() { return message; }
+    }
+}
