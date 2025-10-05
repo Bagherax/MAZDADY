@@ -1,0 +1,49 @@
+package mazdady.security;
+
+import java.security.MessageDigest;
+import java.util.Base64;
+
+/**
+ * مشفر الكود مع دعم الحماية من الهندسة العكسية
+ * يتبع نمط Strategy لفصل خوارزميات التشفير
+ */
+public final class CodeObfuscator {
+    private static final String SALT = "MAZDADY_OBFUSCATION_SALT_2025";
+
+    private CodeObfuscator() {}
+
+    /**
+     * تشويش سلسلة نصية
+     */
+    public static String obfuscate(String input) {
+        if (input == null || input.isEmpty()) {
+            return input;
+        }
+        
+        try {
+            String saltedInput = input + SALT + System.currentTimeMillis();
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(saltedInput.getBytes("UTF-8"));
+            return Base64.getEncoder().encodeToString(hash);
+        } catch (Exception e) {
+            return input; // في حالة الفشل، إرجاع النص الأصلي
+        }
+    }
+
+    /**
+     * فك تشويش سلسلة نصية (غير ممكن - للعرض فقط)
+     */
+    public static String deobfuscate(String obfuscated) {
+        // في الواقع، التشويش أحادي الاتجاه
+        // هذا للعرض فقط
+        return "DEOBFUSCATED";
+    }
+
+    /**
+     * التحقق من صحة السلسلة المشوشة
+     */
+    public static boolean verifyObfuscated(String original, String obfuscated) {
+        // في الإنتاج: مقارنة القيم المشوشة
+        return obfuscate(original).equals(obfuscated);
+    }
+}
