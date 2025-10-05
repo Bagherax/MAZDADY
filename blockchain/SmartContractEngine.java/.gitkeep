@@ -1,0 +1,306 @@
+package mazdady.blockchain;
+
+import mazdady.user.User;
+import mazdady.user.UserManager;
+
+import java.math.BigDecimal;
+import java.time.Instant;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.BiFunction;
+
+/**
+ * محرك العقود الذكية مع دعم التنفيذ الآمن
+ * يتبع نمط Strategy لفصل استراتيجيات العقود
+ */
+public final class SmartContractEngine {
+    private final BlockchainService blockchainService;
+    private final ConcurrentHashMap<String, SmartContract> deployedContracts = new ConcurrentHashMap<>();
+    private static SmartContractEngine instance;
+
+    private SmartContractEngine(BlockchainService blockchainService) {
+        this.blockchainService = blockchainService;
+        initializeBuiltInContracts();
+    }
+
+    public static synchronized SmartContractEngine getInstance(BlockchainService blockchainService) {
+        if (instance == null) {
+            instance = new SmartContractEngine(blockchainService);
+        }
+        return instance;
+    }
+
+    private void initializeBuiltInContracts() {
+        // عقد تحويل MAZDADY
+        deployedContracts.put("MAZDADY_TRANSFER", new MAZDADYTransferContract());
+        
+        // عقد السحب الآمن
+        deployedContracts.put("SECURE_WITHDRAWAL", new SecureWithdrawalContract());
+        
+        // عقد المكافآت التلقائية
+        deployedContracts.put("AUTOMATED_REWARDS", new AutomatedRewardsContract());
+        
+        // عقد التحقق من الهوية
+        deployedContracts.put("KYC_VERIFICATION", new KYCVerificationContract());
+        
+        System.out.println("SMART CONTRACT ENGINE: Deployed " + deployedContracts.size() + " built-in contracts");
+    }
+
+    /**
+     * تنفيذ عقد ذكي غير متزامن
+     */
+    public CompletableFuture<ContractResult> executeContractAsync(
+        String contractId,
+        String userId,
+        Object... params
+    ) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                SmartContract contract = deployedContracts.get(contractId);
+                if (contract == null) {
+                    return ContractResult.failure("Contract not found: " + contractId);
+                }
+                
+                User user = UserManager.getInstance(null).getCurrentUser();
+                if (user == null || !user.getUserId().equals(userId)) {
+                    return ContractResult.failure("Invalid user");
+                }
+                
+                ContractResult result = contract.execute(user, params);
+                
+                if (result.isSuccess()) {
+                    System.out.println("SMART CONTRACT: Executed " + contractId + " for user " + userId);
+                } else {
+                    System.err.println("SMART CONTRACT ERROR: " + contractId + " failed - " + result.getMessage());
+                }
+                
+                return result;
+                
+            } catch (Exception e) {
+                return ContractResult.failure("Contract execution failed: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * نشر عقد ذكي جديد
+     */
+    public ContractResult deployContract(String contractId, SmartContract contract) {
+        if (contractId == null || contract == null) {
+            return ContractResult.failure("Invalid contract parameters");
+        }
+        
+        deployedContracts.put(contractId, contract);
+        System.out.println("SMART CONTRACT ENGINE: Deployed new contract - " + contractId);
+        return ContractResult.success("Contract deployed successfully");
+    }
+
+    /**
+     * تحديث عقد ذكي موجود
+     */
+    public ContractResult updateContract(String contractId, SmartContract newContract) {
+        if (deployedContracts.containsKey(contractId)) {
+            deployedContracts.put(contractId, newContract);
+            System.out.println("SMART CONTRACT ENGINE: Updated contract - " + contractId);
+            return ContractResult.success("Contract updated successfully");
+        }
+        return ContractResult.failure("Contract not found: " + contractId);
+    }
+
+    /**
+     * حذف عقد ذكي
+     */
+    public ContractResult removeContract(String contractId) {
+        SmartContract removed = deployedContracts.remove(contractId);
+        if (removed != null) {
+            System.out.println("SMART CONTRACT ENGINE: Removed contract - " + contractId);
+            return ContractResult.success("Contract removed successfully");
+        }
+        return ContractResult.failure("Contract not found: " + contractId);
+    }
+
+    /**
+     * قائمة العقود المنشورة
+     */
+    public java.util.Set<String> getDeployedContractIds() {
+        return deployedContracts.keySet();
+    }
+
+    /**
+     * عقد ذكي
+     */
+    @FunctionalInterface
+    public interface SmartContract {
+        ContractResult execute(User user, Object... params);
+    }
+
+    /**
+     * نتيجة العقد الذكي
+     */
+    public static final class ContractResult {
+        private final boolean success;
+        private final Object result;
+        private final String message;
+
+        private ContractResult(boolean success, Object result, String message) {
+            this.success = success;
+            this.result = result;
+            this.message = message;
+        }
+
+        public static ContractResult success(Object result, String message) {
+            return new ContractResult(true, result, message);
+        }
+
+        public static ContractResult success(String message) {
+            return new ContractResult(true, null, message);
+        }
+
+        public static ContractResult failure(String message) {
+            return new ContractResult(false, null, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public Object getResult() { return result; }
+        public String getMessage() { return message; }
+    }
+
+    // --- العقود المدمجة ---
+    private static final class MAZDADYTransferContract implements SmartContract {
+        @Override
+        public ContractResult execute(User user, Object... params) {
+            try {
+                if (params.length < 3) {
+                    return ContractResult.failure("Invalid parameters for transfer contract");
+                }
+                
+                String toAddress = (String) params[0];
+                double amount = ((Number) params[1]).doubleValue();
+                String network = (String) params[2];
+                
+                // تنفيذ التحويل عبر البلوك تشين
+                BlockchainService blockchain = BlockchainService.getInstance(null);
+                BlockchainService.TransactionResult result = 
+                    blockchain.sendMAZDADYAsync(
+                        user.getWalletAddress(), 
+                        toAddress, 
+                        amount, 
+                        BlockchainService.BlockchainNetwork.valueOf(network)
+                    ).join();
+                
+                if (result.isSuccess()) {
+                    return ContractResult.success(result.getTransactionId(), "Transfer completed successfully");
+                } else {
+                    return ContractResult.failure(result.getMessage());
+                }
+                
+            } catch (Exception e) {
+                return ContractResult.failure("Transfer contract execution failed: " + e.getMessage());
+            }
+        }
+    }
+
+    private static final class SecureWithdrawalContract implements SmartContract {
+        @Override
+        public ContractResult execute(User user, Object... params) {
+            try {
+                if (params.length < 2) {
+                    return ContractResult.failure("Invalid parameters for withdrawal contract");
+                }
+                
+                double amount = ((Number) params[0]).doubleValue();
+                String method = (String) params[1];
+                
+                // التحقق من KYC
+                if (!user.isKYCVerified()) {
+                    return ContractResult.failure("KYC verification required for withdrawal");
+                }
+                
+                // التحقق من الحد الأدنى للمستوى
+                if (user.getLevel() < 5) {
+                    return ContractResult.failure("Minimum level 5 required for withdrawal");
+                }
+                
+                // تنفيذ السحب الآمن
+                boolean success = executeSecureWithdrawal(user, amount, method);
+                
+                if (success) {
+                    return ContractResult.success("Withdrawal completed successfully");
+                } else {
+                    return ContractResult.failure("Withdrawal execution failed");
+                }
+                
+            } catch (Exception e) {
+                return ContractResult.failure("Withdrawal contract execution failed: " + e.getMessage());
+            }
+        }
+
+        private boolean executeSecureWithdrawal(User user, double amount, String method) {
+            // في الإنتاج: تنفيذ السحب الآمن عبر البلوك تشين
+            System.out.println("SECURE WITHDRAWAL: Executing secure withdrawal of " + 
+                             amount + " MAZDADY via " + method);
+            return true; // محاكاة النجاح
+        }
+    }
+
+    private static final class AutomatedRewardsContract implements SmartContract {
+        @Override
+        public ContractResult execute(User user, Object... params) {
+            try {
+                // منح مكافآت تلقائية للمستخدم
+                double rewardAmount = calculateReward(user);
+                
+                if (rewardAmount > 0) {
+                    user.setBalance(user.getBalance() + rewardAmount);
+                    System.out.println("AUTOMATED REWARDS: Granted " + rewardAmount + 
+                                     " MAZDADY to user " + user.getUserId());
+                    return ContractResult.success(rewardAmount, "Rewards granted successfully");
+                } else {
+                    return ContractResult.success("No rewards available");
+                }
+                
+            } catch (Exception e) {
+                return ContractResult.failure("Rewards contract execution failed: " + e.getMessage());
+            }
+        }
+
+        private double calculateReward(User user) {
+            // في الإنتاج: حساب المكافآت بناءً على النشاط والمستوى
+            return user.getLevel() * 10.0; // مكافأة افتراضية
+        }
+    }
+
+    private static final class KYCVerificationContract implements SmartContract {
+        @Override
+        public ContractResult execute(User user, Object... params) {
+            try {
+                if (params.length < 2) {
+                    return ContractResult.failure("Invalid parameters for KYC contract");
+                }
+                
+                String documentType = (String) params[0];
+                String documentData = (String) params[1];
+                
+                // تنفيذ التحقق من الهوية
+                boolean verified = executeKYCVerification(user, documentType, documentData);
+                
+                if (verified) {
+                    user.getKycStatus().markAsVerified(documentType, documentData);
+                    System.out.println("KYC VERIFICATION: User " + user.getUserId() + " verified successfully");
+                    return ContractResult.success("KYC verification completed");
+                } else {
+                    return ContractResult.failure("KYC verification failed");
+                }
+                
+            } catch (Exception e) {
+                return ContractResult.failure("KYC contract execution failed: " + e.getMessage());
+            }
+        }
+
+        private boolean executeKYCVerification(User user, String documentType, String documentData) {
+            // في الإنتاج: التحقق من الهوية عبر AI
+            System.out.println("KYC VERIFICATION: Verifying " + documentType + " for user " + user.getUserId());
+            return true; // محاكاة النجاح
+        }
+    }
+}
