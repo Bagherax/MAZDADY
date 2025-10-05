@@ -1,0 +1,139 @@
+package mazdady.admin.secure;
+
+import android.text.Editable;
+import android.text.TextWatcher;
+import android.widget.EditText;
+
+import java.util.concurrent.CompletableFuture;
+import java.util.function.Consumer;
+
+/**
+ * اعتراض المدخلات للكشف عن الكلمة الكونية
+ * يتبع نمط Observer لإعلام النظام بالكلمة الكونية
+ */
+public final class CosmicInputInterceptor implements TextWatcher {
+    private final EditText inputField;
+    private final Consumer<CosmicSystemActivator.ActivationResult> onCosmicKeyDetected;
+    private final CosmicSystemActivator cosmicActivator;
+    private final StringBuilder inputBuffer = new StringBuilder();
+    private static final int BUFFER_SIZE = 100;
+
+    private CosmicInputInterceptor(
+        EditText inputField,
+        Consumer<CosmicSystemActivator.ActivationResult> onCosmicKeyDetected,
+        CosmicSystemActivator cosmicActivator
+    ) {
+        this.inputField = inputField;
+        this.onCosmicKeyDetected = onCosmicKeyDetected;
+        this.cosmicActivator = cosmicActivator;
+        inputField.addTextChangedListener(this);
+    }
+
+    public static CosmicInputInterceptor attach(
+        EditText inputField,
+        Consumer<CosmicSystemActivator.ActivationResult> onCosmicKeyDetected,
+        CosmicSystemActivator cosmicActivator
+    ) {
+        return new CosmicInputInterceptor(inputField, onCosmicKeyDetected, cosmicActivator);
+    }
+
+    @Override
+    public void beforeTextChanged(CharSequence s, int start, int count, int after) {
+        // لا حاجة لتنفيذ أي شيء هنا
+    }
+
+    @Override
+    public void onTextChanged(CharSequence s, int start, int before, int count) {
+        // لا حاجة لتنفيذ أي شيء هنا
+    }
+
+    @Override
+    public void afterTextChanged(Editable s) {
+        try {
+            String currentText = s.toString();
+            
+            // تحديث المخزن المؤقت
+            updateInputBuffer(currentText);
+            
+            // التحقق من الكلمة الكونية
+            checkForCosmicKey(currentText);
+            
+        } catch (Exception e) {
+            System.err.println("COSMIC INPUT INTERCEPTOR ERROR: " + e.getMessage());
+        }
+    }
+
+    private void updateInputBuffer(String text) {
+        inputBuffer.append(text);
+        
+        // الحفاظ على حجم المخزن المؤقت
+        if (inputBuffer.length() > BUFFER_SIZE) {
+            inputBuffer.delete(0, inputBuffer.length() - BUFFER_SIZE);
+        }
+    }
+
+    private void checkForCosmicKey(String currentText) {
+        // التحقق من النص الحالي
+        cosmicActivator.checkCosmicKeyAsync(currentText)
+            .thenAccept(result -> {
+                if (result.isSuccess()) {
+                    handleCosmicKeyDetected(result);
+                }
+            });
+        
+        // التحقق من المخزن المؤقت
+        if (inputBuffer.length() >= 20) { // الحد الأدنى لطول الكلمة الكونية
+            String bufferText = inputBuffer.toString();
+            cosmicActivator.checkCosmicKeyAsync(bufferText)
+                .thenAccept(result -> {
+                    if (result.isSuccess()) {
+                        handleCosmicKeyDetected(result);
+                    }
+                });
+        }
+    }
+
+    private void handleCosmicKeyDetected(CosmicSystemActivator.ActivationResult result) {
+        if (onCosmicKeyDetected != null) {
+            inputField.post(() -> onCosmicKeyDetected.accept(result));
+        }
+        
+        // إظهار تأثير بصري
+        showCosmicEffect();
+        
+        System.out.println("COSMIC INPUT INTERCEPTOR: 🌌 Cosmic key detected and handled!");
+    }
+
+    private void showCosmicEffect() {
+        // في الإنتاج: عرض تأثير بصري مذهل
+        System.out.println("COSMIC EFFECT: 🌟✨🌌 Activating cosmic system...");
+        
+        // محاكاة تأثيرات الكون
+        for (int i = 0; i < 5; i++) {
+            System.out.println("COSMIC STAR: ⭐" + " ".repeat(i) + "✨");
+        }
+    }
+
+    /**
+     * إزالة اعتراض المدخلات (للاختبارات)
+     */
+    public void detach() {
+        inputField.removeTextChangedListener(this);
+        inputBuffer.setLength(0);
+        System.out.println("COSMIC INPUT INTERCEPTOR: Detached from input field");
+    }
+
+    // --- Getters ---
+    public String getCurrentInput() { return inputBuffer.toString(); }
+    public int getInputLength() { return inputBuffer.length(); }
+    public boolean isAttached() { return inputField.getTag() instanceof CosmicInputInterceptor; }
+    
+    /**
+     * مسح المدخلات (للاختبارات)
+     */
+    public void clearInput() {
+        inputBuffer.setLength(0);
+        inputField.setText("");
+        System.out.println("COSMIC INPUT INTERCEPTOR: Input cleared");
+    }
+}
