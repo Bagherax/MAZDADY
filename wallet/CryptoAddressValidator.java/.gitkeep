@@ -1,42 +1,142 @@
 package mazdady.wallet;
 
-import java.math.BigInteger;
-import java.security.MessageDigest;
-import java.util.Arrays;
+import java.util.regex.Pattern;
+import java.util.concurrent.ConcurrentHashMap;
 
-public class CryptoAddressValidator {
-    
-    public static boolean isValidEthereumAddress(String address) {
-        if (address == null || !address.startsWith("0x") || address.length() != 42) {
+/**
+ * محقق عناوين العملات الرقمية مع دعم الشبكات المتعددة
+ * يتبع نمط Strategy لفصل استراتيجيات التحقق
+ */
+public final class CryptoAddressValidator {
+    private static final ConcurrentHashMap<BlockchainNetwork, Pattern> addressPatterns = new ConcurrentHashMap<>();
+    private static CryptoAddressValidator instance;
+
+    private CryptoAddressValidator() {
+        initializeAddressPatterns();
+    }
+
+    public static synchronized CryptoAddressValidator getInstance() {
+        if (instance == null) {
+            instance = new CryptoAddressValidator();
+        }
+        return instance;
+    }
+
+    private void initializeAddressPatterns() {
+        // Ethereum و Binance Smart Chain
+        addressPatterns.put(BlockchainNetwork.ETHEREUM, 
+            Pattern.compile("^0x[a-fA-F0-9]{40}$"));
+        addressPatterns.put(BlockchainNetwork.BINANCE_SMART_CHAIN, 
+            Pattern.compile("^0x[a-fA-F0-9]{40}$"));
+        
+        // Solana
+        addressPatterns.put(BlockchainNetwork.SOLANA, 
+            Pattern.compile("^[1-9A-HJ-NP-Za-km-z]{32,44}$"));
+        
+        // Bitcoin
+        addressPatterns.put(BlockchainNetwork.BITCOIN, 
+            Pattern.compile("^(1|3|bc1)[a-zA-HJ-NP-Z0-9]{25,62}$"));
+        
+        // Polkadot
+        addressPatterns.put(BlockchainNetwork.POLKADOT, 
+            Pattern.compile("^1[0-9a-zA-Z]{47}$"));
+        
+        // Tron
+        addressPatterns.put(BlockchainNetwork.TRON, 
+            Pattern.compile("^T[A-Za-z1-9]{33}$"));
+    }
+
+    /**
+     * التحقق من صحة عنوان العملة الرقمية
+     */
+    public boolean isValidAddress(String address, BlockchainNetwork network) {
+        if (address == null || address.isEmpty() || network == null) {
             return false;
         }
         
-        String addressNoPrefix = address.substring(2).toLowerCase();
-        try {
-            // التحقق من التنسيق البسيط
-            new BigInteger(addressNoPrefix, 16);
-            return true;
-        } catch (NumberFormatException e) {
+        Pattern pattern = addressPatterns.get(network);
+        if (pattern == null) {
             return false;
         }
+        
+        boolean isValid = pattern.matcher(address).matches();
+        System.out.println("CRYPTO VALIDATOR: " + address + " on " + network + 
+                         " is " + (isValid ? "VALID" : "INVALID"));
+        return isValid;
     }
-    
-    public static boolean isValidSolanaAddress(String address) {
-        if (address == null || address.length() != 44) {
-            return false;
+
+    /**
+     * التحقق من صحة عنوان العملة الرقمية مع دعم الشبكات المتعددة
+     */
+    public ValidationResult validateAddress(String address, BlockchainNetwork... networks) {
+        if (address == null || address.isEmpty()) {
+            return ValidationResult.invalid("Address cannot be null or empty");
         }
-        // Solana تستخدم Base58 — التحقق الأساسي بالطول
-        return address.matches("^[1-9A-HJ-NP-Za-km-z]+$");
+        
+        if (networks == null || networks.length == 0) {
+            return ValidationResult.invalid("At least one network must be specified");
+        }
+        
+        for (BlockchainNetwork network : networks) {
+            if (isValidAddress(address, network)) {
+                return ValidationResult.valid(address, network);
+            }
+        }
+        
+        return ValidationResult.invalid("Address is invalid for all specified networks");
     }
-    
-    public static boolean isValidBitcoinAddress(String address) {
-        if (address == null) return false;
-        if (address.startsWith("1") || address.startsWith("3")) {
-            return address.length() >= 26 && address.length() <= 35;
+
+    /**
+     * اكتشاف شبكة العنوان تلقائيًا
+     */
+    public BlockchainNetwork detectNetwork(String address) {
+        if (address == null || address.isEmpty()) {
+            return BlockchainNetwork.UNKNOWN;
         }
-        if (address.startsWith("bc1")) {
-            return address.length() >= 42 && address.length() <= 62;
+        
+        for (BlockchainNetwork network : BlockchainNetwork.values()) {
+            if (isValidAddress(address, network)) {
+                return network;
+            }
         }
-        return false;
+        
+        return BlockchainNetwork.UNKNOWN;
+    }
+
+    /**
+     * نتيجة التحقق
+     */
+    public static final class ValidationResult {
+        private final boolean valid;
+        private final String address;
+        private final BlockchainNetwork network;
+        private final String message;
+
+        private ValidationResult(boolean valid, String address, BlockchainNetwork network, String message) {
+            this.valid = valid;
+            this.address = address;
+            this.network = network;
+            this.message = message;
+        }
+
+        public static ValidationResult valid(String address, BlockchainNetwork network) {
+            return new ValidationResult(true, address, network, "Address is valid");
+        }
+
+        public static ValidationResult invalid(String message) {
+            return new ValidationResult(false, null, BlockchainNetwork.UNKNOWN, message);
+        }
+
+        public boolean isValid() { return valid; }
+        public String getAddress() { return address; }
+        public BlockchainNetwork getNetwork() { return network; }
+        public String getMessage() { return message; }
+    }
+
+    /**
+     * شبكات البلوك تشين المدعومة
+     */
+    public enum BlockchainNetwork {
+        ETHEREUM, BINANCE_SMART_CHAIN, SOLANA, BITCOIN, POLKADOT, TRON, UNKNOWN
     }
 }
