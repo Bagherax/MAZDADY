@@ -5,74 +5,185 @@ import mazdady.trading.OrderBook;
 
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 
 /**
  * بوت صانع السوق مع دعم فروق الأسعار الديناميكية
- * يوفر عروض شراء وبيع مستمرة
+ * يتبع نمط Strategy لفصل استراتيجيات الصانع
  */
 public final class MarketMakerBot extends TradingBot {
-    private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
-    private double inventory = 5000.0; // مخزون العملة
+    private final ScheduledExecutorService makerScheduler = Executors.newSingleThreadScheduledExecutor();
+    private final OrderBook orderBook;
+    private volatile double inventory = 5000.0; // مخزون العملة
 
-    public MarketMakerBot(String botId, PriceEngine priceEngine, OrderBook orderBook) {
-        super(botId, priceEngine, orderBook);
-        setBehavior(new DynamicSpreadBehavior());
+    public MarketMakerBot(String botId, PriceEngine priceEngine) {
+        super(botId, priceEngine);
+        this.orderBook = new OrderBook();
+        setCapital(inventory);
     }
 
     @Override
-    protected void executeTradingStrategy() {
-        scheduler.scheduleAtFixedRate(
-            this::updateMarketMakingOrders,
-            0,
-            15,
-            TimeUnit.SECONDS
-        );
-    }
-
-    private void updateMarketMakingOrders() {
-        if (!isActive()) return;
-        
-        BotBehavior behavior = currentBehavior.get();
-        if (behavior != null) {
-            behavior.execute(this);
+    public void start() {
+        if (isActive.compareAndSet(false, true)) {
+            makerScheduler.scheduleAtFixedRate(
+                this::makeMarket,
+                0,
+                10,
+                TimeUnit.SECONDS
+            );
+            
+            System.out.println("MARKET MAKER BOT: Started - ID: " + getBotId() + 
+                             " - Inventory: " + inventory + " MAZDADY");
         }
     }
 
-    private void placeBid(double price, double quantity) {
-        // في الإنتاج: إضافة أمر شراء لسجل الأوامر
-        logger.accept("BID: " + quantity + " @ " + price);
-    }
-
-    private void placeAsk(double price, double quantity) {
-        // في الإنتاج: إضافة أمر بيع لسجل الأوامر
-        logger.accept("ASK: " + quantity + " @ " + price);
+    @Override
+    public void stop() {
+        if (isActive.compareAndSet(true, false)) {
+            makerScheduler.shutdown();
+            System.out.println("MARKET MAKER BOT: Stopped - ID: " + getBotId());
+        }
     }
 
     /**
-     * سلوك فروق الأسعار الديناميكية
+     * صنع السوق تلقائيًا
      */
-    private final class DynamicSpreadBehavior implements BotBehavior {
-        @Override
-        public String getName() {
-            return "DYNAMIC_SPREAD";
-        }
-
-        @Override
-        public void execute(TradingBot bot) {
+    private void makeMarket() {
+        if (!isActive.get()) return;
+        
+        try {
             double currentPrice = priceEngine.getCurrentPrice();
             double volatility = priceEngine.getVolatility();
+            double trend = priceEngine.getMarketTrend();
             
-            // فرق سعر ديناميكي حسب التقلب
-            double spread = 0.02 * (1 + volatility); // 2% + تعديل حسب التقلب
+            // حساب فرق السعر الديناميكي
+            double spread = 0.01 * (1 + volatility + Math.abs(trend)); // 1% + تعديل حسب التقلب والاتجاه
             
+            // تحديد أسعار الشراء والبيع
             double bidPrice = currentPrice * (1 - spread / 2);
             double askPrice = currentPrice * (1 + spread / 2);
             
-            double quantity = 100.0 * (1 - volatility); // كمية أقل في أوقات التقلب العالي
+            // تحديد الكميات
+            double baseQuantity = 100.0 * (1 - volatility); // كمية أقل في أوقات التقلب العالي
+            double bidQuantity = baseQuantity * (1 + (trend > 0 ? 0.2 : 0)); // زيادة الشراء في السوق الصاعد
+            double askQuantity = baseQuantity * (1 + (trend < 0 ? 0.2 : 0)); // زيادة البيع في السوق الهابط
             
-            placeBid(bidPrice, quantity);
-            placeAsk(askPrice, quantity);
+            // وضع أوامر الشراء
+            if (inventory >= bidQuantity) {
+                orderBook.addBuyOrder(getBotId(), bidPrice, bidQuantity);
+                inventory -= bidQuantity;
+                System.out.println("MARKET MAKER BOT: Placed BID - " + String.format("%.2f", bidQuantity) + 
+                                 " MAZDADY at " + String.format("%.4f", bidPrice));
+            }
+            
+            // وضع أوامر البيع
+            if (inventory >= askQuantity) {
+                orderBook.addSellOrder(getBotId(), askPrice, askQuantity);
+                inventory -= askQuantity;
+                System.out.println("MARKET MAKER BOT: Placed ASK - " + String.format("%.2f", askQuantity) + 
+                                 " MAZDADY at " + String.format("%.4f", askPrice));
+            }
+            
+        } catch (Exception e) {
+            System.err.println("MARKET MAKER ERROR: " + e.getMessage());
         }
+    }
+
+    /**
+     * تنفيذ صفقة تجارية
+     */
+    @Override
+    public void executeTrade(TradeType tradeType, double amount) {
+        if (!isActive.get() || amount <= 0) return;
+        
+        try {
+            if (tradeType == TradeType.BUY) {
+                priceEngine.executeBuyOrder(getBotId(), amount);
+                inventory -= amount;
+                System.out.println("MARKET MAKER BOT: Executed BUY trade - " + amount + " MAZDADY");
+            } else if (tradeType == TradeType.SELL) {
+                priceEngine.executeSellOrder(getBotId(), amount);
+                inventory += amount;
+                System.out.println("MARKET MAKER BOT: Executed SELL trade - " + amount + " MAZDADY");
+            }
+            
+            // تحديث المخزون
+            setCapital(inventory);
+            
+        } catch (Exception e) {
+            System.err.println("MARKET MAKER TRADE ERROR: " + e.getMessage());
+        }
+    }
+
+    /**
+     * إعادة تمويل المخزون
+     */
+    public void refillInventory(double amount) {
+        if (amount > 0) {
+            inventory += amount;
+            setCapital(inventory);
+            System.out.println("MARKET MAKER BOT: Refilled inventory - " + amount + " MAZDADY");
+        }
+    }
+
+    /**
+     * الحصول على حالة صانع السوق
+     */
+    public MarketMakerStatus getMarketMakerStatus() {
+        return new MarketMakerStatus(
+            inventory,
+            orderBook.getBuyOrders().size(),
+            orderBook.getSellOrders().size(),
+            priceEngine.getCurrentPrice(),
+            isActive.get()
+        );
+    }
+
+    /**
+     * حالة صانع السوق
+     */
+    public static final class MarketMakerStatus {
+        private final double inventory;
+        private final int bidOrders;
+        private final int askOrders;
+        private final double currentPrice;
+        private final boolean active;
+
+        public MarketMakerStatus(double inventory, int bidOrders, int askOrders, double currentPrice, boolean active) {
+            this.inventory = inventory;
+            this.bidOrders = bidOrders;
+            this.askOrders = askOrders;
+            this.currentPrice = currentPrice;
+            this.active = active;
+        }
+
+        // Getters
+        public double getInventory() { return inventory; }
+        public int getBidOrders() { return bidOrders; }
+        public int getAskOrders() { return askOrders; }
+        public double getCurrentPrice() { return currentPrice; }
+        public boolean isActive() { return active; }
+        public int getTotalOrders() { return bidOrders + askOrders; }
+        
+        public String getFormattedStatus() {
+            return "Inventory: " + String.format("%.2f", inventory) + " MAZDADY - " +
+                   "Orders: " + getTotalOrders() + " (" + bidOrders + " BID, " + askOrders + " ASK) - " +
+                   "Price: " + String.format("%.4f", currentPrice) + " MAZDADY - " +
+                   "Status: " + (active ? "ACTIVE" : "INACTIVE");
+        }
+    }
+
+    // --- Getters ---
+    public double getInventory() { return inventory; }
+    public OrderBook getOrderBook() { return orderBook; }
+    public boolean hasSufficientInventory() { return inventory > 500.0; }
+    
+    /**
+     * إيقاف صانع السوق (للاختبارات)
+     */
+    public void shutdown() {
+        stop();
+        System.out.println("MARKET MAKER BOT: Shutdown completed - ID: " + getBotId());
     }
 }
