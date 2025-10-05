@@ -1,0 +1,186 @@
+package mazdady.team;
+
+import mazdady.trading.PriceEngine;
+import mazdady.user.UserManager;
+
+import java.util.concurrent.atomic.AtomicReference;
+
+/**
+ * محرك توزيع الأرباح مع دعم التوزيع العادل
+ * يتبع نمط Strategy لفصل استراتيجيات التوزيع
+ */
+public final class ProfitDistributionEngine {
+    private final PriceEngine priceEngine;
+    private final AtomicReference<DistributionStrategy> currentStrategy = 
+        new AtomicReference<>(new FairDistributionStrategy());
+    private static ProfitDistributionEngine instance;
+
+    private ProfitDistributionEngine(PriceEngine priceEngine) {
+        this.priceEngine = priceEngine;
+    }
+
+    public static ProfitDistributionEngine create(PriceEngine priceEngine) {
+        return new ProfitDistributionEngine(priceEngine);
+    }
+
+    /**
+     * توزيع الأرباح حسب الاستراتيجية الحالية
+     */
+    public void distributeProfits(BuyingTeam buyingTeam, SellingTeam sellingTeam) {
+        DistributionResult result = currentStrategy.get().distribute(
+            priceEngine.getSystemTreasury(), 
+            buyingTeam, 
+            sellingTeam
+        );
+        
+        if (result.isSuccess()) {
+            // تحديث رؤوس أموال الفرق
+            buyingTeam.setCapital(result.getBuyTeamShare());
+            sellingTeam.setHoldings(result.getSellTeamShare());
+            
+            // إعادة تعيين خزينة النظام
+            priceEngine.resetSystemTreasury();
+            priceEngine.addToSystemTreasury(result.getTreasuryShare());
+            
+            System.out.println("PROFIT DISTRIBUTED: " + result.getTotalDistributed() + " MAZDADY distributed");
+        }
+    }
+
+    /**
+     * تغيير استراتيجية التوزيع
+     */
+    public void changeDistributionStrategy(DistributionStrategy strategy) {
+        currentStrategy.set(strategy);
+        System.out.println("PROFIT ENGINE: Distribution strategy changed to " + strategy.getName());
+    }
+
+    /**
+     * استراتيجية توزيع الأرباح
+     */
+    @FunctionalInterface
+    public interface DistributionStrategy {
+        String getName();
+        DistributionResult distribute(double totalProfit, BuyingTeam buyingTeam, SellingTeam sellingTeam);
+    }
+
+    /**
+     * استراتيجية التوزيع العادل
+     */
+    private static final class FairDistributionStrategy implements DistributionStrategy {
+        @Override
+        public String getName() {
+            return "FAIR_DISTRIBUTION";
+        }
+
+        @Override
+        public DistributionResult distribute(double totalProfit, BuyingTeam buyingTeam, SellingTeam sellingTeam) {
+            if (totalProfit <= 0) {
+                return DistributionResult.failure("No profit to distribute");
+            }
+            
+            // 70% للفريق الفائز، 30% للخزينة
+            double winnerShare = totalProfit * 0.7;
+            double treasuryShare = totalProfit * 0.3;
+            
+            // تحديد الفريق الفائز بناءً على الأداء
+            double buyTeamPerformance = buyingTeam.getCapital() / 10000.0; // نسبة الأداء
+            double sellTeamPerformance = sellingTeam.getHoldings() / 5000.0;
+            
+            if (buyTeamPerformance > sellTeamPerformance) {
+                // فريق الشراء فاز
+                return DistributionResult.success(
+                    winnerShare, 0, treasuryShare, 
+                    "Buy team won with performance: " + buyTeamPerformance
+                );
+            } else if (sellTeamPerformance > buyTeamPerformance) {
+                // فريق البيع فاز
+                return DistributionResult.success(
+                    0, winnerShare, treasuryShare,
+                    "Sell team won with performance: " + sellTeamPerformance
+                );
+            } else {
+                // تقسيم متساوي
+                double equalShare = winnerShare / 2;
+                return DistributionResult.success(
+                    equalShare, equalShare, treasuryShare,
+                    "Equal distribution: both teams performed equally"
+                );
+            }
+        }
+    }
+
+    /**
+     * استراتيجية التوزيع المتميز
+     */
+    private static final class PremiumDistributionStrategy implements DistributionStrategy {
+        @Override
+        public String getName() {
+            return "PREMIUM_DISTRIBUTION";
+        }
+
+        @Override
+        public DistributionResult distribute(double totalProfit, BuyingTeam buyingTeam, SellingTeam sellingTeam) {
+            if (totalProfit <= 0) {
+                return DistributionResult.failure("No profit to distribute");
+            }
+            
+            // 80% للفريق الفائز، 20% للخزينة
+            double winnerShare = totalProfit * 0.8;
+            double treasuryShare = totalProfit * 0.2;
+            
+            // تحديد الفريق الفائز بناءً على التأثير الأكبر
+            double buyImpact = Math.abs(buyingTeam.getCapital() - 10000.0);
+            double sellImpact = Math.abs(sellingTeam.getHoldings() - 5000.0);
+            
+            if (buyImpact > sellImpact) {
+                return DistributionResult.success(
+                    winnerShare, 0, treasuryShare,
+                    "Premium distribution: Buy team had higher impact"
+                );
+            } else {
+                return DistributionResult.success(
+                    0, winnerShare, treasuryShare,
+                    "Premium distribution: Sell team had higher impact"
+                );
+            }
+        }
+    }
+
+    /**
+     * نتيجة التوزيع
+     */
+    public static final class DistributionResult {
+        private final boolean success;
+        private final double buyTeamShare;
+        private final double sellTeamShare;
+        private final double treasuryShare;
+        private final String message;
+
+        private DistributionResult(boolean success, double buyTeamShare, double sellTeamShare, 
+                                  double treasuryShare, String message) {
+            this.success = success;
+            this.buyTeamShare = buyTeamShare;
+            this.sellTeamShare = sellTeamShare;
+            this.treasuryShare = treasuryShare;
+            this.message = message;
+        }
+
+        public static DistributionResult success(double buyTeamShare, double sellTeamShare, 
+                                                double treasuryShare, String message) {
+            return new DistributionResult(true, buyTeamShare, sellTeamShare, treasuryShare, message);
+        }
+
+        public static DistributionResult failure(String message) {
+            return new DistributionResult(false, 0, 0, 0, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public double getBuyTeamShare() { return buyTeamShare; }
+        public double getSellTeamShare() { return sellTeamShare; }
+        public double getTreasuryShare() { return treasuryShare; }
+        public double getTotalDistributed() { 
+            return buyTeamShare + sellTeamShare + treasuryShare; 
+        }
+        public String getMessage() { return message; }
+    }
+}
