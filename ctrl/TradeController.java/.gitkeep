@@ -1,52 +1,102 @@
 package mazdady.ctrl;
 
 import mazdady.trading.PriceEngine;
+import mazdady.trading.TradeExecutionEngine;
+import mazdady.user.User;
 import mazdady.user.UserManager;
 import mazdady.wallet.WalletManager;
+import mazdady.security.SecurityMonitor;
 
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * وحدة تحكم التداول مع دعم الأوامر الآمنة
- * يتبع نمط Command لفصل أوامر الشراء والبيع
+ * يتبع نمط Command لفصل أوامر التداول
  */
 public final class TradeController {
     private final PriceEngine priceEngine;
+    private final TradeExecutionEngine tradeEngine;
+    private final UserManager userManager;
     private final WalletManager walletManager;
-    private static final TradeController INSTANCE = new TradeController();
+    private final SecurityMonitor securityMonitor;
+    private static TradeController instance;
 
-    private TradeController() {
-        this.priceEngine = new PriceEngine();
-        this.walletManager = new WalletManager();
+    private TradeController(
+        PriceEngine priceEngine,
+        TradeExecutionEngine tradeEngine,
+        UserManager userManager,
+        WalletManager walletManager,
+        SecurityMonitor securityMonitor
+    ) {
+        this.priceEngine = priceEngine;
+        this.tradeEngine = tradeEngine;
+        this.userManager = userManager;
+        this.walletManager = walletManager;
+        this.securityMonitor = securityMonitor;
     }
 
-    public static TradeController getInstance() {
-        return INSTANCE;
+    public static synchronized TradeController getInstance(
+        PriceEngine priceEngine,
+        TradeExecutionEngine tradeEngine,
+        UserManager userManager,
+        WalletManager walletManager,
+        SecurityMonitor securityMonitor
+    ) {
+        if (instance == null) {
+            instance = new TradeController(priceEngine, tradeEngine, userManager, walletManager, securityMonitor);
+        }
+        return instance;
     }
 
     /**
      * تنفيذ أمر شراء غير متزامن
      */
-    public CompletableFuture<Boolean> executeBuyOrderAsync(double amount) {
+    public CompletableFuture<TradeResult> executeBuyOrderAsync(
+        String userId,
+        double amount,
+        long durationMs
+    ) {
         return CompletableFuture.supplyAsync(() -> {
             try {
-                // التحقق من الرصيد
-                if (walletManager.getBalance() < amount) {
-                    throw new IllegalStateException("Insufficient balance");
+                User user = userManager.getUserById(userId);
+                if (user == null) {
+                    return TradeResult.failure("User not found");
                 }
                 
-                // تنفيذ الشراء
-                priceEngine.executeBuyOrder(
-                    UserManager.getInstance(null).getCurrentUser().getUserId(),
-                    amount
-                );
+                // التحقق من الرصيد
+                if (user.getBalance() < amount) {
+                    return TradeResult.failure("Insufficient balance");
+                }
                 
-                System.out.println("TRADE: BUY order executed for " + amount + " MAZDADY");
-                return true;
+                // التحقق من الحد الأدنى للمبلغ
+                if (amount < 1.0) {
+                    return TradeResult.failure("Minimum trade amount is 1 MAZDADY");
+                }
+                
+                // التحقق من فترة الصفقة
+                if (durationMs < 5000 || durationMs > 24000) {
+                    return TradeResult.failure("Trade duration must be between 5 and 24 seconds");
+                }
+                
+                // تنفيذ الصفقة
+                boolean success = tradeEngine.executeBuyOrder(userId, amount, durationMs);
+                
+                if (success) {
+                    // خصم المبلغ من الرصيد
+                    user.setBalance(user.getBalance() - amount);
+                    
+                    // تسجيل الصفقة
+                    System.out.println("TRADE CONTROLLER: BUY order executed for " + userId + 
+                                     " - Amount: " + amount + " MAZDADY - Duration: " + durationMs + "ms");
+                    
+                    return TradeResult.success(amount, "Buy order executed successfully");
+                } else {
+                    return TradeResult.failure("Buy order execution failed");
+                }
                 
             } catch (Exception e) {
-                System.err.println("TRADE ERROR: " + e.getMessage());
-                return false;
+                return TradeResult.failure("Buy order failed: " + e.getMessage());
             }
         });
     }
@@ -54,22 +104,96 @@ public final class TradeController {
     /**
      * تنفيذ أمر بيع غير متزامن
      */
-    public CompletableFuture<Boolean> executeSellOrderAsync(double amount) {
+    public CompletableFuture<TradeResult> executeSellOrderAsync(
+        String userId,
+        double amount,
+        long durationMs
+    ) {
         return CompletableFuture.supplyAsync(() -> {
             try {
-                // في الإنتاج: التحقق من وجود عملات للبيع
-                priceEngine.executeSellOrder(
-                    UserManager.getInstance(null).getCurrentUser().getUserId(),
-                    amount
-                );
+                User user = userManager.getUserById(userId);
+                if (user == null) {
+                    return TradeResult.failure("User not found");
+                }
                 
-                System.out.println("TRADE: SELL order executed for " + amount + " MAZDADY");
-                return true;
+                // التحقق من الرصيد
+                if (user.getBalance() < amount) {
+                    return TradeResult.failure("Insufficient balance");
+                }
+                
+                // التحقق من الحد الأدنى للمبلغ
+                if (amount < 1.0) {
+                    return TradeResult.failure("Minimum trade amount is 1 MAZDADY");
+                }
+                
+                // التحقق من فترة الصفقة
+                if (durationMs < 5000 || durationMs > 24000) {
+                    return TradeResult.failure("Trade duration must be between 5 and 24 seconds");
+                }
+                
+                // تنفيذ الصفقة
+                boolean success = tradeEngine.executeSellOrder(userId, amount, durationMs);
+                
+                if (success) {
+                    // خصم المبلغ من الرصيد
+                    user.setBalance(user.getBalance() - amount);
+                    
+                    // تسجيل الصفقة
+                    System.out.println("TRADE CONTROLLER: SELL order executed for " + userId + 
+                                     " - Amount: " + amount + " MAZDADY - Duration: " + durationMs + "ms");
+                    
+                    return TradeResult.success(amount, "Sell order executed successfully");
+                } else {
+                    return TradeResult.failure("Sell order execution failed");
+                }
                 
             } catch (Exception e) {
-                System.err.println("TRADE ERROR: " + e.getMessage());
-                return false;
+                return TradeResult.failure("Sell order failed: " + e.getMessage());
             }
         });
+    }
+
+    /**
+     * إلغاء صفقة تداول غير متزامن
+     */
+    public CompletableFuture<TradeResult> cancelTradeOrderAsync(String userId, String tradeId) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                // في الإنتاج: إلغاء الصفقة المعلقة
+                System.out.println("TRADE CONTROLLER: Cancelling trade " + tradeId + " for user " + userId);
+                
+                return TradeResult.success(0, "Trade cancelled successfully");
+                
+            } catch (Exception e) {
+                return TradeResult.failure("Trade cancellation failed: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * نتيجة التداول
+     */
+    public static final class TradeResult {
+        private final boolean success;
+        private final double amount;
+        private final String message;
+
+        private TradeResult(boolean success, double amount, String message) {
+            this.success = success;
+            this.amount = amount;
+            this.message = message;
+        }
+
+        public static TradeResult success(double amount, String message) {
+            return new TradeResult(true, amount, message);
+        }
+
+        public static TradeResult failure(String message) {
+            return new TradeResult(false, 0, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public double getAmount() { return amount; }
+        public String getMessage() { return message; }
     }
 }
