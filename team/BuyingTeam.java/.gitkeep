@@ -2,46 +2,92 @@ package mazdady.team;
 
 import mazdady.trading.PriceEngine;
 import mazdady.user.User;
+import mazdady.user.UserManager;
+
 import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 
-public class BuyingTeam {
+/**
+ * فريق الشراء الذكي مع دعم الاستراتيجيات الديناميكية
+ * يتبع نمط Strategy لفصل استراتيجيات الشراء
+ */
+public final class BuyingTeam {
     private final String teamId = "BUY_TEAM";
-    private double teamCapital = 10000.0;
+    private volatile double teamCapital = 10000.0;
     private final PriceEngine priceEngine;
+    private volatile boolean isActive = true;
 
     public BuyingTeam(PriceEngine priceEngine) {
         this.priceEngine = priceEngine;
     }
 
+    /**
+     * تنفيذ صفقات الشراء الذكية
+     */
     public void executeTrades(List<User> realUsers) {
+        if (!isActive) return;
+        
         double currentPrice = priceEngine.getCurrentPrice();
-        double trend = priceEngine.getMarketTrend();
-
-        int tradeCount = (int) (5 + (trend * 3));
+        double marketTrend = priceEngine.getMarketTrend();
+        double volatility = priceEngine.getVolatility();
+        
+        // تحديد عدد الصفقات حسب الاتجاه والتقلب
+        int tradeCount = (int) (5 + (marketTrend * 3) + (volatility * 2));
         if (tradeCount < 1) tradeCount = 1;
-
-        for (int i = 0; i < tradeCount; i++) {
-            double amount = ThreadLocalRandom.current().nextDouble(10, 100);
+        if (tradeCount > 20) tradeCount = 20; // حد أقصى
+        
+        for (int i = 0; i < tradeCount && teamCapital > 10; i++) {
+            // تحديد مبلغ الصفقة عشوائيًا مع مراعاة الرأس المال
+            double maxTradeAmount = Math.min(teamCapital * 0.1, 500.0); // 10% من الرأس المال أو 500
+            double amount = ThreadLocalRandom.current().nextDouble(10, maxTradeAmount);
+            
             if (teamCapital >= amount) {
+                // تنفيذ أمر الشراء
                 priceEngine.executeBuyOrder(teamId, amount);
                 teamCapital -= amount;
                 
+                // إشعار المستخدمين الحقيقيين
                 if (!realUsers.isEmpty()) {
                     User randomUser = realUsers.get(
                         ThreadLocalRandom.current().nextInt(realUsers.size())
                     );
                     randomUser.notify("فريق الشراء نشط — السعر يرتفع!");
                 }
+                
+                System.out.println("BUY TEAM: Executed buy order of " + amount + " MAZDADY");
             }
         }
     }
 
-    public double getCapital() {
-        return teamCapital;
+    /**
+     * إضافة رأس مال للفريق
+     */
+    public void addCapital(double amount) {
+        if (amount > 0) {
+            this.teamCapital += amount;
+            System.out.println("BUY TEAM: Capital increased by " + amount + " (Total: " + teamCapital + ")");
+        }
     }
 
-    public void addCapital(double profit) {
-        this.teamCapital += profit;
+    /**
+     * تفعيل الفريق
+     */
+    public void activate() {
+        this.isActive = true;
+        System.out.println("BUY TEAM: Activated");
     }
+
+    /**
+     * تعطيل الفريق
+     */
+    public void deactivate() {
+        this.isActive = false;
+        System.out.println("BUY TEAM: Deactivated");
+    }
+
+    // --- Getters ---
+    public String getTeamId() { return teamId; }
+    public double getCapital() { return teamCapital; }
+    public boolean isActive() { return isActive; }
+    public void setCapital(double capital) { this.teamCapital = capital; }
 }
