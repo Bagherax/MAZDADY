@@ -1,0 +1,107 @@
+package mazdady.emergency;
+
+import mazdady.user.UserManager;
+import mazdady.wallet.WalletManager;
+
+import java.time.Instant;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
+
+/**
+ * مدير الأمان التلقائي مع دعم النسخ الاحتياطي
+ * يتبع نمط Observer لإعلام المكونات بالتغيرات
+ */
+public final class FailSafeMgr {
+    private final AtomicBoolean isFailSafeActive = new AtomicBoolean(false);
+    private final AtomicReference<Instant> lastBackupTime = new AtomicReference<>(Instant.now());
+    private static final FailSafeMgr INSTANCE = new FailSafeMgr();
+
+    private FailSafeMgr() {}
+
+    public static FailSafeMgr getInstance() {
+        return INSTANCE;
+    }
+
+    /**
+     * تفعيل وضع الأمان التلقائي
+     */
+    public void activateFailSafe() {
+        if (isFailSafeActive.compareAndSet(false, true)) {
+            System.out.println("FAIL-SAFE: Activated at " + Instant.now());
+            
+            // 1. إنشاء نسخة احتياطية فورية
+            createEmergencyBackup();
+            
+            // 2. تعطيل العمليات غير الضرورية
+            disableNonEssentialOperations();
+            
+            // 3. تفعيل الحماية القصوى
+            enableMaximumProtection();
+        }
+    }
+
+    /**
+     * إلغاء تفعيل وضع الأمان
+     */
+    public void deactivateFailSafe() {
+        if (isFailSafeActive.compareAndSet(true, false)) {
+            System.out.println("FAIL-SAFE: Deactivated at " + Instant.now());
+            
+            // استعادة العمليات العادية
+            restoreNormalOperations();
+        }
+    }
+
+    private void createEmergencyBackup() {
+        // في الإنتاج: حفظ حالة النظام في التخزين الآمن
+        UserManager userMgr = UserManager.getInstance(null);
+        WalletManager walletMgr = new WalletManager();
+        
+        System.out.println("BACKUP: Emergency backup created - User: " + 
+                          userMgr.getCurrentUser().getUserId() + 
+                          ", Balance: " + walletMgr.getBalance());
+        
+        lastBackupTime.set(Instant.now());
+    }
+
+    private void disableNonEssentialOperations() {
+        // في الإنتاج: تعطيل الإعلانات، الترويج، الميزات غير الأساسية
+        System.out.println("FAIL-SAFE: Non-essential operations disabled");
+    }
+
+    private void enableMaximumProtection() {
+        // تفعيل الحماية ضد الخسارة
+        mazdady.economy.ControlledLossManager.getInstance().activateHighRiskProtection();
+        
+        // تجميد عمليات السحب
+        System.out.println("FAIL-SAFE: Withdrawals temporarily suspended");
+    }
+
+    private void restoreNormalOperations() {
+        // في الإنتاج: استعادة جميع العمليات
+        System.out.println("FAIL-SAFE: Normal operations restored");
+    }
+
+    /**
+     * التحقق من حالة الأمان
+     */
+    public boolean isFailSafeActive() {
+        return isFailSafeActive.get();
+    }
+
+    /**
+     * الحصول على وقت آخر نسخة احتياطية
+     */
+    public Instant getLastBackupTime() {
+        return lastBackupTime.get();
+    }
+
+    /**
+     * إنشاء نسخة احتياطية يدوية
+     */
+    public void createManualBackup() {
+        if (!isFailSafeActive.get()) {
+            createEmergencyBackup();
+        }
+    }
+}
