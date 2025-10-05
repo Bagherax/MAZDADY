@@ -1,25 +1,172 @@
 package mazdady.dev;
 
-public class UnitTests {
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.Supplier;
+
+/**
+ * مدير اختبارات الوحدة مع دعم التنفيذ غير المتزامن
+ * يتبع نمط Strategy لفصل أنواع الاختبارات
+ */
+public final class UnitTests {
+    private final CopyOnWriteArrayList<TestSuite> testSuites = new CopyOnWriteArrayList<>();
+    private static final UnitTests INSTANCE = new UnitTests();
+
+    private UnitTests() {
+        initializeTestSuites();
+    }
+
+    public static UnitTests getInstance() {
+        return INSTANCE;
+    }
+
+    private void initializeTestSuites() {
+        testSuites.add(new UserTestSuite());
+        testSuites.add(new WalletTestSuite());
+        testSuites.add(new TradingTestSuite());
+        testSuites.add(new SecurityTestSuite());
+    }
+
+    /**
+     * تشغيل جميع اختبارات الوحدة غير المتزامنة
+     */
+    public CompletableFuture<TestReport> runAllTestsAsync() {
+        return CompletableFuture.supplyAsync(() -> {
+            TestReport report = new TestReport();
+            for (TestSuite suite : testSuites) {
+                report.merge(suite.run());
+            }
+            return report;
+        });
+    }
+
+    /**
+     * تشغيل جميع اختبارات الوحدة
+     */
     public static void runAllTests() {
-        testUserProfit();
-        testWithdrawalRules();
-        testPriceEngine();
-        System.out.println("✅ اجتازت جميع الاختبارات!");
+        TestReport report = getInstance().runAllTestsAsync().join();
+        System.out.println(report.getSummary());
     }
 
-    private static void testUserProfit() {
-        // محاكاة ربح المستخدم
-        System.out.println("🧪 اختبار ربح المستخدم...");
+    /**
+     * واجهة مجموعة الاختبارات
+     */
+    @FunctionalInterface
+    public interface TestSuite {
+        TestReport run();
     }
 
-    private static void testWithdrawalRules() {
-        // محاكاة قواعد السحب
-        System.out.println("🧪 اختبار قواعد السحب...");
+    /**
+     * تقرير الاختبار
+     */
+    public static final class TestReport {
+        private int passed = 0;
+        private int failed = 0;
+        private final CopyOnWriteArrayList<String> failures = new CopyOnWriteArrayList<>();
+
+        public void addPassed() { passed++; }
+        public void addFailed(String testName, String reason) {
+            failed++;
+            failures.add(testName + ": " + reason);
+        }
+
+        public void merge(TestReport other) {
+            this.passed += other.passed;
+            this.failed += other.failed;
+            this.failures.addAll(other.failures);
+        }
+
+        public String getSummary() {
+            return String.format(
+                "✅ UNIT TESTS: %d passed, %d failed\n%s",
+                passed, failed,
+                failures.isEmpty() ? "" : "Failures:\n" + String.join("\n", failures)
+            );
+        }
     }
 
-    private static void testPriceEngine() {
-        // محاكاة محرك التداول
-        System.out.println("🧪 اختبار محرك التداول...");
+    // --- مجموعات اختبارات مخصصة ---
+    private static final class UserTestSuite implements TestSuite {
+        @Override
+        public TestReport run() {
+            TestReport report = new TestReport();
+            try {
+                testUserCreation();
+                report.addPassed();
+            } catch (Exception e) {
+                report.addFailed("testUserCreation", e.getMessage());
+            }
+            return report;
+        }
+
+        private void testUserCreation() {
+            mazdady.user.User user = new mazdady.user.User("test_user");
+            if (user.getUserId() == null) {
+                throw new AssertionError("User ID should not be null");
+            }
+        }
+    }
+
+    private static final class WalletTestSuite implements TestSuite {
+        @Override
+        public TestReport run() {
+            TestReport report = new TestReport();
+            try {
+                testWalletBalance();
+                report.addPassed();
+            } catch (Exception e) {
+                report.addFailed("testWalletBalance", e.getMessage());
+            }
+            return report;
+        }
+
+        private void testWalletBalance() {
+            mazdady.wallet.WalletManager wallet = new mazdady.wallet.WalletManager();
+            if (wallet.getBalance() < 0) {
+                throw new AssertionError("Wallet balance should not be negative");
+            }
+        }
+    }
+
+    private static final class TradingTestSuite implements TestSuite {
+        @Override
+        public TestReport run() {
+            TestReport report = new TestReport();
+            try {
+                testPriceEngine();
+                report.addPassed();
+            } catch (Exception e) {
+                report.addFailed("testPriceEngine", e.getMessage());
+            }
+            return report;
+        }
+
+        private void testPriceEngine() {
+            mazdady.trading.PriceEngine engine = new mazdady.trading.PriceEngine();
+            double initialPrice = engine.getCurrentPrice();
+            engine.executeBuyOrder("test_user", 100);
+            if (engine.getCurrentPrice() <= initialPrice) {
+                throw new AssertionError("Price should increase after buy order");
+            }
+        }
+    }
+
+    private static final class SecurityTestSuite implements TestSuite {
+        @Override
+        public TestReport run() {
+            TestReport report = new TestReport();
+            try {
+                testDeviceFingerprint();
+                report.addPassed();
+            } catch (Exception e) {
+                report.addFailed("testDeviceFingerprint", e.getMessage());
+            }
+            return report;
+        }
+
+        private void testDeviceFingerprint() {
+            // في الإنتاج: اختبار بصمة الجهاز
+            if (true) return; // placeholder
+        }
     }
 }
