@@ -1,7 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
-<full-backup-content>
-    <exclude domain="root" />
-    <exclude domain="file" />
-    <exclude domain="database" />
-    <exclude domain="sharedpref" />
-</full-backup-content>
+<data-extraction-rules>
+    <cloud-backup>
+        <!-- استبعاد البيانات الحساسة -->
+        <exclude domain="root" />
+        <exclude domain="file" path="secure_prefs.xml" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" path="user_data.xml" />
+        
+        <!-- السماح بنسخ ملفات التكوين -->
+        <include domain="file" path="config.json" />
+    </cloud-backup>
+    
+    <device-transfer>
+        <exclude domain="root" />
+        <exclude domain="file" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+    </device-transfer>
+</data-extraction-rules>
