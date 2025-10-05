@@ -1,93 +1,311 @@
 package mazdady.arch;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.function.Predicate;
+import mazdady.user.User;
+import mazdady.security.SecurityMonitor;
+
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.BiPredicate;
 
 /**
- * مُحقّق العقود باستخدام التحقق الوظيفي
- * يدعم سلاسل التحقق (Validation Chains) والتقارير التفصيلية
+ * محقق العقود مع دعم التحقق المتقدم من العقود
+ * يتبع نمط Strategy لفصل استراتيجيات التحقق
  */
 public final class ContractValidator {
-    private ContractValidator() {}
+    private final SecurityMonitor securityMonitor;
+    private final Map<String, BiPredicate<User, Object>> contractValidators = new ConcurrentHashMap<>();
+    private static ContractValidator instance;
 
-    private static class Holder {
-        static final ContractValidator INSTANCE = new ContractValidator();
+    private ContractValidator(SecurityMonitor securityMonitor) {
+        this.securityMonitor = securityMonitor;
+        initializeContractValidators();
     }
 
-    public static ContractValidator getInstance() {
-        return Holder.INSTANCE;
+    public static synchronized ContractValidator getInstance(SecurityMonitor securityMonitor) {
+        if (instance == null) {
+            instance = new ContractValidator(securityMonitor);
+        }
+        return instance;
     }
 
-    /**
-     * التحقق من صحة الكائن مع إرجاع تقرير مفصل
-     */
-    public <T> ValidationResult validate(T object) {
-        List<String> errors = new ArrayList<>();
+    private void initializeContractValidators() {
+        // التحقق من عقد التداول
+        contractValidators.put("trading_contract", (user, data) -> {
+            if (!(data instanceof TradingContractData)) return false;
+            TradingContractData contractData = (TradingContractData) data;
+            return contractData.getAmount() > 0 && 
+                   contractData.getAmount() <= user.getBalance() &&
+                   user.isKYCVerified();
+        });
         
-        if (object instanceof Validatable) {
-            ((Validatable) object).validate(errors::add);
-        } else {
-            // تحقق افتراضي للحقول المطلوبة
-            validateRequiredFields(object, errors);
-        }
-
-        return new ValidationResult(errors.isEmpty(), errors);
+        // التحقق من عقد السحب
+        contractValidators.put("withdrawal_contract", (user, data) -> {
+            if (!(data instanceof WithdrawalContractData)) return false;
+            WithdrawalContractData contractData = (WithdrawalContractData) data;
+            return contractData.getAmount() > 0 && 
+                   contractData.getAmount() <= user.getBalance() &&
+                   user.isKYCVerified() &&
+                   user.hasActiveSubscription();
+        });
+        
+        // التحقق من عقد الإيداع
+        contractValidators.put("deposit_contract", (user, data) -> {
+            if (!(data instanceof DepositContractData)) return false;
+            DepositContractData contractData = (DepositContractData) data;
+            return contractData.getAmount() > 0;
+        });
+        
+        // التحقق من عقد التحقق من الهوية
+        contractValidators.put("kyc_contract", (user, data) -> {
+            if (!(data instanceof KYCContractData)) return false;
+            KYCContractData contractData = (KYCContractData) data;
+            return contractData.getDocumentData() != null && 
+                   !contractData.getDocumentData().isEmpty();
+        });
+        
+        // التحقق من عقد الترويج الاجتماعي
+        contractValidators.put("social_promotion_contract", (user, data) -> {
+            if (!(data instanceof SocialPromotionContractData)) return false;
+            SocialPromotionContractData contractData = (SocialPromotionContractData) data;
+            return contractData.getPromotionData() != null && 
+                   !contractData.getPromotionData().isEmpty() &&
+                   user.getLevel() >= 3;
+        });
+        
+        // التحقق من عقد الحملات الإعلانية
+        contractValidators.put("ad_campaign_contract", (user, data) -> {
+            if (!(data instanceof AdCampaignContractData)) return false;
+            AdCampaignContractData contractData = (AdCampaignContractData) data;
+            return contractData.getCampaignData() != null && 
+                   !contractData.getCampaignData().isEmpty() &&
+                   user.getBalance() >= contractData.getBudget();
+        });
+        
+        // التحقق من عقد البوتات
+        contractValidators.put("bot_contract", (user, data) -> {
+            if (!(data instanceof BotContractData)) return false;
+            BotContractData contractData = (BotContractData) data;
+            return contractData.getBotData() != null && 
+                   !contractData.getBotData().isEmpty() &&
+                   user.getLevel() >= 5;
+        });
+        
+        // التحقق من عقد المجتمع
+        contractValidators.put("community_contract", (user, data) -> {
+            if (!(data instanceof CommunityContractData)) return false;
+            CommunityContractData contractData = (CommunityContractData) data;
+            return contractData.getCommunityData() != null && 
+                   !contractData.getCommunityData().isEmpty();
+        });
+        
+        // التحقق من عقد الأمان
+        contractValidators.put("security_contract", (user, data) -> {
+            if (!(data instanceof SecurityContractData)) return false;
+            SecurityContractData contractData = (SecurityContractData) data;
+            return contractData.getSecurityData() != null && 
+                   !contractData.getSecurityData().isEmpty() &&
+                   user.isAdmin();
+        });
+        
+        // التحقق من عقد الإعدادات
+        contractValidators.put("settings_contract", (user, data) -> {
+            if (!(data instanceof SettingsContractData)) return false;
+            SettingsContractData contractData = (SettingsContractData) data;
+            return contractData.getSettingsData() != null && 
+                   !contractData.getSettingsData().isEmpty();
+        });
     }
 
     /**
-     * التحقق من صحة الكائن مع رمي استثناء عند الفشل
+     * التحقق من صحة العقد غير متزامن
      */
-    public <T> void validateOrThrow(T object) {
-        ValidationResult result = validate(object);
-        if (!result.isValid()) {
-            throw new ValidationException("Validation failed: " + String.join(", ", result.getErrors()));
-        }
-    }
-
-    private void validateRequiredFields(Object object, List<String> errors) {
-        // في الإنتاج: استخدام Reflection للتحقق من الحقول المطلوبة
-        // هنا نستخدم تحققًا بسيطًا
-        if (object == null) {
-            errors.add("Object cannot be null");
-        }
-    }
-
-    /**
-     * واجهة للكائنات القابلة للتحقق
-     */
-    @FunctionalInterface
-    public interface Validatable {
-        void validate(ValidationErrorConsumer errorConsumer);
-    }
-
-    @FunctionalInterface
-    public interface ValidationErrorConsumer {
-        void accept(String error);
+    public CompletableFuture<ValidationResult> validateContractAsync(
+        String contractType,
+        User user,
+        Object contractData
+    ) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                BiPredicate<User, Object> validator = contractValidators.get(contractType);
+                if (validator == null) {
+                    return ValidationResult.failure("Unsupported contract type: " + contractType);
+                }
+                
+                boolean isValid = validator.test(user, contractData);
+                if (isValid) {
+                    System.out.println("CONTRACT VALIDATOR: Contract " + contractType + " validated successfully");
+                    return ValidationResult.success("Contract validated successfully");
+                } else {
+                    System.err.println("CONTRACT VALIDATOR: Contract " + contractType + " validation failed");
+                    securityMonitor.reportSuspiciousActivity(
+                        user.getUserId(), 
+                        "INVALID_CONTRACT_" + contractType
+                    );
+                    return ValidationResult.failure("Contract validation failed");
+                }
+                
+            } catch (Exception e) {
+                return ValidationResult.failure("Contract validation error: " + e.getMessage());
+            }
+        });
     }
 
     /**
      * نتيجة التحقق
      */
-    public static class ValidationResult {
-        private final boolean valid;
-        private final List<String> errors;
+    public static final class ValidationResult {
+        private final boolean success;
+        private final String message;
 
-        public ValidationResult(boolean valid, List<String> errors) {
-            this.valid = valid;
-            this.errors = List.copyOf(errors);
+        private ValidationResult(boolean success, String message) {
+            this.success = success;
+            this.message = message;
         }
 
-        public boolean isValid() { return valid; }
-        public List<String> getErrors() { return errors; }
+        public static ValidationResult success(String message) {
+            return new ValidationResult(true, message);
+        }
+
+        public static ValidationResult failure(String message) {
+            return new ValidationResult(false, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public String getMessage() { return message; }
     }
 
-    /**
-     * استثناء التحقق
-     */
-    public static class ValidationException extends IllegalArgumentException {
-        public ValidationException(String message) {
-            super(message);
+    // --- بيانات العقود ---
+    public static final class TradingContractData {
+        private final double amount;
+        private final String tradeType;
+
+        public TradingContractData(double amount, String tradeType) {
+            this.amount = amount;
+            this.tradeType = tradeType;
         }
+
+        public double getAmount() { return amount; }
+        public String getTradeType() { return tradeType; }
+    }
+
+    public static final class WithdrawalContractData {
+        private final double amount;
+        private final String withdrawalMethod;
+
+        public WithdrawalContractData(double amount, String withdrawalMethod) {
+            this.amount = amount;
+            this.withdrawalMethod = withdrawalMethod;
+        }
+
+        public double getAmount() { return amount; }
+        public String getWithdrawalMethod() { return withdrawalMethod; }
+        public double getBudget() { return amount; }
+    }
+
+    public static final class DepositContractData {
+        private final double amount;
+        private final String depositMethod;
+
+        public DepositContractData(double amount, String depositMethod) {
+            this.amount = amount;
+            this.depositMethod = depositMethod;
+        }
+
+        public double getAmount() { return amount; }
+        public String getDepositMethod() { return depositMethod; }
+    }
+
+    public static final class KYCContractData {
+        private final String documentData;
+        private final String documentType;
+
+        public KYCContractData(String documentData, String documentType) {
+            this.documentData = documentData;
+            this.documentType = documentType;
+        }
+
+        public String getDocumentData() { return documentData; }
+        public String getDocumentType() { return documentType; }
+    }
+
+    public static final class SocialPromotionContractData {
+        private final String promotionData;
+        private final String platform;
+
+        public SocialPromotionContractData(String promotionData, String platform) {
+            this.promotionData = promotionData;
+            this.platform = platform;
+        }
+
+        public String getPromotionData() { return promotionData; }
+        public String getPlatform() { return platform; }
+    }
+
+    public static final class AdCampaignContractData {
+        private final String campaignData;
+        private final double budget;
+        private final String platform;
+
+        public AdCampaignContractData(String campaignData, double budget, String platform) {
+            this.campaignData = campaignData;
+            this.budget = budget;
+            this.platform = platform;
+        }
+
+        public String getCampaignData() { return campaignData; }
+        public double getBudget() { return budget; }
+        public String getPlatform() { return platform; }
+    }
+
+    public static final class BotContractData {
+        private final String botData;
+        private final String botType;
+
+        public BotContractData(String botData, String botType) {
+            this.botData = botData;
+            this.botType = botType;
+        }
+
+        public String getBotData() { return botData; }
+        public String getBotType() { return botType; }
+    }
+
+    public static final class CommunityContractData {
+        private final String communityData;
+        private final String actionType;
+
+        public CommunityContractData(String communityData, String actionType) {
+            this.communityData = communityData;
+            this.actionType = actionType;
+        }
+
+        public String getCommunityData() { return communityData; }
+        public String getActionType() { return actionType; }
+    }
+
+    public static final class SecurityContractData {
+        private final String securityData;
+        private final String actionType;
+
+        public SecurityContractData(String securityData, String actionType) {
+            this.securityData = securityData;
+            this.actionType = actionType;
+        }
+
+        public String getSecurityData() { return securityData; }
+        public String getActionType() { return actionType; }
+    }
+
+    public static final class SettingsContractData {
+        private final String settingsData;
+        private final String settingType;
+
+        public SettingsContractData(String settingsData, String settingType) {
+            this.settingsData = settingsData;
+            this.settingType = settingType;
+        }
+
+        public String getSettingsData() { return settingsData; }
+        public String getSettingType() { return settingType; }
     }
 }
