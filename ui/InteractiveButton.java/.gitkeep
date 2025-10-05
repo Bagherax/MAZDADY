@@ -1,70 +1,202 @@
 package mazdady.ui;
 
+import android.animation.ObjectAnimator;
 import android.content.Context;
-import android.graphics.drawable.GradientDrawable;
+import android.graphics.Color;
 import android.util.AttributeSet;
 import android.view.MotionEvent;
+import android.view.View;
+import android.view.animation.OvershootInterpolator;
 import android.widget.Button;
-import mazdady.admin.AdminConfig;
 
-public class InteractiveButton extends Button {
-    private float originalScaleX, originalScaleY;
-    private int pressColor;
-    private boolean isGlowEnabled;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.Consumer;
+
+/**
+ * أزرار تفاعلية مع تأثيرات متقدمة
+ * يتبع نمط Observer لإشعار الأحداث
+ */
+public final class InteractiveButton extends Button {
+    private final CopyOnWriteArrayList<Consumer<View>> clickListeners = new CopyOnWriteArrayList<>();
+    private final CopyOnWriteArrayList<Consumer<MotionEvent>> touchListeners = new CopyOnWriteArrayList<>();
+    private volatile boolean rippleEffect = true;
+    private volatile boolean scaleEffect = true;
+    private volatile boolean soundEffect = true;
 
     public InteractiveButton(Context context, AttributeSet attrs) {
         super(context, attrs);
-        init();
+        initializeInteraction();
     }
 
-    private void init() {
-        AdminConfig.UIConfig.ButtonConfig config = 
-            AdminConfig.getInstance().getUIConfig().getButtonConfig("default");
+    private void initializeInteraction() {
+        // تفعيل التأثيرات التفاعلية
+        setOnTouchListener(this::handleTouch);
+    }
+
+    private boolean handleTouch(View view, MotionEvent event) {
+        switch (event.getAction()) {
+            case MotionEvent.ACTION_DOWN:
+                onPress();
+                break;
+            case MotionEvent.ACTION_UP:
+            case MotionEvent.ACTION_CANCEL:
+                onRelease();
+                break;
+        }
         
-        // تحميل لون الضغط من لوحة التحكم
-        pressColor = android.graphics.Color.parseColor(config.getPressColor());
-        isGlowEnabled = config.isGlowEffectEnabled();
+        // إشعار المستمعين باللمس
+        touchListeners.forEach(listener -> listener.accept(event));
         
-        // حفظ الحجم الأصلي
-        originalScaleX = getScaleX();
-        originalScaleY = getScaleY();
+        return false; // السماح بمعالجة الحدث الطبيعي
+    }
+
+    private void onPress() {
+        if (scaleEffect) {
+            // تأثير التكبير عند الضغط
+            ObjectAnimator scaleDownX = ObjectAnimator.ofFloat(this, "scaleX", 1.0f, 0.9f);
+            ObjectAnimator scaleDownY = ObjectAnimator.ofFloat(this, "scaleY", 1.0f, 0.9f);
+            scaleDownX.setDuration(100);
+            scaleDownY.setDuration(100);
+            scaleDownX.start();
+            scaleDownY.start();
+        }
+        
+        if (rippleEffect) {
+            // تأثير الموجة (في الإنتاج: استخدام RippleDrawable)
+            setBackgroundResource(android.R.drawable.btn_default);
+        }
+        
+        if (soundEffect) {
+            // في الإنتاج: تشغيل صوت الضغط
+            playSoundEffect(android.view.SoundEffectConstants.CLICK);
+        }
+    }
+
+    private void onRelease() {
+        if (scaleEffect) {
+            // تأثير العودة للحجم الطبيعي
+            ObjectAnimator scaleUpX = ObjectAnimator.ofFloat(this, "scaleX", 0.9f, 1.0f);
+            ObjectAnimator scaleUpY = ObjectAnimator.ofFloat(this, "scaleY", 0.9f, 1.0f);
+            scaleUpX.setDuration(100);
+            scaleUpY.setDuration(100);
+            scaleUpX.setInterpolator(new OvershootInterpolator(2f));
+            scaleUpY.setInterpolator(new OvershootInterpolator(2f));
+            scaleUpX.start();
+            scaleUpY.start();
+        }
     }
 
     @Override
-    public boolean onTouchEvent(MotionEvent event) {
-        switch (event.getAction()) {
-            case MotionEvent.ACTION_DOWN:
-                // تأثير الضغط: تصغير + تغيير لون
-                animate().scaleX(0.95f).scaleY(0.95f).setDuration(100);
-                setPressed(true);
-                break;
-                
-            case MotionEvent.ACTION_UP:
-            case MotionEvent.ACTION_CANCEL:
-                // العودة للحجم الأصلي
-                animate().scaleX(originalScaleX).scaleY(originalScaleY).setDuration(100);
-                setPressed(false);
-                
-                // إذا كان تأثير اللمعان مفعلًا
-                if (isGlowEnabled) {
-                    showGlowEffect();
-                }
-                break;
-        }
-        return super.onTouchEvent(event);
+    public boolean performClick() {
+        boolean result = super.performClick();
+        
+        // إشعار المستمعين بالنقر
+        clickListeners.forEach(listener -> listener.accept(this));
+        
+        return result;
     }
 
-    private void showGlowEffect() {
-        GradientDrawable glow = new GradientDrawable();
-        glow.setColor(0x33FFFFFF); // أبيض شفاف
-        glow.setCornerRadius(getHeight() / 2f);
-        glow.setStroke(8, 0xFFFFFFFF); // حد أبيض
-        
-        setBackground(glow);
-        
-        // إزالة التأثير بعد 300ms
-        postDelayed(() -> {
-            setBackground(getBackground()); // العودة للخلفية الأصلية
-        }, 300);
+    /**
+     * إضافة مستمع للنقر
+     */
+    public void addClickListener(Consumer<View> listener) {
+        clickListeners.add(listener);
     }
+
+    /**
+     * إزالة مستمع للنقر
+     */
+    public void removeClickListener(Consumer<View> listener) {
+        clickListeners.remove(listener);
+    }
+
+    /**
+     * إضافة مستمع لللمس
+     */
+    public void addTouchListener(Consumer<MotionEvent> listener) {
+        touchListeners.add(listener);
+    }
+
+    /**
+     * إزالة مستمع لللمس
+     */
+    public void removeTouchListener(Consumer<MotionEvent> listener) {
+        touchListeners.remove(listener);
+    }
+
+    /**
+     * تطبيق نمط زر مخصص
+     */
+    public void applyButtonStyle(ButtonStyle style) {
+        setBackgroundColor(style.getBackgroundColor());
+        setTextColor(style.getTextColor());
+        setTextSize(style.getTextSize());
+        
+        if (style.getCornerRadius() > 0) {
+            // في الإنتاج: تطبيق زوايا مدورة
+        }
+        
+        System.out.println("INTERACTIVE BUTTON: Style applied - " + style.getName());
+    }
+
+    /**
+     * نمط الزر
+     */
+    public static final class ButtonStyle {
+        private final String name;
+        private final int backgroundColor;
+        private final int textColor;
+        private final float textSize;
+        private final float cornerRadius;
+
+        public ButtonStyle(String name, int backgroundColor, int textColor, float textSize, float cornerRadius) {
+            this.name = name;
+            this.backgroundColor = backgroundColor;
+            this.textColor = textColor;
+            this.textSize = textSize;
+            this.cornerRadius = cornerRadius;
+        }
+
+        // Getters
+        public String getName() { return name; }
+        public int getBackgroundColor() { return backgroundColor; }
+        public int getTextColor() { return textColor; }
+        public float getTextSize() { return textSize; }
+        public float getCornerRadius() { return cornerRadius; }
+
+        /**
+         * أنماط مسبقة
+         */
+        public static ButtonStyle PRIMARY = new ButtonStyle(
+            "PRIMARY", 
+            Color.parseColor("#4CAF50"), 
+            Color.WHITE, 
+            16f, 
+            25f
+        );
+        
+        public static ButtonStyle SECONDARY = new ButtonStyle(
+            "SECONDARY", 
+            Color.parseColor("#2196F3"), 
+            Color.WHITE, 
+            14f, 
+            20f
+        );
+        
+        public static ButtonStyle DANGER = new ButtonStyle(
+            "DANGER", 
+            Color.parseColor("#F44336"), 
+            Color.WHITE, 
+            16f, 
+            25f
+        );
+    }
+
+    // --- Getters/Setters ---
+    public boolean isRippleEffect() { return rippleEffect; }
+    public void setRippleEffect(boolean rippleEffect) { this.rippleEffect = rippleEffect; }
+    public boolean isScaleEffect() { return scaleEffect; }
+    public void setScaleEffect(boolean scaleEffect) { this.scaleEffect = scaleEffect; }
+    public boolean isSoundEffect() { return soundEffect; }
+    public void setSoundEffect(boolean soundEffect) { this.soundEffect = soundEffect; }
 }
