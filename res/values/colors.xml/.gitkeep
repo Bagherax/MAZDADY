@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- ألوان أساسية -->
+    <color name="primary">#4CAF50</color>
+    <color name="primary_variant">#388E3C</color>
+    <color name="secondary">#FF5722</color>
+    <color name="secondary_variant">#E64A19</color>
+    
+    <!-- ألوان الخلفية -->
+    <color name="main_background">#0f0f1b</color>
+    <color name="top_bar">#1a1a2e</color>
+    <color name="bottom_controls">#1a1a2e</color>
+    <color name="trading_line">#16213e</color>
+    <color name="popup_background">#1a1a2e</color>
+    <color name="popup_title_bg">#252540</color>
+    
+    <!-- ألوان النصوص -->
+    <color name="text_primary">#ffffff</color>
+    <color name="text_secondary">#b0b0b0</color>
+    <color name="buy_button">#4CAF50</color>
+    <color name="sell_button">#F44336</color>
+    <color name="buy_button_text">#ffffff</color>
+    <color name="sell_button_text">#ffffff</color>
+    
+    <!-- ألوان النظام -->
+    <color name="status_bar">#0f0f1b</color>
+    <color name="navigation_bar">#0f0f1b</color>
+    <color name="white">#ffffff</color>
+    <color name="black">#000000</color>
+</resources>
