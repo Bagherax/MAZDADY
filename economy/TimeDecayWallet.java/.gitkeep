@@ -1,0 +1,106 @@
+package mazdady.economy;
+
+import mazdady.user.UserManager;
+import mazdady.user.User;
+
+import java.time.Instant;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
+
+/**
+ * محفظة ذات تحلل زمني مع دعم التذكير التلقائي
+ * يتبع نمط Observer لإعلام المستخدم بالتغيرات
+ */
+public final class TimeDecayWallet {
+    private final AtomicReference<Double> balance = new AtomicReference<>(0.0);
+    private final AtomicReference<Instant> lastActivity = new AtomicReference<>(Instant.now());
+    private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+    private static final TimeDecayWallet INSTANCE = new TimeDecayWallet();
+
+    private TimeDecayWallet() {
+        // بدء جدولة التحلل الزمني
+        scheduler.scheduleAtFixedRate(
+            this::applyTimeDecay,
+            1,
+            1,
+            TimeUnit.HOURS
+        );
+    }
+
+    public static TimeDecayWallet getInstance() {
+        return INSTANCE;
+    }
+
+    /**
+     * إيداع الأموال في المحفظة
+     */
+    public void deposit(double amount) {
+        balance.updateAndGet(current -> current + amount);
+        lastActivity.set(Instant.now());
+        System.out.println("TIME DECAY WALLET: Deposited " + amount + " MAZDADY");
+    }
+
+    /**
+     * سحب الأموال من المحفظة
+     */
+    public boolean withdraw(double amount) {
+        return balance.updateAndGet(current -> {
+            if (current >= amount) {
+                lastActivity.set(Instant.now());
+                return current - amount;
+            }
+            return current;
+        }) >= 0;
+    }
+
+    /**
+     * تطبيق التحلل الزمني
+     */
+    private void applyTimeDecay() {
+        Instant now = Instant.now();
+        Instant last = lastActivity.get();
+        long hoursInactive = java.time.Duration.between(last, now).toHours();
+        
+        if (hoursInactive > 24) {
+            double decayRate = 0.01 * (hoursInactive - 24); // 1% لكل ساعة بعد 24 ساعة
+            double currentBalance = balance.get();
+            double decayAmount = currentBalance * Math.min(decayRate, 0.5); // الحد الأقصى 50%
+            
+            if (decayAmount > 0) {
+                balance.updateAndGet(current -> current - decayAmount);
+                System.out.println("TIME DECAY: " + decayAmount + " MAZDADY decayed after " + hoursInactive + " hours");
+                
+                // إرسال تذكير للمستخدم
+                notifyUserOfDecay(decayAmount, hoursInactive);
+            }
+        }
+    }
+
+    private void notifyUserOfDecay(double decayAmount, long hoursInactive) {
+        User user = UserManager.getInstance(null).getCurrentUser();
+        System.out.println("NOTIFICATION: " + decayAmount + " MAZDADY decayed! Use your balance within 24 hours to avoid decay.");
+    }
+
+    /**
+     * الحصول على الرصيد الحالي
+     */
+    public double getBalance() {
+        return balance.get();
+    }
+
+    /**
+     * الحصول على وقت آخر نشاط
+     */
+    public Instant getLastActivity() {
+        return lastActivity.get();
+    }
+
+    /**
+     * إيقاف جدولة التحلل (للاختبارات)
+     */
+    public void shutdown() {
+        scheduler.shutdown();
+    }
+}
