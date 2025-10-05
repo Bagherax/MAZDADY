@@ -1,0 +1,406 @@
+package mazdady.admin.messages;
+
+import android.content.Context;
+import android.graphics.Color;
+import android.view.View;
+import android.view.ViewGroup;
+import android.widget.*;
+
+import java.util.List;
+import java.util.concurrent.CompletableFuture;
+
+/**
+ * لوحة رسائل الادمن مع دعم الأدوات التفاعلية
+ * يتبع نمط Facade لتوفير واجهة موحدة
+ */
+public final class AdminMessageDashboard extends LinearLayout {
+    private final Context context;
+    private final UserMessageManager messageManager;
+    private final ListView messageListView;
+    private final MessageAdapter messageAdapter;
+    private final ProgressBar loadingIndicator;
+    private final TextView statusText;
+
+    public AdminMessageDashboard(Context context) {
+        super(context);
+        this.context = context.getApplicationContext();
+        this.messageManager = UserMessageManager.getInstance();
+        this.messageAdapter = new MessageAdapter(context);
+        
+        setOrientation(VERTICAL);
+        initializeViews();
+        loadMessages();
+    }
+
+    private void initializeViews() {
+        // شريط العناوين
+        TextView title = new TextView(context);
+        title.setText("رسائل المستخدمين");
+        title.setTextSize(24);
+        title.setTextColor(Color.WHITE);
+        title.setPadding(20, 20, 20, 20);
+        title.setBackgroundColor(Color.parseColor("#1a1a2e"));
+        addView(title);
+
+        // شريط التحميل
+        loadingIndicator = new ProgressBar(context);
+        loadingIndicator.setVisibility(View.GONE);
+        addView(loadingIndicator);
+
+        // قائمة الرسائل
+        messageListView = new ListView(context);
+        messageListView.setAdapter(messageAdapter);
+        messageListView.setOnItemClickListener(this::handleMessageClick);
+        addView(messageListView, new LayoutParams(
+            LayoutParams.MATCH_PARENT,
+            0,
+            1.0f
+        ));
+
+        // شريط الحالة
+        statusText = new TextView(context);
+        statusText.setTextSize(14);
+        statusText.setTextColor(Color.GRAY);
+        statusText.setPadding(20, 10, 20, 10);
+        statusText.setText("جاهز لاستقبال الرسائل");
+        addView(statusText);
+
+        // زر تحديث
+        Button refreshButton = new Button(context);
+        refreshButton.setText("تحديث الرسائل");
+        refreshButton.setBackgroundColor(Color.parseColor("#4CAF50"));
+        refreshButton.setTextColor(Color.WHITE);
+        refreshButton.setOnClickListener(v -> loadMessages());
+        addView(refreshButton);
+    }
+
+    private void loadMessages() {
+        loadingIndicator.setVisibility(View.VISIBLE);
+        statusText.setText("جاري تحميل الرسائل...");
+
+        CompletableFuture.supplyAsync(() -> 
+            messageManager.getAllMessages()
+        ).thenAccept(messages -> 
+            post(() -> {
+                messageAdapter.updateMessages(messages);
+                loadingIndicator.setVisibility(View.GONE);
+                statusText.setText("تم تحميل " + messages.size() + " رسالة");
+            })
+        ).exceptionally(throwable -> {
+            post(() -> {
+                loadingIndicator.setVisibility(View.GONE);
+                statusText.setText("فشل تحميل الرسائل: " + throwable.getMessage());
+            });
+            return null;
+        });
+    }
+
+    private void handleMessageClick(AdapterView<?> parent, View view, int position, long id) {
+        UserMessageManager.UserMessage message = messageAdapter.getItem(position);
+        if (message != null) {
+            showMessageActionsDialog(message);
+        }
+    }
+
+    private void showMessageActionsDialog(UserMessageManager.UserMessage message) {
+        AlertDialog.Builder builder = new AlertDialog.Builder(context);
+        builder.setTitle("إجراءات الرسالة");
+        builder.setMessage("اختر إجراءً للرسالة من المستخدم: " + message.getUsername());
+
+        String[] actions = {
+            "إرسال هدية",
+            "حظر المستخدم",
+            "تحذير المستخدم",
+            "تعليق الحساب",
+            "حذف الرسالة",
+            "الرد على المستخدم",
+            "إعادة توجيه إلى الدعم",
+            "وضع علامة كمقروءة",
+            "وضع علامة كمهمة",
+            "تصدير الرسالة"
+        };
+
+        builder.setItems(actions, (dialog, which) -> {
+            switch (which) {
+                case 0: // إرسال هدية
+                    showSendGiftDialog(message);
+                    break;
+                case 1: // حظر المستخدم
+                    showBanUserDialog(message);
+                    break;
+                case 2: // تحذير المستخدم
+                    showWarnUserDialog(message);
+                    break;
+                case 3: // تعليق الحساب
+                    showSuspendAccountDialog(message);
+                    break;
+                case 4: // حذف الرسالة
+                    deleteMessage(message);
+                    break;
+                case 5: // الرد على المستخدم
+                    showReplyDialog(message);
+                    break;
+                case 6: // إعادة توجيه إلى الدعم
+                    forwardToSupport(message);
+                    break;
+                case 7: // وضع علامة كمقروءة
+                    markAsRead(message);
+                    break;
+                case 8: // وضع علامة كمهمة
+                    markAsImportant(message);
+                    break;
+                case 9: // تصدير الرسالة
+                    exportMessage(message);
+                    break;
+            }
+        });
+
+        builder.setNegativeButton("إلغاء", null);
+        builder.show();
+    }
+
+    private void showSendGiftDialog(UserMessageManager.UserMessage message) {
+        EditText input = new EditText(context);
+        input.setHint("أدخل مبلغ الهدية (MAZDADY)");
+        input.setInputType(android.text.InputType.TYPE_CLASS_NUMBER | android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL);
+
+        new AlertDialog.Builder(context)
+            .setTitle("إرسال هدية")
+            .setMessage("أدخل مبلغ الهدية للمستخدم: " + message.getUsername())
+            .setView(input)
+            .setPositiveButton("إرسال", (dialog, which) -> {
+                try {
+                    double amount = Double.parseDouble(input.getText().toString());
+                    executeAction(message, "SEND_GIFT", amount, "Admin gift");
+                } catch (NumberFormatException e) {
+                    Toast.makeText(context, "مبلغ غير صحيح", Toast.LENGTH_SHORT).show();
+                }
+            })
+            .setNegativeButton("إلغاء", null)
+            .show();
+    }
+
+    private void showBanUserDialog(UserMessageManager.UserMessage message) {
+        EditText input = new EditText(context);
+        input.setHint("سبب الحظر");
+
+        new AlertDialog.Builder(context)
+            .setTitle("حظر المستخدم")
+            .setMessage("هل أنت متأكد من حظر المستخدم: " + message.getUsername() + "؟")
+            .setView(input)
+            .setPositiveButton("حظر", (dialog, which) -> {
+                String reason = input.getText().toString();
+                executeAction(message, "BAN_USER", reason.isEmpty() ? "Policy violation" : reason);
+            })
+            .setNegativeButton("إلغاء", null)
+            .show();
+    }
+
+    private void showWarnUserDialog(UserMessageManager.UserMessage message) {
+        LinearLayout layout = new LinearLayout(context);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setPadding(20, 20, 20, 20);
+
+        EditText reasonInput = new EditText(context);
+        reasonInput.setHint("سبب التحذير");
+        layout.addView(reasonInput);
+
+        EditText pointsInput = new EditText(context);
+        pointsInput.setHint("نقاط التحذير (1-10)");
+        pointsInput.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+        layout.addView(pointsInput);
+
+        new AlertDialog.Builder(context)
+            .setTitle("تحذير المستخدم")
+            .setView(layout)
+            .setPositiveButton("تحذير", (dialog, which) -> {
+                try {
+                    String reason = reasonInput.getText().toString();
+                    int points = Integer.parseInt(pointsInput.getText().toString());
+                    executeAction(message, "WARN_USER", reason, points);
+                } catch (NumberFormatException e) {
+                    Toast.makeText(context, "نقاط غير صحيحة", Toast.LENGTH_SHORT).show();
+                }
+            })
+            .setNegativeButton("إلغاء", null)
+            .show();
+    }
+
+    private void showSuspendAccountDialog(UserMessageManager.UserMessage message) {
+        LinearLayout layout = new LinearLayout(context);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setPadding(20, 20, 20, 20);
+
+        EditText reasonInput = new EditText(context);
+        reasonInput.setHint("سبب التعليق");
+        layout.addView(reasonInput);
+
+        EditText daysInput = new EditText(context);
+        daysInput.setHint("عدد الأيام (1-365)");
+        daysInput.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+        layout.addView(daysInput);
+
+        new AlertDialog.Builder(context)
+            .setTitle("تعليق الحساب")
+            .setView(layout)
+            .setPositiveButton("تعليق", (dialog, which) -> {
+                try {
+                    String reason = reasonInput.getText().toString();
+                    int days = Integer.parseInt(daysInput.getText().toString());
+                    executeAction(message, "SUSPEND_ACCOUNT", days, reason);
+                } catch (NumberFormatException e) {
+                    Toast.makeText(context, "عدد أيام غير صحيح", Toast.LENGTH_SHORT).show();
+                }
+            })
+            .setNegativeButton("إلغاء", null)
+            .show();
+    }
+
+    private void showReplyDialog(UserMessageManager.UserMessage message) {
+        EditText input = new EditText(context);
+        input.setHint("اكتب ردك هنا...");
+        input.setLines(3);
+
+        new AlertDialog.Builder(context)
+            .setTitle("الرد على المستخدم")
+            .setMessage("الرد على: " + message.getUsername())
+            .setView(input)
+            .setPositiveButton("إرسال", (dialog, which) -> {
+                String reply = input.getText().toString();
+                executeAction(message, "REPLY_TO_USER", reply);
+            })
+            .setNegativeButton("إلغاء", null)
+            .show();
+    }
+
+    private void executeAction(UserMessageManager.UserMessage message, String actionType, Object... params) {
+        messageManager.executeMessageActionAsync(message.getMessageId(), actionType, params)
+            .thenAccept(result -> {
+                if (result.isSuccess()) {
+                    Toast.makeText(context, result.getMessage(), Toast.LENGTH_LONG).show();
+                    loadMessages(); // تحديث القائمة
+                } else {
+                    Toast.makeText(context, "فشل الإجراء: " + result.getMessage(), Toast.LENGTH_LONG).show();
+                }
+            });
+    }
+
+    private void deleteMessage(UserMessageManager.UserMessage message) {
+        executeAction(message, "DELETE_MESSAGE");
+    }
+
+    private void forwardToSupport(UserMessageManager.UserMessage message) {
+        executeAction(message, "FORWARD_TO_SUPPORT", "GENERAL_SUPPORT");
+    }
+
+    private void markAsRead(UserMessageManager.UserMessage message) {
+        executeAction(message, "MARK_AS_READ");
+    }
+
+    private void markAsImportant(UserMessageManager.UserMessage message) {
+        executeAction(message, "MARK_AS_IMPORTANT");
+    }
+
+    private void exportMessage(UserMessageManager.UserMessage message) {
+        executeAction(message, "EXPORT_MESSAGE", "JSON");
+    }
+
+    /**
+     * محول الرسائل
+     */
+    private static final class MessageAdapter extends BaseAdapter {
+        private final Context context;
+        private List<UserMessageManager.UserMessage> messages;
+
+        public MessageAdapter(Context context) {
+            this.context = context.getApplicationContext();
+            this.messages = List.of();
+        }
+
+        public void updateMessages(List<UserMessageManager.UserMessage> newMessages) {
+            this.messages = newMessages;
+            notifyDataSetChanged();
+        }
+
+        @Override
+        public int getCount() {
+            return messages.size();
+        }
+
+        @Override
+        public UserMessageManager.UserMessage getItem(int position) {
+            return messages.get(position);
+        }
+
+        @Override
+        public long getItemId(int position) {
+            return position;
+        }
+
+        @Override
+        public View getView(int position, View convertView, ViewGroup parent) {
+            if (convertView == null) {
+                convertView = new LinearLayout(context);
+                ((LinearLayout) convertView).setOrientation(LinearLayout.VERTICAL);
+                convertView.setPadding(20, 20, 20, 20);
+            }
+
+            UserMessageManager.UserMessage message = getItem(position);
+            LinearLayout layout = (LinearLayout) convertView;
+
+            // إزالة العناصر السابقة
+            layout.removeAllViews();
+
+            // إضافة معلومات الرسالة
+            TextView userText = new TextView(context);
+            userText.setText("المستخدم: " + message.getUsername());
+            userText.setTextColor(Color.WHITE);
+            userText.setTextSize(16);
+            layout.addView(userText);
+
+            TextView typeText = new TextView(context);
+            typeText.setText("النوع: " + message.getMessageType());
+            typeText.setTextColor(Color.GRAY);
+            typeText.setTextSize(14);
+            layout.addView(typeText);
+
+            TextView contentText = new TextView(context);
+            contentText.setText("المحتوى: " + message.getContent());
+            contentText.setTextColor(Color.LTGRAY);
+            contentText.setTextSize(12);
+            contentText.setMaxLines(2);
+            contentText.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            layout.addView(contentText);
+
+            TextView timeText = new TextView(context);
+            timeText.setText("الوقت: " + message.getTimestamp().toString());
+            timeText.setTextColor(Color.DKGRAY);
+            timeText.setTextSize(10);
+            layout.addView(timeText);
+
+            // تلوين الخلفية حسب الحالة
+            if (message.isImportant()) {
+                convertView.setBackgroundColor(Color.parseColor("#37474F"));
+            } else if (!message.isRead()) {
+                convertView.setBackgroundColor(Color.parseColor("#263238"));
+            } else {
+                convertView.setBackgroundColor(Color.TRANSPARENT);
+            }
+
+            return convertView;
+        }
+    }
+
+    // --- Getters ---
+    public int getMessageCount() { return messageAdapter.getCount(); }
+    public boolean isLoading() { return loadingIndicator.getVisibility() == View.VISIBLE; }
+    public String getStatusText() { return statusText.getText().toString(); }
+    
+    /**
+     * تحديث ديناميكي للوحة (للاختبارات)
+     */
+    public void refreshDashboard() {
+        loadMessages();
+        System.out.println("ADMIN MESSAGE DASHBOARD: Refreshed");
+    }
+}
