@@ -2,30 +2,128 @@ package mazdady.security;
 
 import android.content.Context;
 
-public class SecurityMonitor {
-    private Context context;
+import java.time.Instant;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
+
+/**
+ * مراقب الأمان مع دعم التنبيهات الحية
+ * يتبع نمط Observer لإعلام المكونات بالأنشطة المشبوهة
+ */
+public final class SecurityMonitor {
+    private final Context context;
+    private final CopyOnWriteArrayList<Consumer<SecurityEvent>> listeners = new CopyOnWriteArrayList<>();
+    private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
     private int suspiciousActivityCount = 0;
     private static final int MAX_SUSPICIOUS_ACTIVITIES = 3;
 
-    public SecurityMonitor(Context context) {
-        this.context = context;
+    private SecurityMonitor(Context context) {
+        this.context = context.getApplicationContext();
+        startSecurityMonitoring();
     }
 
+    public static SecurityMonitor create(Context context) {
+        return new SecurityMonitor(context);
+    }
+
+    private void startSecurityMonitoring() {
+        scheduler.scheduleAtFixedRate(
+            this::performSecurityCheck,
+            0,
+            5,
+            TimeUnit.MINUTES
+        );
+    }
+
+    /**
+     * الإبلاغ عن نشاط مشبوه
+     */
     public void reportSuspiciousActivity(String activityType) {
         suspiciousActivityCount++;
-        System.out.println("نشاط مشبوه: " + activityType + " (العدد: " + suspiciousActivityCount + ")");
+        SecurityEvent event = new SecurityEvent(
+            activityType,
+            "Suspicious activity #" + suspiciousActivityCount,
+            Instant.now()
+        );
+        notifyListeners(event);
 
         if (suspiciousActivityCount >= MAX_SUSPICIOUS_ACTIVITIES) {
             triggerSecurityLockdown();
         }
     }
 
+    private void performSecurityCheck() {
+        // التحقق من سلامة التطبيق
+        if (!AppIntegrityChecker.create(context).isAppIntegrityValid()) {
+            reportSuspiciousActivity("MODIFIED_APP");
+        }
+        
+        // التحقق من الجذور
+        if (RootDetector.isDeviceRooted()) {
+            reportSuspiciousActivity("ROOTED_DEVICE");
+        }
+    }
+
     private void triggerSecurityLockdown() {
+        SecurityEvent event = new SecurityEvent(
+            "SECURITY_LOCKDOWN",
+            "Security lockdown triggered due to excessive suspicious activities",
+            Instant.now()
+        );
+        notifyListeners(event);
+        
         // في الإنتاج: تجميد الحساب، إرسال تنبيه للادمن
-        System.out.println("🚨 تم تفعيل قفل الأمان! الحساب مجمد مؤقتًا.");
+        System.out.println("🚨 SECURITY LOCKDOWN: Account frozen due to suspicious activities");
+    }
+
+    private void notifyListeners(SecurityEvent event) {
+        listeners.forEach(listener -> {
+            try {
+                listener.accept(event);
+            } catch (Exception e) {
+                // تجاهل أخطاء المستمعين
+            }
+        });
+    }
+
+    public void addSecurityListener(Consumer<SecurityEvent> listener) {
+        listeners.add(listener);
+    }
+
+    public void removeSecurityListener(Consumer<SecurityEvent> listener) {
+        listeners.remove(listener);
     }
 
     public void resetSuspiciousCount() {
         suspiciousActivityCount = 0;
+    }
+
+    /**
+     * حدث الأمان
+     */
+    public static final class SecurityEvent {
+        private final String type;
+        private final String description;
+        private final Instant timestamp;
+
+        public SecurityEvent(String type, String description, Instant timestamp) {
+            this.type = type;
+            this.description = description;
+            this.timestamp = timestamp;
+        }
+
+        public String getType() { return type; }
+        public String getDescription() { return description; }
+        public Instant getTimestamp() { return timestamp; }
+    }
+
+    /**
+     * إيقاف المراقب (للاختبارات)
+     */
+    public void shutdown() {
+        scheduler.shutdown();
     }
 }
