@@ -1,0 +1,113 @@
+package mazdady.error;
+
+import android.app.Activity;
+import android.app.Application;
+import android.content.Context;
+
+import java.lang.Thread.UncaughtExceptionHandler;
+import java.time.Instant;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.Consumer;
+
+/**
+ * معالج الاستثناءات العالمي مع دعم التقارير المتقدمة
+ * يتبع نمط Observer لإعلام المكونات بالأخطاء غير المعالجة
+ */
+public final class GlobalExceptionHandler implements UncaughtExceptionHandler {
+    private final UncaughtExceptionHandler defaultHandler;
+    private final CopyOnWriteArrayList<Consumer<ErrorEvent>> listeners = new CopyOnWriteArrayList<>();
+    private static GlobalExceptionHandler instance;
+
+    private GlobalExceptionHandler(Application application) {
+        this.defaultHandler = Thread.getDefaultUncaughtExceptionHandler();
+        Thread.setDefaultUncaughtExceptionHandler(this);
+        application.registerActivityLifecycleCallbacks(new ActivityLifecycleCallbacks());
+    }
+
+    public static synchronized void initialize(Application application) {
+        if (instance == null) {
+            instance = new GlobalExceptionHandler(application);
+        }
+    }
+
+    public static GlobalExceptionHandler getInstance() {
+        if (instance == null) {
+            throw new IllegalStateException("GlobalExceptionHandler not initialized. Call initialize() first.");
+        }
+        return instance;
+    }
+
+    @Override
+    public void uncaughtException(Thread thread, Throwable throwable) {
+        ErrorEvent event = new ErrorEvent(throwable, Instant.now(), getCurrentActivity());
+        notifyListeners(event);
+        
+        // حفظ تقرير العطل
+        CrashReporter.getInstance().saveCrashReport(event);
+        
+        // استدعاء المعالج الافتراضي (لإنهاء التطبيق)
+        if (defaultHandler != null) {
+            defaultHandler.uncaughtException(thread, throwable);
+        }
+    }
+
+    private void notifyListeners(ErrorEvent event) {
+        listeners.forEach(listener -> {
+            try {
+                listener.accept(event);
+            } catch (Exception e) {
+                // تجاهل أخطاء المستمعين لتجنب التكرار
+            }
+        });
+    }
+
+    public void addErrorListener(Consumer<ErrorEvent> listener) {
+        listeners.add(listener);
+    }
+
+    public void removeErrorListener(Consumer<ErrorEvent> listener) {
+        listeners.remove(listener);
+    }
+
+    private Activity getCurrentActivity() {
+        return ActivityLifecycleCallbacks.getCurrentActivity();
+    }
+
+    /**
+     * حدث الخطأ
+     */
+    public static final class ErrorEvent {
+        private final Throwable throwable;
+        private final Instant timestamp;
+        private final Activity activity;
+
+        public ErrorEvent(Throwable throwable, Instant timestamp, Activity activity) {
+            this.throwable = throwable;
+            this.timestamp = timestamp;
+            this.activity = activity;
+        }
+
+        public Throwable getThrowable() { return throwable; }
+        public Instant getTimestamp() { return timestamp; }
+        public Activity getActivity() { return activity; }
+    }
+
+    /**
+     * مراقب دورة حياة النشاط
+     */
+    private static final class ActivityLifecycleCallbacks implements Application.ActivityLifecycleCallbacks {
+        private static volatile Activity currentActivity;
+
+        @Override public void onActivityCreated(Activity activity, android.os.Bundle savedInstanceState) {}
+        @Override public void onActivityStarted(Activity activity) {}
+        @Override public void onActivityResumed(Activity activity) { currentActivity = activity; }
+        @Override public void onActivityPaused(Activity activity) {}
+        @Override public void onActivityStopped(Activity activity) {}
+        @Override public void onActivitySaveInstanceState(Activity activity, android.os.Bundle outState) {}
+        @Override public void onActivityDestroyed(Activity activity) { if (currentActivity == activity) currentActivity = null; }
+
+        public static Activity getCurrentActivity() {
+            return currentActivity;
+        }
+    }
+}
