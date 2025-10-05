@@ -1,40 +1,266 @@
 package mazdady.admin;
 
 import mazdady.trading.PriceEngine;
+import mazdady.user.UserManager;
+import mazdady.security.SecurityMonitor;
+
+import java.time.Instant;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * لوحة التلاعب بالسعر مع دعم الاختبار الآمن
- * مخصصة للاستخدام في بيئة التطوير فقط
+ * لوحة التلاعب بالأسعار مع دعم التلاعب الديناميكي والحماية المتقدمة
+ * يتبع نمط Facade لتوفير واجهة موحدة
  */
 public final class PriceManipulationPanel {
     private final PriceEngine priceEngine;
+    private final SecurityMonitor securityMonitor;
+    private final AtomicReference<ManipulationState> currentState = new AtomicReference<>(new NormalState());
+    private static PriceManipulationPanel instance;
 
-    private static final PriceManipulationPanel INSTANCE = new PriceManipulationPanel();
-
-    private PriceManipulationPanel() {
-        this.priceEngine = new PriceEngine();
+    private PriceManipulationPanel(PriceEngine priceEngine, SecurityMonitor securityMonitor) {
+        this.priceEngine = priceEngine;
+        this.securityMonitor = securityMonitor;
     }
 
-    public static PriceManipulationPanel getInstance() {
-        return INSTANCE;
-    }
-
-    public void setFixedPrice(double price) {
-        if (price <= 0) {
-            throw new IllegalArgumentException("Price must be positive");
+    public static synchronized PriceManipulationPanel getInstance(
+        PriceEngine priceEngine, 
+        SecurityMonitor securityMonitor
+    ) {
+        if (instance == null) {
+            instance = new PriceManipulationPanel(priceEngine, securityMonitor);
         }
-        // في الإنتاج: تعيين سعر ثابت (للاختبار فقط)
-        System.out.println("PRICE FIXED: Set to " + price + " MAZDADY");
+        return instance;
     }
 
-    public void applyPriceMultiplier(double multiplier) {
-        if (multiplier <= 0) {
-            throw new IllegalArgumentException("Multiplier must be positive");
+    /**
+     * تعيين سعر ثابت غير متزامن
+     */
+    public CompletableFuture<ManipulationResult> setFixedPriceAsync(double price) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                if (price <= 0) {
+                    return ManipulationResult.failure("Invalid price");
+                }
+                
+                // تسجيل محاولة التلاعب
+                String adminId = UserManager.getInstance(null).getCurrentUser().getUserId();
+                securityMonitor.reportPriceManipulationAttempt(adminId, "SET_FIXED_PRICE", price);
+                
+                // تغيير الحالة إلى وضع التلاعب
+                currentState.set(new FixedPriceState(price));
+                
+                // تعيين السعر في محرك الأسعار
+                priceEngine.setCurrentPrice(price);
+                
+                System.out.println("PRICE MANIPULATION PANEL: Fixed price set to " + price + " MAZDADY");
+                
+                return ManipulationResult.success("Fixed price set to " + price + " MAZDADY");
+                
+            } catch (Exception e) {
+                return ManipulationResult.failure("Price manipulation failed: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * تطبيق مضاعف السعر غير متزامن
+     */
+    public CompletableFuture<ManipulationResult> applyPriceMultiplierAsync(double multiplier) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                if (multiplier <= 0) {
+                    return ManipulationResult.failure("Invalid multiplier");
+                }
+                
+                // تسجيل محاولة التلاعب
+                String adminId = UserManager.getInstance(null).getCurrentUser().getUserId();
+                securityMonitor.reportPriceManipulationAttempt(adminId, "APPLY_MULTIPLIER", multiplier);
+                
+                // تغيير الحالة إلى وضع التلاعب
+                currentState.set(new MultiplierState(multiplier));
+                
+                // تطبيق المضاعف على السعر الحالي
+                double currentPrice = priceEngine.getCurrentPrice();
+                double newPrice = currentPrice * multiplier;
+                priceEngine.setCurrentPrice(newPrice);
+                
+                System.out.println("PRICE MANIPULATION PANEL: Price multiplied by " + multiplier + 
+                                 " - New price: " + String.format("%.2f", newPrice) + " MAZDADY");
+                
+                return ManipulationResult.success("Price multiplied by " + multiplier + 
+                                                " - New price: " + String.format("%.2f", newPrice) + " MAZDADY");
+                
+            } catch (Exception e) {
+                return ManipulationResult.failure("Price multiplication failed: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * إعادة السعر الطبيعي غير متزامن
+     */
+    public CompletableFuture<ManipulationResult> resetToMarketPriceAsync() {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                // تسجيل محاولة إعادة السعر
+                String adminId = UserManager.getInstance(null).getCurrentUser().getUserId();
+                securityMonitor.reportPriceManipulationAttempt(adminId, "RESET_TO_MARKET", 0.0);
+                
+                // تغيير الحالة إلى الوضع الطبيعي
+                currentState.set(new NormalState());
+                
+                // إعادة السعر الطبيعي (في الإنتاج: من مصدر خارجي)
+                priceEngine.setCurrentPrice(100.0);
+                
+                System.out.println("PRICE MANIPULATION PANEL: Price reset to market price (100.0 MAZDADY)");
+                
+                return ManipulationResult.success("Price reset to market price (100.0 MAZDADY)");
+                
+            } catch (Exception e) {
+                return ManipulationResult.failure("Price reset failed: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * تطبيق تذبذب سعري غير متزامن
+     */
+    public CompletableFuture<ManipulationResult> applyPriceFluctuationAsync(
+        double amplitude, 
+        long durationSeconds
+    ) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                if (amplitude <= 0 || durationSeconds <= 0) {
+                    return ManipulationResult.failure("Invalid fluctuation parameters");
+                }
+                
+                // تسجيل محاولة التلاعب
+                String adminId = UserManager.getInstance(null).getCurrentUser().getUserId();
+                securityMonitor.reportPriceManipulationAttempt(adminId, "APPLY_FLUCTUATION", amplitude);
+                
+                // تغيير الحالة إلى وضع التذبذب
+                currentState.set(new FluctuationState(amplitude, durationSeconds));
+                
+                // تطبيق التذبذب (في الإنتاج: عبر خوارزمية خاصة)
+                startPriceFluctuation(amplitude, durationSeconds);
+                
+                System.out.println("PRICE MANIPULATION PANEL: Price fluctuation applied - " + 
+                                 "Amplitude: " + amplitude + ", Duration: " + durationSeconds + " seconds");
+                
+                return ManipulationResult.success("Price fluctuation applied successfully");
+                
+            } catch (Exception e) {
+                return ManipulationResult.failure("Price fluctuation failed: " + e.getMessage());
+            }
+        });
+    }
+
+    private void startPriceFluctuation(double amplitude, long durationSeconds) {
+        // في الإنتاج: بدء تذبذب السعر تدريجيًا
+        System.out.println("PRICE FLUCTUATION: Started with amplitude " + amplitude + 
+                         " for " + durationSeconds + " seconds");
+    }
+
+    /**
+     * الحصول على حالة التلاعب الحالية
+     */
+    public ManipulationState getCurrentState() {
+        return currentState.get();
+    }
+
+    /**
+     * نتيجة التلاعب
+     */
+    public static final class ManipulationResult {
+        private final boolean success;
+        private final String message;
+
+        private ManipulationResult(boolean success, String message) {
+            this.success = success;
+            this.message = message;
         }
-        System.out.println("PRICE MULTIPLIER: Applied " + multiplier + "x multiplier");
+
+        public static ManipulationResult success(String message) {
+            return new ManipulationResult(true, message);
+        }
+
+        public static ManipulationResult failure(String message) {
+            return new ManipulationResult(false, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public String getMessage() { return message; }
     }
 
-    public void resetToMarketPrice() {
-        System.out.println("PRICE RESET: Returned to natural market price");
+    /**
+     * حالة التلاعب
+     */
+    private interface ManipulationState {
+        String getName();
+        void apply(PriceEngine priceEngine);
+    }
+
+    // --- حالات التلاعب ---
+    private static final class NormalState implements ManipulationState {
+        @Override public String getName() { return "NORMAL"; }
+        @Override public void apply(PriceEngine priceEngine) {
+            // في الإنتاج: استعادة السعر الطبيعي
+            System.out.println("MANIPULATION STATE: Normal state applied");
+        }
+    }
+
+    private static final class FixedPriceState implements ManipulationState {
+        private final double fixedPrice;
+
+        public FixedPriceState(double fixedPrice) {
+            this.fixedPrice = fixedPrice;
+        }
+
+        @Override public String getName() { return "FIXED_PRICE"; }
+        @Override public void apply(PriceEngine priceEngine) {
+            priceEngine.setCurrentPrice(fixedPrice);
+            System.out.println("MANIPULATION STATE: Fixed price " + fixedPrice + " applied");
+        }
+
+        public double getFixedPrice() { return fixedPrice; }
+    }
+
+    private static final class MultiplierState implements ManipulationState {
+        private final double multiplier;
+
+        public MultiplierState(double multiplier) {
+            this.multiplier = multiplier;
+        }
+
+        @Override public String getName() { return "MULTIPLIER"; }
+        @Override public void apply(PriceEngine priceEngine) {
+            double currentPrice = priceEngine.getCurrentPrice();
+            priceEngine.setCurrentPrice(currentPrice * multiplier);
+            System.out.println("MANIPULATION STATE: Multiplier " + multiplier + " applied");
+        }
+
+        public double getMultiplier() { return multiplier; }
+    }
+
+    private static final class FluctuationState implements ManipulationState {
+        private final double amplitude;
+        private final long durationSeconds;
+
+        public FluctuationState(double amplitude, long durationSeconds) {
+            this.amplitude = amplitude;
+            this.durationSeconds = durationSeconds;
+        }
+
+        @Override public String getName() { return "FLUCTUATION"; }
+        @Override public void apply(PriceEngine priceEngine) {
+            // في الإنتاج: تطبيق التذبذب
+            System.out.println("MANIPULATION STATE: Fluctuation applied - Amplitude: " + 
+                             amplitude + ", Duration: " + durationSeconds + " seconds");
+        }
+
+        public double getAmplitude() { return amplitude; }
+        public long getDurationSeconds() { return durationSeconds; }
     }
 }
