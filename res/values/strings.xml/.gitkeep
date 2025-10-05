@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- عناصر الواجهة الأساسية -->
+    <string name="app_name">MAZDADY</string>
+    <string name="balance_placeholder">الرصيد: 0.00 MAZDADY</string>
+    <string name="buy">شراء</string>
+    <string name="sell">بيع</string>
+    <string name="investment_info">الاستثمار: 1 MAZDADY</string>
+    <string name="menu">القائمة</string>
+    <string name="close">إغلاق</string>
+    
+    <!-- عناصر الـ Popup -->
+    <string name="popup_title">العنوان</string>
+    <string name="popup_content">المحتوى</string>
+    
+    <!-- رسائل الخطأ -->
+    <string name="network_error_title">خطأ في الاتصال</string>
+    <string name="network_error_message">يرجى التحقق من اتصالك بالإنترنت والمحاولة مرة أخرى.</string>
+    <string name="retry_button">إعادة المحاولة</string>
+    
+    <!-- رسائل KYC -->
+    <string name="kyc_required_title">توثيق الهوية مطلوب</string>
+    <string name="kyc_required_message">يجب توثيق هويتك قبل استخدام هذه الميزة.</string>
+    <string name="verify_button">توثيق الهوية</string>
+</resources>
