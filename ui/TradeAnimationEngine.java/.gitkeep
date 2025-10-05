@@ -1,0 +1,223 @@
+package mazdady.ui;
+
+import android.animation.ObjectAnimator;
+import android.animation.ValueAnimator;
+import android.graphics.Color;
+import android.view.View;
+import android.view.animation.BounceInterpolator;
+import android.view.animation.OvershootInterpolator;
+import android.widget.Button;
+import android.widget.TextView;
+
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+
+/**
+ * رسومية التداول مع دعم التأثيرات التفاعلية
+ * يتبع نمط Observer لمراقبة أحداث التداول
+ */
+public final class TradeAnimationEngine {
+    private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+    private final View tradingView;
+    private volatile boolean animationsEnabled = true;
+    private volatile int tradeCount = 0;
+
+    public TradeAnimationEngine(View tradingView) {
+        this.tradingView = tradingView;
+    }
+
+    /**
+     * تأثير التداول الناجح
+     */
+    public void animateSuccessfulTrade(double amount, boolean isBuy) {
+        if (!animationsEnabled) return;
+
+        try {
+            // تأثير الوميض للشاشة
+            animateScreenFlash(isBuy ? Color.GREEN : Color.RED);
+
+            // تأثير الارتفاع للزر
+            animateButtonLift(isBuy);
+
+            // تأثير العد التنازلي للمبلغ
+            animateAmountCounter(amount);
+
+            // تأثير الدخول للمستخدمين الجدد
+            animateUserEntry();
+
+            // زيادة عدد التداولات
+            tradeCount++;
+
+            System.out.println("TRADE ANIMATION: Successful trade animated - Amount: " + amount);
+        } catch (Exception e) {
+            System.err.println("TRADE ANIMATION ERROR: " + e.getMessage());
+        }
+    }
+
+    /**
+     * تأثير الوميض للشاشة
+     */
+    private void animateScreenFlash(int flashColor) {
+        ValueAnimator flashAnimator = ValueAnimator.ofArgb(
+            Color.TRANSPARENT, 
+            flashColor & 0x33FFFFFF, // شفافية 20%
+            Color.TRANSPARENT
+        );
+        flashAnimator.addUpdateListener(animation -> {
+            int color = (Integer) animation.getAnimatedValue();
+            tradingView.setBackgroundColor(color);
+        });
+        flashAnimator.setDuration(1000);
+        flashAnimator.start();
+    }
+
+    /**
+     * تأثير الارتفاع للزر
+     */
+    private void animateButtonLift(boolean isBuy) {
+        View targetButton = tradingView.findViewById(isBuy ? R.id.buy_button : R.id.sell_button);
+        if (targetButton != null) {
+            ObjectAnimator lift = ObjectAnimator.ofFloat(targetButton, "translationY", 0f, -30f, 0f);
+            lift.setDuration(600);
+            lift.setInterpolator(new BounceInterpolator());
+            lift.start();
+        }
+    }
+
+    /**
+     * تأثير العد التنازلي للمبلغ
+     */
+    private void animateAmountCounter(double amount) {
+        TextView amountView = tradingView.findViewById(R.id.amount_counter);
+        if (amountView != null) {
+            ValueAnimator counter = ValueAnimator.ofFloat(0f, (float) amount);
+            counter.addUpdateListener(animation -> {
+                float value = (Float) animation.getAnimatedValue();
+                amountView.setText(String.format("%.2f", value));
+            });
+            counter.setDuration(1500);
+            counter.start();
+        }
+    }
+
+    /**
+     * تأثير دخول المستخدمين الجدد
+     */
+    private void animateUserEntry() {
+        // في الإنتاج: عرض تأثير دخول المستخدمين الجدد
+        System.out.println("TRADE ANIMATION: User entry effect triggered");
+    }
+
+    /**
+     * تأثير التداول المكثف
+     */
+    public void animateIntensiveTrading(int tradeIntensity) {
+        if (!animationsEnabled) return;
+
+        try {
+            // تأثير الاهتزاز
+            animateVibrationEffect(tradeIntensity);
+
+            // تأثير تغير الألوان السريعة
+            animateRapidColorChanges(tradeIntensity);
+
+            // تأثير الدوران المتكرر
+            animateRepeatedRotation(tradeIntensity);
+
+            System.out.println("TRADE ANIMATION: Intensive trading animated - Intensity: " + tradeIntensity);
+        } catch (Exception e) {
+            System.err.println("INTENSIVE TRADE ERROR: " + e.getMessage());
+        }
+    }
+
+    private void animateVibrationEffect(int intensity) {
+        if (intensity > 5) {
+            // في الإنتاج: تأثير اهتزاز الجهاز
+            System.out.println("TRADE ANIMATION: Vibration effect triggered - Intensity: " + intensity);
+        }
+    }
+
+    private void animateRapidColorChanges(int intensity) {
+        TextView priceView = tradingView.findViewById(R.id.price_view);
+        if (priceView != null) {
+            int[] colors = {
+                Color.RED, Color.YELLOW, Color.GREEN, Color.CYAN, Color.BLUE, Color.MAGENTA
+            };
+            
+            ValueAnimator colorAnimator = ValueAnimator.ofArgb(colors);
+            colorAnimator.addUpdateListener(animation -> {
+                int color = (Integer) animation.getAnimatedValue();
+                priceView.setTextColor(color);
+            });
+            colorAnimator.setDuration(1000);
+            colorAnimator.setRepeatCount(intensity);
+            colorAnimator.start();
+        }
+    }
+
+    private void animateRepeatedRotation(int intensity) {
+        View tradingLine = tradingView.findViewById(R.id.trading_line);
+        if (tradingLine != null) {
+            ObjectAnimator rotation = ObjectAnimator.ofFloat(tradingLine, "rotation", 0f, 360f);
+            rotation.setDuration(2000 / intensity);
+            rotation.setRepeatCount(intensity);
+            rotation.start();
+        }
+    }
+
+    /**
+     * تأثير نهاية التداول
+     */
+    public void animateTradingEnd() {
+        if (!animationsEnabled) return;
+
+        try {
+            // تأثير التلاشي التدريجي
+            animateGradualFadeOut();
+
+            // تأثير التهانينا
+            animateCongratulations();
+
+            // إعادة تعيين عدد التداولات
+            tradeCount = 0;
+
+            System.out.println("TRADE ANIMATION: Trading session ended with animations");
+        } catch (Exception e) {
+            System.err.println("TRADING END ERROR: " + e.getMessage());
+        }
+    }
+
+    private void animateGradualFadeOut() {
+        ObjectAnimator fadeOut = ObjectAnimator.ofFloat(tradingView, "alpha", 1f, 0f);
+        fadeOut.setDuration(2000);
+        fadeOut.start();
+    }
+
+    private void animateCongratulations() {
+        // في الإنتاج: عرض رسالة تهانينا مع تأثيرات خاصة
+        System.out.println("TRADE ANIMATION: Congratulations animation triggered");
+    }
+
+    /**
+     * تأثيرات المستخدمين المتقدمين
+     */
+    public void animateProUserFeatures() {
+        // في الإنتاج: تفعيل تأثيرات خاصة للمستخدمين المتقدمين
+        System.out.println("TRADE ANIMATION: Pro user features animated");
+    }
+
+    /**
+     * تأثيرات المستخدمين الجدد
+     */
+    public void animateNewUserFeatures() {
+        // في الإنتاج: تفعيل تأثيرات مبسطة للمستخدمين الجدد
+        System.out.println("TRADE ANIMATION: New user features animated");
+    }
+
+    // --- Getters/Setters ---
+    public boolean isAnimationsEnabled() { return animationsEnabled; }
+    public void setAnimationsEnabled(boolean enabled) { this.animationsEnabled = enabled; }
+    public int getTradeCount() { return tradeCount; }
+    public void resetTradeCount() { this.tradeCount = 0; }
+}
