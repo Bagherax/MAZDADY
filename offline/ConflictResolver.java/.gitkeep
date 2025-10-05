@@ -1,0 +1,72 @@
+package mazdady.offline;
+
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.BiFunction;
+
+/**
+ * محلل التعارضات مع دعم استراتيجيات الحل المتقدمة
+ * يتبع نمط Strategy لفصل استراتيجيات حل التعارضات
+ */
+public final class ConflictResolver {
+    private final Map<String, BiFunction<Object, Object, Object>> conflictStrategies = new ConcurrentHashMap<>();
+    private static final ConflictResolver INSTANCE = new ConflictResolver();
+
+    private ConflictResolver() {
+        initializeConflictStrategies();
+    }
+
+    public static ConflictResolver getInstance() {
+        return INSTANCE;
+    }
+
+    private void initializeConflictStrategies() {
+        // استراتيجية دمج الرصيد (المبلغ الأعلى يفوز)
+        conflictStrategies.put("balance", (local, remote) -> {
+            double localBalance = ((Number) local).doubleValue();
+            double remoteBalance = ((Number) remote).doubleValue();
+            return Math.max(localBalance, remoteBalance);
+        });
+        
+        // استراتيجية دمج المستوى (المستوى الأعلى يفوز)
+        conflictStrategies.put("level", (local, remote) -> {
+            int localLevel = ((Number) local).intValue();
+            int remoteLevel = ((Number) remote).intValue();
+            return Math.max(localLevel, remoteLevel);
+        });
+        
+        // استراتيجية دمج الإعدادات (الإعدادات المحلية تفوز)
+        conflictStrategies.put("settings", (local, remote) -> local);
+    }
+
+    /**
+     * حل تعارض بين القيمة المحلية والقيمة البعيدة
+     */
+    public Object resolveConflict(String dataType, Object localValue, Object remoteValue) {
+        BiFunction<Object, Object, Object> strategy = conflictStrategies.get(dataType);
+        if (strategy != null) {
+            Object resolved = strategy.apply(localValue, remoteValue);
+            System.out.println("CONFLICT RESOLVED: " + dataType + " - Local: " + localValue + 
+                              ", Remote: " + remoteValue + " => " + resolved);
+            return resolved;
+        }
+        
+        // استراتيجية افتراضية (القيمة البعيدة تفوز)
+        System.out.println("CONFLICT RESOLVED (DEFAULT): " + dataType + " - Remote value wins");
+        return remoteValue;
+    }
+
+    /**
+     * إضافة استراتيجية حل تعارض مخصصة
+     */
+    public void addConflictStrategy(String dataType, BiFunction<Object, Object, Object> strategy) {
+        conflictStrategies.put(dataType, strategy);
+    }
+
+    /**
+     * التحقق من وجود استراتيجية لحل التعارض
+     */
+    public boolean hasConflictStrategy(String dataType) {
+        return conflictStrategies.containsKey(dataType);
+    }
+}
