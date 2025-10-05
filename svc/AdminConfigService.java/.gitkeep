@@ -1,0 +1,70 @@
+package mazdady.svc;
+
+import mazdady.admin.AdminConfig;
+
+import java.util.concurrent.CompletableFuture;
+
+/**
+ * خدمة إعدادات الإدارة مع دعم التحديث الديناميكي
+ * يتبع نمط Facade لتوفير واجهة موحدة
+ */
+public final class AdminConfigService {
+    private static AdminConfigService instance;
+
+    private AdminConfigService() {}
+
+    public static synchronized AdminConfigService getInstance() {
+        if (instance == null) {
+            instance = new AdminConfigService();
+        }
+        return instance;
+    }
+
+    /**
+     * تحديث إعدادات الإدارة غير المتزامن
+     */
+    public CompletableFuture<ConfigResult> updateConfigAsync(String configKey, Object value) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                // في الإنتاج: تحديث عبر API أو GitHub
+                System.out.println("CONFIG UPDATED: " + configKey + " = " + value);
+                return ConfigResult.success("Configuration updated successfully");
+                
+            } catch (Exception e) {
+                return ConfigResult.failure("Configuration update failed: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * تحديث إعدادات واجهة المستخدم
+     */
+    public void updateUIConfig(String elementId, String property, String value) {
+        // في الإنتاج: تحديث config.json
+        System.out.println("UI CONFIG UPDATED: " + elementId + "." + property + " = " + value);
+    }
+
+    /**
+     * نتيجة الإعدادات
+     */
+    public static final class ConfigResult {
+        private final boolean success;
+        private final String message;
+
+        private ConfigResult(boolean success, String message) {
+            this.success = success;
+            this.message = message;
+        }
+
+        public static ConfigResult success(String message) {
+            return new ConfigResult(true, message);
+        }
+
+        public static ConfigResult failure(String message) {
+            return new ConfigResult(false, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public String getMessage() { return message; }
+    }
+}
