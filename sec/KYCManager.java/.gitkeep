@@ -1,0 +1,125 @@
+package mazdady.sec;
+
+import mazdady.user.User;
+import mazdady.user.KYCStatus;
+
+import java.time.Instant;
+import java.util.concurrent.CompletableFuture;
+import java.util.function.Predicate;
+
+/**
+ * مدير KYC مع دعم التحقق المتعدد المستويات
+ * يتبع نمط Strategy لفصل مستويات التحقق
+ */
+public final class KYCManager {
+    private final KYCValidator kycValidator;
+    private static KYCManager instance;
+
+    private KYCManager(KYCValidator kycValidator) {
+        this.kycValidator = kycValidator;
+    }
+
+    public static synchronized KYCManager getInstance(KYCValidator kycValidator) {
+        if (instance == null) {
+            instance = new KYCManager(kycValidator);
+        }
+        return instance;
+    }
+
+    /**
+     * بدء عملية KYC غير المتزامنة
+     */
+    public CompletableFuture<KYCResult> startKYCAsync(User user, DocumentType documentType, String documentData) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                // التحقق من صحة المستند
+                if (!validateDocument(documentData, documentType)) {
+                    return KYCResult.failure("Invalid document data");
+                }
+                
+                // التحقق من هوية المستخدم
+                KYCValidator.KYCResult validation = kycValidator.validateIdentity(user, documentType, documentData);
+                if (!validation.isSuccess()) {
+                    return KYCResult.failure(validation.getMessage());
+                }
+                
+                // تفعيل حالة KYC
+                KYCStatus status = new KYCStatus();
+                status.markAsVerified(documentType.name(), generateDocumentHash(documentData));
+                user.setKycStatus(status);
+                
+                return KYCResult.success("KYC completed successfully");
+                
+            } catch (Exception e) {
+                return KYCResult.failure("KYC failed: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * التحقق من مستوى KYC للمستخدم
+     */
+    public KYCLevel getKYCLevel(User user) {
+        if (user.getKycStatus() == null || !user.getKycStatus().isVerified()) {
+            return KYCLevel.NONE;
+        }
+        
+        // في الإنتاج: التحقق من نوع المستند ومستوى التحقق
+        return KYCLevel.FULL;
+    }
+
+    /**
+     * التحقق من أهلية السحب
+     */
+    public boolean isWithdrawalEligible(User user) {
+        return getKYCLevel(user) == KYCLevel.FULL;
+    }
+
+    private boolean validateDocument(String documentData, DocumentType type) {
+        // في الإنتاج: التحقق من صحة المستند باستخدام AI
+        return documentData != null && !documentData.isEmpty();
+    }
+
+    private String generateDocumentHash(String documentData) {
+        // في الإنتاج: توليد بصمة رقمية آمنة
+        return "hash_" + System.currentTimeMillis();
+    }
+
+    /**
+     * نتيجة KYC
+     */
+    public static final class KYCResult {
+        private final boolean success;
+        private final String message;
+
+        private KYCResult(boolean success, String message) {
+            this.success = success;
+            this.message = message;
+        }
+
+        public static KYCResult success(String message) {
+            return new KYCResult(true, message);
+        }
+
+        public static KYCResult failure(String message) {
+            return new KYCResult(false, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public String getMessage() { return message; }
+    }
+
+    /**
+     * أنواع المستندات
+     */
+    public enum DocumentType {
+        NATIONAL_ID, PASSPORT, DRIVER_LICENSE
+    }
+
+    /**
+     * مستويات KYC
+     */
+    public enum KYCLevel {
+        NONE, BASIC, FULL
+    }
+}
