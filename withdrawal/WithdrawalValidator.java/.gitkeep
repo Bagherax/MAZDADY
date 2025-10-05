@@ -1,0 +1,135 @@
+package mazdady.withdrawal;
+
+import mazdady.user.User;
+import mazdady.user.UserManager;
+
+/**
+ * محقق السحب مع دعم التحقق الفوري
+ * يتبع نمط Strategy لفصل استراتيجيات التحقق
+ */
+public final class WithdrawalValidator {
+    private final WithdrawalRulesEngine rulesEngine;
+    private static WithdrawalValidator instance;
+
+    private WithdrawalValidator(WithdrawalRulesEngine rulesEngine) {
+        this.rulesEngine = rulesEngine;
+    }
+
+    public static synchronized WithdrawalValidator getInstance(WithdrawalRulesEngine rulesEngine) {
+        if (instance == null) {
+            instance = new WithdrawalValidator(rulesEngine);
+        }
+        return instance;
+    }
+
+    /**
+     * التحقق الفوري من إمكانية السحب
+     */
+    public ValidationResult validateWithdrawal(
+        String userId,
+        double amount,
+        String method
+    ) {
+        try {
+            User user = UserManager.getInstance(null).getCurrentUser();
+            if (user == null || !user.getUserId().equals(userId)) {
+                return ValidationResult.failure("Invalid user");
+            }
+
+            // التحقق السريع من الشروط الأساسية
+            if (amount <= 0) {
+                return ValidationResult.failure("Invalid withdrawal amount");
+            }
+
+            if (!user.isKYCVerified()) {
+                return ValidationResult.failure("KYC verification required");
+            }
+
+            if (user.getBalance() < amount) {
+                return ValidationResult.failure("Insufficient balance");
+            }
+
+            if (user.isSuspended() || user.isBanned()) {
+                return ValidationResult.failure("Account is suspended or banned");
+            }
+
+            // التحقق من طريقة السحب
+            if (!isSupportedMethod(method)) {
+                return ValidationResult.failure("Unsupported withdrawal method: " + method);
+            }
+
+            // التحقق من الحد الأدنى والأقصى
+            double minAmount = getMinimumAmount(method);
+            double maxAmount = getMaximumAmount(method);
+            
+            if (amount < minAmount) {
+                return ValidationResult.failure(
+                    "Minimum amount for " + method + " is " + minAmount + " MAZDADY"
+                );
+            }
+            
+            if (amount > maxAmount) {
+                return ValidationResult.failure(
+                    "Maximum amount for " + method + " is " + maxAmount + " MAZDADY"
+                );
+            }
+
+            System.out.println("WITHDRAWAL VALIDATOR: Quick validation passed for user " + userId);
+            return ValidationResult.success("Withdrawal validation passed");
+
+        } catch (Exception e) {
+            return ValidationResult.failure("Validation error: " + e.getMessage());
+        }
+    }
+
+    private boolean isSupportedMethod(String method) {
+        return "wallet_crypto".equals(method) ||
+               "bank_transfer".equals(method) ||
+               "internal_transfer".equals(method) ||
+               "mobile_wallet".equals(method);
+    }
+
+    private double getMinimumAmount(String method) {
+        switch (method) {
+            case "wallet_crypto": return 10.0;
+            case "bank_transfer": return 50.0;
+            case "internal_transfer": return 1.0;
+            case "mobile_wallet": return 5.0;
+            default: return 10.0;
+        }
+    }
+
+    private double getMaximumAmount(String method) {
+        switch (method) {
+            case "wallet_crypto": return 10000.0;
+            case "bank_transfer": return 50000.0;
+            case "internal_transfer": return 1000.0;
+            case "mobile_wallet": return 5000.0;
+            default: return 10000.0;
+        }
+    }
+
+    /**
+     * نتيجة التحقق
+     */
+    public static final class ValidationResult {
+        private final boolean valid;
+        private final String message;
+
+        private ValidationResult(boolean valid, String message) {
+            this.valid = valid;
+            this.message = message;
+        }
+
+        public static ValidationResult success(String message) {
+            return new ValidationResult(true, message);
+        }
+
+        public static ValidationResult failure(String message) {
+            return new ValidationResult(false, message);
+        }
+
+        public boolean isValid() { return valid; }
+        public String getMessage() { return message; }
+    }
+}
