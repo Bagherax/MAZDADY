@@ -1,0 +1,127 @@
+package mazdady.ui;
+
+import android.content.Context;
+import android.graphics.Canvas;
+import android.graphics.Color;
+import android.graphics.Paint;
+import android.graphics.Rect;
+import android.util.AttributeSet;
+import android.view.View;
+import android.widget.FrameLayout;
+
+import java.util.concurrent.ConcurrentHashMap;
+
+/**
+ * محرر واجهة المستخدم الديناميكي مع دعم التعديل الفوري
+ * يتبع نمط Facade لتوفير واجهة موحدة
+ */
+public final class DynamicUIEditor extends FrameLayout {
+    private final ConcurrentHashMap<String, SmartElement> smartElements = new ConcurrentHashMap<>();
+    private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private volatile boolean editingMode = false;
+    private static DynamicUIEditor instance;
+
+    public DynamicUIEditor(Context context, AttributeSet attrs) {
+        super(context, attrs);
+        initializePaint();
+    }
+
+    private void initializePaint() {
+        paint.setColor(Color.WHITE);
+        paint.setTextSize(16f);
+        paint.setTextAlign(Paint.Align.CENTER);
+    }
+
+    /**
+     * تفعيل وضع التعديل
+     */
+    public void enableEditingMode() {
+        this.editingMode = true;
+        for (SmartElement element : smartElements.values()) {
+            element.enableEditing();
+        }
+        Toast.makeText(getContext(), "وضع التعديل مفعل", Toast.LENGTH_SHORT).show();
+    }
+
+    /**
+     * تعطيل وضع التعديل
+     */
+    public void disableEditingMode() {
+        this.editingMode = false;
+        for (SmartElement element : smartElements.values()) {
+            element.disableEditing();
+        }
+        Toast.makeText(getContext(), "وضع التعديل معطل", Toast.LENGTH_SHORT).show();
+    }
+
+    /**
+     * إضافة عنصر ذكي
+     */
+    public void addSmartElement(String elementId, SmartElement element) {
+        smartElements.put(elementId, element);
+        addView(element);
+        System.out.println("DYNAMIC UI EDITOR: Added smart element - " + elementId);
+    }
+
+    /**
+     * إزالة عنصر ذكي
+     */
+    public void removeSmartElement(String elementId) {
+        SmartElement element = smartElements.remove(elementId);
+        if (element != null) {
+            removeView(element);
+            System.out.println("DYNAMIC UI EDITOR: Removed smart element - " + elementId);
+        }
+    }
+
+    /**
+     * الحصول على عنصر ذكي
+     */
+    public SmartElement getSmartElement(String elementId) {
+        return smartElements.get(elementId);
+    }
+
+    /**
+     * تطبيق تعديلات من لوحة التحكم الإدارية
+     */
+    public void applyAdminUpdates() {
+        // في الإنتاج: تطبيق التحديثات من config.json
+        System.out.println("DYNAMIC UI EDITOR: Applied admin updates");
+    }
+
+    /**
+     * رسم مؤشر وضع التعديل
+     */
+    @Override
+    protected void onDraw(Canvas canvas) {
+        super.onDraw(canvas);
+        
+        try {
+            if (editingMode) {
+                // رسم إطار حول العنصر
+                Rect rect = new Rect(0, 0, getWidth(), getHeight());
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setColor(Color.BLUE);
+                paint.setStrokeWidth(6f);
+                canvas.drawRect(rect, paint);
+                
+                // رسم أيقونة التعديل
+                paint.setStyle(Paint.Style.FILL);
+                paint.setColor(Color.WHITE);
+                canvas.drawText("🛠️", getWidth() / 2f, getHeight() / 2f, paint);
+            }
+            
+        } catch (Exception e) {
+            System.err.println("DYNAMIC UI EDITOR DRAW ERROR: " + e.getMessage());
+        }
+    }
+
+    // --- Getters ---
+    public boolean isEditingMode() { return editingMode; }
+    public int getSmartElementCount() { return smartElements.size(); }
+    public void clearAllElements() {
+        smartElements.clear();
+        removeAllViews();
+        System.out.println("DYNAMIC UI EDITOR: Cleared all elements");
+    }
+}
