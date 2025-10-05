@@ -1,0 +1,228 @@
+package mazdady.trading;
+
+import mazdady.user.User;
+import mazdady.user.UserManager;
+import mazdady.wallet.WalletManager;
+import mazdady.bot.EmergencyBot;
+import mazdady.admin.AdminConfig;
+
+import java.time.Instant;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.TimeUnit;
+
+/**
+ * محرك التداول المتقدم مع حماية من الإفلاس
+ * يتبع نمط Strategy لفصل استراتيجيات التداول
+ */
+public final class AdvancedTradingEngine {
+    private final PriceEngine priceEngine;
+    private final WalletManager walletManager;
+    private final EmergencyBot emergencyBot;
+    private final ScheduledExecutorService tradeScheduler = Executors.newScheduledThreadPool(2);
+    private static AdvancedTradingEngine instance;
+
+    private AdvancedTradingEngine(
+        PriceEngine priceEngine,
+        WalletManager walletManager,
+        EmergencyBot emergencyBot
+    ) {
+        this.priceEngine = priceEngine;
+        this.walletManager = walletManager;
+        this.emergencyBot = emergencyBot;
+    }
+
+    public static synchronized AdvancedTradingEngine getInstance(
+        PriceEngine priceEngine,
+        WalletManager walletManager,
+        EmergencyBot emergencyBot
+    ) {
+        if (instance == null) {
+            instance = new AdvancedTradingEngine(priceEngine, walletManager, emergencyBot);
+        }
+        return instance;
+    }
+
+    /**
+     * تنفيذ صفقة تداول متقدمة غير متزامنة
+     */
+    public CompletableFuture<TradeResult> executeAdvancedTradeAsync(
+        String userId,
+        double amount,
+        TradeType tradeType,
+        int tradeDurationSeconds
+    ) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                User user = UserManager.getInstance(null).getCurrentUser();
+                if (!user.getUserId().equals(userId)) {
+                    return TradeResult.failure("Invalid user");
+                }
+                
+                // التحقق من الحد الأدنى للمبلغ
+                if (amount < 0.01) { // دعم MAZ الصغيرة
+                    return TradeResult.failure("Minimum trade amount is 0.01 MAZDADY");
+                }
+                
+                // التحقق من الرصيد
+                if (user.getBalance() < amount) {
+                    return TradeResult.failure("Insufficient balance");
+                }
+                
+                // التحقق من فترة الصفقة
+                if (tradeDurationSeconds < 5 || tradeDurationSeconds > 24) {
+                    return TradeResult.failure("Trade duration must be between 5 and 24 seconds");
+                }
+                
+                // تنفيذ الصفقة
+                return executeTrade(user, amount, tradeType, tradeDurationSeconds);
+                
+            } catch (Exception e) {
+                return TradeResult.failure("Trade execution failed: " + e.getMessage());
+            }
+        });
+    }
+
+    private TradeResult executeTrade(User user, double amount, TradeType tradeType, int duration) {
+        try {
+            double initialPrice = priceEngine.getCurrentPrice();
+            String tradeId = "trade_" + System.currentTimeMillis();
+            
+            System.out.println("ADVANCED TRADING: Trade started - " + tradeId + 
+                             " - Amount: " + amount + " MAZDADY" +
+                             " - Type: " + tradeType +
+                             " - Duration: " + duration + " seconds");
+            
+            // جدولة إنهاء الصفقة بعد المدة المحددة
+            tradeScheduler.schedule(
+                () -> completeTrade(tradeId, user, amount, tradeType, initialPrice),
+                duration,
+                TimeUnit.SECONDS
+            );
+            
+            return TradeResult.pending(tradeId, "Trade in progress...");
+            
+        } catch (Exception e) {
+            return TradeResult.failure("Trade initiation failed: " + e.getMessage());
+        }
+    }
+
+    private void completeTrade(String tradeId, User user, double amount, TradeType tradeType, double initialPrice) {
+        try {
+            double finalPrice = priceEngine.getCurrentPrice();
+            double priceChange = ((finalPrice - initialPrice) / initialPrice) * 100;
+            
+            boolean isProfit = (tradeType == TradeType.BUY && finalPrice > initialPrice) ||
+                              (tradeType == TradeType.SELL && finalPrice < initialPrice);
+            
+            double profitLoss = 0;
+            String resultMessage;
+            
+            if (isProfit) {
+                // ربح
+                profitLoss = amount * (Math.abs(priceChange) / 100);
+                user.setBalance(user.getBalance() + profitLoss);
+                resultMessage = "🎉 Profit: +" + String.format("%.4f", profitLoss) + " MAZDADY";
+                
+                // إضافة نقاط مجتمعية
+                user.addCommunityPoints((int) profitLoss);
+                
+            } else {
+                // خسارة
+                profitLoss = amount * (Math.abs(priceChange) / 100);
+                
+                // حماية من الإفلاس: الحد الأدنى للخسارة = 10% من المبلغ
+                double maxLoss = amount * 0.1;
+                profitLoss = Math.min(profitLoss, maxLoss);
+                
+                user.setBalance(user.getBalance() - profitLoss);
+                resultMessage = "💔 Loss: -" + String.format("%.4f", profitLoss) + " MAZDADY";
+                
+                // تفعيل بوت الطوارئ إذا كانت الخسارة كبيرة
+                if (profitLoss >= amount * 0.05) { // 5% خسارة
+                    emergencyBot.triggerEmergencyProtection(user.getUserId());
+                }
+            }
+            
+            // تسجيل الصفقة
+            TradingHistory.getInstance().recordTrade(
+                tradeId,
+                user.getUserId(),
+                amount,
+                tradeType,
+                initialPrice,
+                finalPrice,
+                profitLoss,
+                isProfit ? "PROFIT" : "LOSS"
+            );
+            
+            System.out.println("ADVANCED TRADING: Trade completed - " + tradeId + 
+                             " - " + resultMessage);
+            
+            // إشعار المستخدم
+            notifyUserOfTradeResult(user.getUserId(), resultMessage);
+            
+        } catch (Exception e) {
+            System.err.println("TRADE COMPLETION ERROR: " + e.getMessage());
+        }
+    }
+
+    private void notifyUserOfTradeResult(String userId, String message) {
+        // في الإنتاج: إرسال إشعار للمستخدم
+        System.out.println("USER NOTIFICATION: " + userId + " - " + message);
+    }
+
+    /**
+     * نتيجة التداول
+     */
+    public static final class TradeResult {
+        private final boolean success;
+        private final boolean pending;
+        private final String tradeId;
+        private final double profitLoss;
+        private final String message;
+
+        private TradeResult(boolean success, boolean pending, String tradeId, double profitLoss, String message) {
+            this.success = success;
+            this.pending = pending;
+            this.tradeId = tradeId;
+            this.profitLoss = profitLoss;
+            this.message = message;
+        }
+
+        public static TradeResult success(String tradeId, double profitLoss, String message) {
+            return new TradeResult(true, false, tradeId, profitLoss, message);
+        }
+
+        public static TradeResult pending(String tradeId, String message) {
+            return new TradeResult(true, true, tradeId, 0, message);
+        }
+
+        public static TradeResult failure(String message) {
+            return new TradeResult(false, false, null, 0, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public boolean isPending() { return pending; }
+        public String getTradeId() { return tradeId; }
+        public double getProfitLoss() { return profitLoss; }
+        public String getMessage() { return message; }
+    }
+
+    /**
+     * أنواع التداول
+     */
+    public enum TradeType {
+        BUY, SELL
+    }
+
+    /**
+     * إيقاف المحرك (للاختبارات)
+     */
+    public void shutdown() {
+        tradeScheduler.shutdown();
+        System.out.println("ADVANCED TRADING ENGINE: Shutdown completed");
+    }
+}
