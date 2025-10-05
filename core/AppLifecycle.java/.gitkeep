@@ -5,113 +5,263 @@ import android.content.ComponentCallbacks2;
 import android.content.res.Configuration;
 import android.os.Bundle;
 
+import mazdady.admin.AdminConfig;
+import mazdady.security.SecurityMonitor;
+import mazdady.user.UserManager;
+
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
 /**
- * مدير دورة حياة التطبيق مع دعم الأحداث المتقدمة
- * يتبع نمط Observer لإعلام المكونات بالتغيرات
+ * دورة حياة التطبيق المتقدمة مع مراقبة الأداء
+ * يتبع نمط Observer لإعلام النظام بتغيرات الدورة
  */
 public final class AppLifecycle implements Application.ActivityLifecycleCallbacks, ComponentCallbacks2 {
-    private final CopyOnWriteArrayList<Consumer<LifecycleEvent>> listeners = new CopyOnWriteArrayList<>();
-    private static final AppLifecycle INSTANCE = new AppLifecycle();
+    private final CopyOnWriteArrayList<Consumer<LifecycleEvent>> lifecycleListeners = new CopyOnWriteArrayList<>();
+    private final ScheduledExecutorService performanceMonitor = Executors.newScheduledThreadPool(1);
+    private final SecurityMonitor securityMonitor;
+    private final AdminConfig adminConfig;
+    private volatile AppState currentState = AppState.BACKGROUND;
+    private static AppLifecycle instance;
 
-    private AppLifecycle() {}
-
-    public static AppLifecycle getInstance() {
-        return INSTANCE;
+    private AppLifecycle(SecurityMonitor securityMonitor, AdminConfig adminConfig) {
+        this.securityMonitor = securityMonitor;
+        this.adminConfig = adminConfig;
+        startPerformanceMonitoring();
     }
 
-    public void addListener(Consumer<LifecycleEvent> listener) {
-        listeners.add(listener);
+    public static synchronized AppLifecycle getInstance(SecurityMonitor securityMonitor, AdminConfig adminConfig) {
+        if (instance == null) {
+            instance = new AppLifecycle(securityMonitor, adminConfig);
+        }
+        return instance;
     }
 
-    public void removeListener(Consumer<LifecycleEvent> listener) {
-        listeners.remove(listener);
+    private void startPerformanceMonitoring() {
+        performanceMonitor.scheduleAtFixedRate(
+            this::monitorAppPerformance,
+            0,
+            30,
+            TimeUnit.SECONDS
+        );
+        
+        System.out.println("APP LIFECYCLE: Started performance monitoring");
     }
 
-    private void notifyListeners(LifecycleEvent event) {
-        listeners.forEach(listener -> listener.accept(event));
+    /**
+     * إضافة مستمع لتغيرات دورة الحياة
+     */
+    public void addLifecycleListener(Consumer<LifecycleEvent> listener) {
+        if (listener != null) {
+            lifecycleListeners.add(listener);
+            System.out.println("APP LIFECYCLE: Added lifecycle listener");
+        }
+    }
+
+    /**
+     * إزالة مستمع لتغيرات دورة الحياة
+     */
+    public void removeLifecycleListener(Consumer<LifecycleEvent> listener) {
+        lifecycleListeners.remove(listener);
+        System.out.println("APP LIFECYCLE: Removed lifecycle listener");
+    }
+
+    private void notifyLifecycleListeners(LifecycleEvent event) {
+        lifecycleListeners.forEach(listener -> {
+            try {
+                listener.accept(event);
+            } catch (Exception e) {
+                // تجاهل أخطاء المستمعين
+            }
+        });
     }
 
     // --- Application.ActivityLifecycleCallbacks ---
     @Override
     public void onActivityCreated(android.app.Activity activity, Bundle savedInstanceState) {
-        notifyListeners(new LifecycleEvent(LifecycleEvent.Type.ACTIVITY_CREATED, activity.getClass().getSimpleName()));
+        notifyLifecycleListeners(new LifecycleEvent(
+            LifecycleEvent.EventType.ACTIVITY_CREATED,
+            activity.getClass().getSimpleName(),
+            System.currentTimeMillis()
+        ));
     }
 
     @Override
     public void onActivityStarted(android.app.Activity activity) {
-        notifyListeners(new LifecycleEvent(LifecycleEvent.Type.ACTIVITY_STARTED, activity.getClass().getSimpleName()));
+        currentState = AppState.FOREGROUND;
+        notifyLifecycleListeners(new LifecycleEvent(
+            LifecycleEvent.EventType.ACTIVITY_STARTED,
+            activity.getClass().getSimpleName(),
+            System.currentTimeMillis()
+        ));
     }
 
     @Override
     public void onActivityResumed(android.app.Activity activity) {
-        notifyListeners(new LifecycleEvent(LifecycleEvent.Type.ACTIVITY_RESUMED, activity.getClass().getSimpleName()));
+        currentState = AppState.ACTIVELY_RUNNING;
+        notifyLifecycleListeners(new LifecycleEvent(
+            LifecycleEvent.EventType.ACTIVITY_RESUMED,
+            activity.getClass().getSimpleName(),
+            System.currentTimeMillis()
+        ));
+        
+        // تحديث حالة المستخدم
+        UserManager.getInstance(activity).updateUserActivity();
     }
 
     @Override
     public void onActivityPaused(android.app.Activity activity) {
-        notifyListeners(new LifecycleEvent(LifecycleEvent.Type.ACTIVITY_PAUSED, activity.getClass().getSimpleName()));
+        currentState = AppState.BACKGROUND_TRANSITION;
+        notifyLifecycleListeners(new LifecycleEvent(
+            LifecycleEvent.EventType.ACTIVITY_PAUSED,
+            activity.getClass().getSimpleName(),
+            System.currentTimeMillis()
+        ));
     }
 
     @Override
     public void onActivityStopped(android.app.Activity activity) {
-        notifyListeners(new LifecycleEvent(LifecycleEvent.Type.ACTIVITY_STOPPED, activity.getClass().getSimpleName()));
+        currentState = AppState.BACKGROUND;
+        notifyLifecycleListeners(new LifecycleEvent(
+            LifecycleEvent.EventType.ACTIVITY_STOPPED,
+            activity.getClass().getSimpleName(),
+            System.currentTimeMillis()
+        ));
     }
 
     @Override
     public void onActivitySaveInstanceState(android.app.Activity activity, Bundle outState) {
-        notifyListeners(new LifecycleEvent(LifecycleEvent.Type.ACTIVITY_SAVE_INSTANCE, activity.getClass().getSimpleName()));
+        notifyLifecycleListeners(new LifecycleEvent(
+            LifecycleEvent.EventType.ACTIVITY_SAVE_INSTANCE,
+            activity.getClass().getSimpleName(),
+            System.currentTimeMillis()
+        ));
     }
 
     @Override
     public void onActivityDestroyed(android.app.Activity activity) {
-        notifyListeners(new LifecycleEvent(LifecycleEvent.Type.ACTIVITY_DESTROYED, activity.getClass().getSimpleName()));
+        notifyLifecycleListeners(new LifecycleEvent(
+            LifecycleEvent.EventType.ACTIVITY_DESTROYED,
+            activity.getClass().getSimpleName(),
+            System.currentTimeMillis()
+        ));
     }
 
     // --- ComponentCallbacks2 ---
     @Override
     public void onConfigurationChanged(Configuration newConfig) {
-        notifyListeners(new LifecycleEvent(LifecycleEvent.Type.CONFIGURATION_CHANGED, newConfig.toString()));
+        notifyLifecycleListeners(new LifecycleEvent(
+            LifecycleEvent.EventType.CONFIGURATION_CHANGED,
+            newConfig.toString(),
+            System.currentTimeMillis()
+        ));
     }
 
     @Override
     public void onLowMemory() {
-        notifyListeners(new LifecycleEvent(LifecycleEvent.Type.LOW_MEMORY, "Memory critical"));
+        notifyLifecycleListeners(new LifecycleEvent(
+            LifecycleEvent.EventType.LOW_MEMORY,
+            "Memory critical",
+            System.currentTimeMillis()
+        ));
+        
+        // تحرير الموارد
+        releaseUnusedResources();
     }
 
     @Override
     public void onTrimMemory(int level) {
-        notifyListeners(new LifecycleEvent(LifecycleEvent.Type.TRIM_MEMORY, "Level: " + level));
+        notifyLifecycleListeners(new LifecycleEvent(
+            LifecycleEvent.EventType.TRIM_MEMORY,
+            "Level: " + level,
+            System.currentTimeMillis()
+        ));
+        
+        // تحرير الموارد حسب المستوى
+        if (level >= TRIM_MEMORY_MODERATE) {
+            releaseUnusedResources();
+        }
+    }
+
+    private void monitorAppPerformance() {
+        try {
+            // مراقبة أداء التطبيق
+            long usedMemory = Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory();
+            long maxMemory = Runtime.getRuntime().maxMemory();
+            double memoryUsage = (double) usedMemory / maxMemory * 100;
+            
+            System.out.println("APP PERFORMANCE: Memory usage " + String.format("%.1f", memoryUsage) + "%");
+            
+            // التحقق من الأمان
+            securityMonitor.monitorAppIntegrity();
+            
+        } catch (Exception e) {
+            System.err.println("PERFORMANCE MONITOR ERROR: " + e.getMessage());
+        }
+    }
+
+    private void releaseUnusedResources() {
+        // في الإنتاج: تحرير الموارد غير المستخدمة
+        System.gc(); // محاكاة تحرير الذاكرة
+        System.out.println("APP LIFECYCLE: Released unused resources");
+    }
+
+    /**
+     * إيقاف مراقبة الأداء (للاختبارات)
+     */
+    public void shutdown() {
+        performanceMonitor.shutdown();
+        lifecycleListeners.clear();
+        System.out.println("APP LIFECYCLE: Shutdown completed");
+    }
+
+    /**
+     * حالة التطبيق
+     */
+    public enum AppState {
+        FOREGROUND, BACKGROUND, ACTIVELY_RUNNING, BACKGROUND_TRANSITION
     }
 
     /**
      * حدث دورة الحياة
      */
     public static final class LifecycleEvent {
-        private final Type type;
+        private final EventType type;
         private final String data;
+        private final long timestamp;
 
-        public LifecycleEvent(Type type, String data) {
+        public LifecycleEvent(EventType type, String data, long timestamp) {
             this.type = type;
             this.data = data;
+            this.timestamp = timestamp;
         }
 
-        public Type getType() { return type; }
+        public enum EventType {
+            ACTIVITY_CREATED, ACTIVITY_STARTED, ACTIVITY_RESUMED,
+            ACTIVITY_PAUSED, ACTIVITY_STOPPED, ACTIVITY_SAVE_INSTANCE,
+            ACTIVITY_DESTROYED, CONFIGURATION_CHANGED, LOW_MEMORY, TRIM_MEMORY
+        }
+
+        // Getters
+        public EventType getType() { return type; }
         public String getData() { return data; }
+        public long getTimestamp() { return timestamp; }
+    }
 
-        public enum Type {
-            ACTIVITY_CREATED,
-            ACTIVITY_STARTED,
-            ACTIVITY_RESUMED,
-            ACTIVITY_PAUSED,
-            ACTIVITY_STOPPED,
-            ACTIVITY_SAVE_INSTANCE,
-            ACTIVITY_DESTROYED,
-            CONFIGURATION_CHANGED,
-            LOW_MEMORY,
-            TRIM_MEMORY
-        }
+    // --- Getters ---
+    public AppState getCurrentState() { return currentState; }
+    public int getListenerCount() { return lifecycleListeners.size(); }
+    public boolean isForeground() { return currentState == AppState.FOREGROUND || currentState == AppState.ACTIVELY_RUNNING; }
+    public boolean isBackground() { return currentState == AppState.BACKGROUND; }
+    
+    /**
+     * إعادة تعيين حالة التطبيق (للاختبارات)
+     */
+    public void resetState() {
+        currentState = AppState.BACKGROUND;
+        System.out.println("APP LIFECYCLE: State reset to BACKGROUND");
     }
 }
