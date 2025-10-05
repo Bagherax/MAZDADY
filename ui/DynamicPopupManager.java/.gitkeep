@@ -3,64 +3,157 @@ package mazdady.ui;
 import android.app.Dialog;
 import android.content.Context;
 import android.graphics.Color;
-import android.view.ViewGroup;
+import android.graphics.drawable.ColorDrawable;
+import android.view.LayoutInflater;
+import android.view.View;
+import android.view.Window;
+import android.widget.Button;
 import android.widget.ScrollView;
 import android.widget.TextView;
+
 import mazdady.admin.AdminConfig;
 
-public class DynamicPopupManager {
+/**
+ * مدير النوافذ المنبثقة الديناميكية مع دعم التخصيص المتقدم
+ * يتبع نمط Builder لبناء النوافذ بشكل مرن
+ */
+public final class DynamicPopupManager {
     private final Context context;
-    private final AdminConfig.UIConfig uiConfig;
 
     public DynamicPopupManager(Context context) {
         this.context = context;
-        this.uiConfig = AdminConfig.getInstance().getUIConfig();
     }
 
+    /**
+     * عرض نافذة منبثقة قابلة للتمرير
+     */
     public void showScrollablePopup(String title, String content) {
-        Dialog dialog = new Dialog(context);
-        dialog.setContentView(R.layout.dynamic_popup_layout);
-
-        ViewGroup root = dialog.findViewById(R.id.popup_root);
-        root.setBackgroundColor(Color.parseColor(uiConfig.getPopupBackgroundColor()));
-
-        TextView titleView = dialog.findViewById(R.id.popup_title);
-        titleView.setText(title);
-        titleView.setTextColor(Color.parseColor(uiConfig.getPopupTitleColor()));
-        titleView.setTextSize(uiConfig.getPopupTitleSize());
-
-        ScrollView scrollView = dialog.findViewById(R.id.popup_scroll);
-        TextView contentView = new TextView(context);
-        contentView.setText(content);
-        contentView.setTextColor(Color.parseColor(uiConfig.getPopupContentColor()));
-        contentView.setTextSize(uiConfig.getPopupContentSize());
-        contentView.setPadding(20, 20, 20, 20);
-        scrollView.addView(contentView);
-
-        TextView closeButton = dialog.findViewById(R.id.popup_close);
-        closeButton.setTextColor(Color.parseColor(uiConfig.getPopupButtonColor()));
-        closeButton.setTextSize(uiConfig.getPopupButtonSize());
-        closeButton.setOnClickListener(v -> dialog.dismiss());
-
-        int width = (int) (context.getResources().getDisplayMetrics().widthPixels * uiConfig.getPopupWidthRatio());
-        int height = (int) (context.getResources().getDisplayMetrics().heightPixels * uiConfig.getPopupHeightRatio());
-        dialog.getWindow().setLayout(width, height);
-
-        dialog.show();
+        try {
+            Dialog dialog = new Dialog(context);
+            dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+            dialog.setContentView(R.layout.dynamic_popup_layout);
+            
+            // تطبيق الثيم من الإعدادات الإدارية
+            applyPopupTheme(dialog);
+            
+            // تعيين العنوان والمحتوى
+            TextView titleView = dialog.findViewById(R.id.popup_title);
+            ScrollView scrollView = dialog.findViewById(R.id.popup_scroll);
+            TextView contentView = dialog.findViewById(R.id.popup_content);
+            Button closeButton = dialog.findViewById(R.id.popup_close);
+            
+            if (titleView != null) titleView.setText(title);
+            if (contentView != null) contentView.setText(content);
+            if (closeButton != null) {
+                closeButton.setOnClickListener(v -> dialog.dismiss());
+            }
+            
+            // تطبيق الأبعاد الديناميكية
+            applyPopupDimensions(dialog);
+            
+            dialog.show();
+            System.out.println("POPUP MANAGER: Scrollable popup shown - " + title);
+            
+        } catch (Exception e) {
+            System.err.println("POPUP MANAGER ERROR: " + e.getMessage());
+        }
     }
-}
-// عند إنشاء حملة إعلانية
-AdManager adManager = AdManager.getInstance();
-boolean success = adManager.createCampaign(
-    "youtube", 
-    "https://youtube.com/watch?v=example", 
-    "views", 
-    1000, 
-    50.0 // 50 MAZDADY
-);
 
-if (success) {
-    showPopup("تم بدء حملتك الإعلانية!");
-} else {
-    showPopup("رصيدك غير كافٍ!");
+    /**
+     * تطبيق الثيم على النافذة المنبثقة
+     */
+    private void applyPopupTheme(Dialog dialog) {
+        try {
+            AdminConfig.UIConfig uiConfig = AdminConfig.getInstance().getUIConfig();
+            AdminConfig.UIConfig.PopupConfig popupConfig = uiConfig.getPopupConfig();
+            
+            Window window = dialog.getWindow();
+            if (window != null) {
+                window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+                
+                // تطبيق ألوان الثيم
+                if (popupConfig.getBackgroundColor() != null) {
+                    dialog.findViewById(R.id.popup_root)
+                         .setBackgroundColor(Color.parseColor(popupConfig.getBackgroundColor()));
+                }
+                
+                // تطبيق ألوان النص
+                TextView titleView = dialog.findViewById(R.id.popup_title);
+                TextView contentView = dialog.findViewById(R.id.popup_content);
+                
+                if (titleView != null && popupConfig.getTitleColor() != null) {
+                    titleView.setTextColor(Color.parseColor(popupConfig.getTitleColor()));
+                    titleView.setTextSize(popupConfig.getTitleSize());
+                }
+                
+                if (contentView != null && popupConfig.getContentColor() != null) {
+                    contentView.setTextColor(Color.parseColor(popupConfig.getContentColor()));
+                    contentView.setTextSize(popupConfig.getContentSize());
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("POPUP THEME ERROR: " + e.getMessage());
+        }
+    }
+
+    /**
+     * تطبيق الأبعاد الديناميكية على النافذة
+     */
+    private void applyPopupDimensions(Dialog dialog) {
+        try {
+            AdminConfig.UIConfig uiConfig = AdminConfig.getInstance().getUIConfig();
+            AdminConfig.UIConfig.PopupConfig popupConfig = uiConfig.getPopupConfig();
+            
+            Window window = dialog.getWindow();
+            if (window != null) {
+                // تطبيق عرض وارتفاع النافذة
+                int screenWidth = context.getResources().getDisplayMetrics().widthPixels;
+                int screenHeight = context.getResources().getDisplayMetrics().heightPixels;
+                
+                float widthRatio = popupConfig.getWidthRatio();
+                float heightRatio = popupConfig.getHeightRatio();
+                
+                int width = (int) (screenWidth * widthRatio);
+                int height = (int) (screenHeight * heightRatio);
+                
+                window.setLayout(width, height);
+                System.out.println("POPUP MANAGER: Popup dimensions set to " + width + "x" + height);
+            }
+        } catch (Exception e) {
+            System.err.println("POPUP DIMENSIONS ERROR: " + e.getMessage());
+        }
+    }
+
+    /**
+     * عرض نافذة منبثقة مخصصة
+     */
+    public void showCustomPopup(int layoutResourceId, PopupCustomizer customizer) {
+        try {
+            Dialog dialog = new Dialog(context);
+            dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+            dialog.setContentView(layoutResourceId);
+            
+            // تطبيق التخصيصات المخصصة
+            if (customizer != null) {
+                customizer.customize(dialog);
+            }
+            
+            applyPopupTheme(dialog);
+            applyPopupDimensions(dialog);
+            
+            dialog.show();
+            System.out.println("POPUP MANAGER: Custom popup shown");
+            
+        } catch (Exception e) {
+            System.err.println("CUSTOM POPUP ERROR: " + e.getMessage());
+        }
+    }
+
+    /**
+     * واجهة تخصيص النافذة المنبثقة
+     */
+    @FunctionalInterface
+    public interface PopupCustomizer {
+        void customize(Dialog dialog);
+    }
 }
