@@ -1,0 +1,167 @@
+package mazdady.bot;
+
+import mazdady.trading.PriceEngine;
+import mazdady.user.User;
+
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+
+/**
+ * مدير رسوميات البوتات مع دعم التحليل المتقدم
+ * يتبع نمط Observer لمراقبة أداء البوتات
+ */
+public final class TradingBotGraphManager {
+    private final ConcurrentHashMap<String, BotPerformanceGraph> botGraphs = new ConcurrentHashMap<>();
+    private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
+    private final PriceEngine priceEngine;
+    private static TradingBotGraphManager instance;
+
+    private TradingBotGraphManager(PriceEngine priceEngine) {
+        this.priceEngine = priceEngine;
+        startGraphUpdates();
+    }
+
+    public static synchronized TradingBotGraphManager getInstance(PriceEngine priceEngine) {
+        if (instance == null) {
+            instance = new TradingBotGraphManager(priceEngine);
+        }
+        return instance;
+    }
+
+    private void startGraphUpdates() {
+        scheduler.scheduleAtFixedRate(
+            this::updateBotGraphs,
+            0,
+            30,
+            TimeUnit.SECONDS
+        );
+        
+        System.out.println("BOT GRAPH MANAGER: Started updating bot performance graphs");
+    }
+
+    /**
+     * تحديث رسوميات أداء البوتات
+     */
+    private void updateBotGraphs() {
+        try {
+            // في الإنتاج: تحديث رسوميات جميع البوتات النشطة
+            botGraphs.values().forEach(BotPerformanceGraph::updateGraph);
+            
+            System.out.println("BOT GRAPH MANAGER: Updated " + botGraphs.size() + " bot graphs");
+            
+        } catch (Exception e) {
+            System.err.println("BOT GRAPH UPDATE ERROR: " + e.getMessage());
+        }
+    }
+
+    /**
+     * إنشاء رسم بياني لأداء بوت
+     */
+    public BotPerformanceGraph createBotGraph(String botId, String botType) {
+        BotPerformanceGraph graph = new BotPerformanceGraph(botId, botType, priceEngine);
+        botGraphs.put(botId, graph);
+        System.out.println("BOT GRAPH MANAGER: Created graph for bot " + botId);
+        return graph;
+    }
+
+    /**
+     * الحصول على رسم بياني لبوت
+     */
+    public BotPerformanceGraph getBotGraph(String botId) {
+        return botGraphs.get(botId);
+    }
+
+    /**
+     * إزالة رسم بياني لبوت
+     */
+    public void removeBotGraph(String botId) {
+        BotPerformanceGraph graph = botGraphs.remove(botId);
+        if (graph != null) {
+            graph.destroy();
+            System.out.println("BOT GRAPH MANAGER: Removed graph for bot " + botId);
+        }
+    }
+
+    /**
+     * تحديث أداء بوت
+     */
+    public void updateBotPerformance(String botId, double profit, double loss) {
+        BotPerformanceGraph graph = botGraphs.get(botId);
+        if (graph != null) {
+            graph.addDataPoint(profit, loss);
+        }
+    }
+
+    /**
+     * إيقاف المدير (للاختبارات)
+     */
+    public void shutdown() {
+        scheduler.shutdown();
+        botGraphs.values().forEach(BotPerformanceGraph::destroy);
+        botGraphs.clear();
+        System.out.println("BOT GRAPH MANAGER: Shutdown completed");
+    }
+
+    /**
+     * رسم بياني لأداء البوت
+     */
+    public static final class BotPerformanceGraph {
+        private final String botId;
+        private final String botType;
+        private final PriceEngine priceEngine;
+        private volatile double totalProfit = 0.0;
+        private volatile double totalLoss = 0.0;
+        private volatile int tradeCount = 0;
+
+        public BotPerformanceGraph(String botId, String botType, PriceEngine priceEngine) {
+            this.botId = botId;
+            this.botType = botType;
+            this.priceEngine = priceEngine;
+        }
+
+        /**
+         * إضافة نقطة بيانات جديدة
+         */
+        public void addDataPoint(double profit, double loss) {
+            this.totalProfit += profit;
+            this.totalLoss += loss;
+            this.tradeCount++;
+            
+            System.out.println("BOT GRAPH: Added data point for " + botId + 
+                             " - Profit: " + profit + ", Loss: " + loss);
+        }
+
+        /**
+         * تحديث الرسم البياني
+         */
+        public void updateGraph() {
+            // في الإنتاج: تحديث الرسم البياني في واجهة المستخدم
+            double netProfit = totalProfit - totalLoss;
+            double winRate = tradeCount > 0 ? (totalProfit / (totalProfit + totalLoss)) * 100 : 0;
+            
+            System.out.println("BOT GRAPH UPDATE: " + botId + 
+                             " - Net Profit: " + String.format("%.2f", netProfit) + 
+                             " MAZDADY - Win Rate: " + String.format("%.1f", winRate) + "%");
+        }
+
+        /**
+         * تدمير الرسم البياني
+         */
+        public void destroy() {
+            System.out.println("BOT GRAPH: Destroyed graph for " + botId);
+        }
+
+        // Getters
+        public String getBotId() { return botId; }
+        public String getBotType() { return botType; }
+        public double getTotalProfit() { return totalProfit; }
+        public double getTotalLoss() { return totalLoss; }
+        public int getTradeCount() { return tradeCount; }
+        public double getNetProfit() { return totalProfit - totalLoss; }
+        public double getWinRate() { 
+            return tradeCount > 0 ? (totalProfit / (totalProfit + totalLoss)) * 100 : 0; 
+        }
+    }
+}
