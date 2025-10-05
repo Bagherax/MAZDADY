@@ -1,63 +1,158 @@
 package mazdady.support;
 
-import java.util.ArrayList;
-import java.util.List;
+import mazdady.user.User;
+import mazdady.user.UserManager;
 
-public class LiveChatManager {
-    private List<ChatMessage> chatHistory = new ArrayList<>();
-    private boolean isAgentConnected = false;
-    private String currentSessionId;
+import java.time.Instant;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 
-    public void startChatSession() {
-        this.currentSessionId = "chat_" + System.currentTimeMillis();
-        this.isAgentConnected = false;
-        System.out.println("تم بدء جلسة دردشة جديدة: " + currentSessionId);
+/**
+ * مدير الدردشة الحية مع دعم الاتصال المتقدم
+ * يتبع نمط Observer لإعلام المكونات بحالة الدردشة
+ */
+public final class LiveChatManager {
+    private final Map<String, ChatSession> activeSessions = new ConcurrentHashMap<>();
+    private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+    private final Consumer<ChatEvent> chatListener;
+    private static LiveChatManager instance;
+
+    private LiveChatManager(Consumer<ChatEvent> chatListener) {
+        this.chatListener = chatListener;
+        startSessionCleanup();
     }
 
-    public void sendMessage(String message, boolean isUser) {
-        ChatMessage chatMessage = new ChatMessage(message, isUser, System.currentTimeMillis());
-        chatHistory.add(chatMessage);
+    public static LiveChatManager create(Consumer<ChatEvent> chatListener) {
+        return new LiveChatManager(chatListener);
+    }
+
+    /**
+     * بدء جلسة دردشة جديدة
+     */
+    public ChatSession startChatSession() {
+        User user = UserManager.getInstance(null).getCurrentUser();
+        ChatSession session = new ChatSession(user.getUserId(), "agent_001");
+        activeSessions.put(session.getSessionId(), session);
         
-        if (isUser) {
-            // في الإنتاج: إرسال الرسالة إلى فريق الدعم عبر WebSocket
-            forwardToSupportAgent(message);
+        // محاكاة اتصال الوكيل
+        scheduler.schedule(() -> {
+            if (activeSessions.containsKey(session.getSessionId())) {
+                session.connectAgent();
+                notifyChatEvent(new ChatEvent(session.getSessionId(), ChatEvent.Type.AGENT_CONNECTED, 
+                    "Agent connected", Instant.now()));
+            }
+        }, 2000, TimeUnit.MILLISECONDS);
+        
+        notifyChatEvent(new ChatEvent(session.getSessionId(), ChatEvent.Type.SESSION_STARTED, 
+            "Chat session started", Instant.now()));
+        
+        return session;
+    }
+
+    /**
+     * إرسال رسالة
+     */
+    public void sendMessage(String sessionId, String message, boolean isUser) {
+        ChatSession session = activeSessions.get(sessionId);
+        if (session != null) {
+            ChatMessage chatMessage = new ChatMessage(message, isUser, Instant.now());
+            session.addMessage(chatMessage);
+            
+            // محاكاة رد الوكيل
+            if (isUser) {
+                scheduler.schedule(() -> {
+                    if (activeSessions.containsKey(sessionId)) {
+                        String agentResponse = generateAgentResponse(message);
+                        ChatMessage agentMessage = new ChatMessage(agentResponse, false, Instant.now());
+                        session.addMessage(agentMessage);
+                        notifyChatEvent(new ChatEvent(sessionId, ChatEvent.Type.MESSAGE_RECEIVED, 
+                            agentResponse, Instant.now()));
+                    }
+                }, 3000, TimeUnit.MILLISECONDS);
+            }
+            
+            notifyChatEvent(new ChatEvent(sessionId, ChatEvent.Type.MESSAGE_SENT, 
+                message, Instant.now()));
         }
     }
 
-    private void forwardToSupportAgent(String message) {
-        // محاكاة اتصال بالوكيل
-        System.out.println("تم إرسال الرسالة لفريق الدعم: " + message);
-        simulateAgentResponse();
+    private String generateAgentResponse(String userMessage) {
+        // في الإنتاج: استخدام NLP وقاعدة معرفة
+        if (userMessage.toLowerCase().contains("سحب")) {
+            return "شكرًا لاتصالك! لسحب الأرباح، تأكد من توثيق هويتك أولاً.";
+        } else if (userMessage.toLowerCase().contains("محفظة")) {
+            return "لربط محفظتك، اذهب إلى الإعدادات → المحفظة → ربط محفظة خارجية.";
+        } else {
+            return "شكرًا لاتصالك! كيف يمكنني مساعدتك اليوم؟";
+        }
     }
 
-    private void simulateAgentResponse() {
-        // في الإنتاج: هذا سيكون ردًا حقيقيًا من الوكيل
-        new Thread(() -> {
-            try {
-                Thread.sleep(2000); // تأخير واقعي
-                String response = "شكرًا لاتصالك! كيف يمكنني مساعدتك اليوم؟";
-                sendMessage(response, false);
-                isAgentConnected = true;
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-        }).start();
+    private void startSessionCleanup() {
+        scheduler.scheduleAtFixedRate(
+            () -> {
+                activeSessions.entrySet().removeIf(entry -> 
+                    Instant.now().toEpochMilli() - entry.getValue().getLastActivity().toEpochMilli() > 30 * 60 * 1000
+                );
+            },
+            0,
+            5,
+            TimeUnit.MINUTES
+        );
     }
 
-    public List<ChatMessage> getChatHistory() {
-        return new ArrayList<>(chatHistory);
+    private void notifyChatEvent(ChatEvent event) {
+        chatListener.accept(event);
     }
 
-    public boolean isChatActive() {
-        return currentSessionId != null;
+    /**
+     * جلسة الدردشة
+     */
+    public static final class ChatSession {
+        private final String sessionId;
+        private final String userId;
+        private final String agentId;
+        private final java.util.List<ChatMessage> messages = new java.util.concurrent.CopyOnWriteArrayList<>();
+        private volatile Instant lastActivity;
+        private volatile boolean agentConnected = false;
+
+        public ChatSession(String userId, String agentId) {
+            this.sessionId = "chat_" + System.currentTimeMillis();
+            this.userId = userId;
+            this.agentId = agentId;
+            this.lastActivity = Instant.now();
+        }
+
+        public void addMessage(ChatMessage message) {
+            messages.add(message);
+            lastActivity = Instant.now();
+        }
+
+        public void connectAgent() {
+            this.agentConnected = true;
+        }
+
+        // Getters
+        public String getSessionId() { return sessionId; }
+        public String getUserId() { return userId; }
+        public String getAgentId() { return agentId; }
+        public java.util.List<ChatMessage> getMessages() { return new java.util.ArrayList<>(messages); }
+        public Instant getLastActivity() { return lastActivity; }
+        public boolean isAgentConnected() { return agentConnected; }
     }
 
-    public static class ChatMessage {
-        private String content;
-        private boolean isUser;
-        private long timestamp;
+    /**
+     * رسالة الدردشة
+     */
+    public static final class ChatMessage {
+        private final String content;
+        private final boolean isUser;
+        private final Instant timestamp;
 
-        public ChatMessage(String content, boolean isUser, long timestamp) {
+        public ChatMessage(String content, boolean isUser, Instant timestamp) {
             this.content = content;
             this.isUser = isUser;
             this.timestamp = timestamp;
@@ -66,6 +161,33 @@ public class LiveChatManager {
         // Getters
         public String getContent() { return content; }
         public boolean isUser() { return isUser; }
-        public long getTimestamp() { return timestamp; }
+        public Instant getTimestamp() { return timestamp; }
+    }
+
+    /**
+     * حدث الدردشة
+     */
+    public static final class ChatEvent {
+        private final String sessionId;
+        private final Type type;
+        private final String message;
+        private final Instant timestamp;
+
+        public ChatEvent(String sessionId, Type type, String message, Instant timestamp) {
+            this.sessionId = sessionId;
+            this.type = type;
+            this.message = message;
+            this.timestamp = timestamp;
+        }
+
+        // Getters
+        public String getSessionId() { return sessionId; }
+        public Type getType() { return type; }
+        public String getMessage() { return message; }
+        public Instant getTimestamp() { return timestamp; }
+
+        public enum Type {
+            SESSION_STARTED, AGENT_CONNECTED, MESSAGE_SENT, MESSAGE_RECEIVED, SESSION_ENDED
+        }
     }
 }
