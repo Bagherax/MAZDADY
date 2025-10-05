@@ -1,0 +1,238 @@
+package mazdady.admin.secure;
+
+import mazdady.user.UserManager;
+import mazdady.security.SecureStorage;
+import mazdady.ui.UIManager;
+
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicBoolean;
+
+/**
+ * مفعّل النظام الكوني مع دعم الفتح من أي خانة
+ * يتبع نمط Singleton مع تهيئة آمنة
+ */
+public final class CosmicSystemActivator {
+    private static final String COSMIC_KEY = "AbedLatifMAZDADYBagherax@78885444450843";
+    private final SecureStorage secureStorage;
+    private final AdminAuthenticator adminAuthenticator;
+    private final AdminFileManager adminFileManager;
+    private final AtomicBoolean isCosmicSystemActive = new AtomicBoolean(false);
+    private static CosmicSystemActivator instance;
+
+    private CosmicSystemActivator(
+        SecureStorage secureStorage,
+        AdminAuthenticator adminAuthenticator,
+        AdminFileManager adminFileManager
+    ) {
+        this.secureStorage = secureStorage;
+        this.adminAuthenticator = adminAuthenticator;
+        this.adminFileManager = adminFileManager;
+    }
+
+    public static synchronized CosmicSystemActivator getInstance(
+        SecureStorage secureStorage,
+        AdminAuthenticator adminAuthenticator,
+        AdminFileManager adminFileManager
+    ) {
+        if (instance == null) {
+            instance = new CosmicSystemActivator(secureStorage, adminAuthenticator, adminFileManager);
+        }
+        return instance;
+    }
+
+    /**
+     * التحقق من كلمة كونية غير متزامن
+     */
+    public CompletableFuture<ActivationResult> checkCosmicKeyAsync(String input) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                if (input == null || input.isEmpty()) {
+                    return ActivationResult.failure("Input cannot be empty");
+                }
+                
+                // التحقق من الكلمة الكونية
+                if (isCosmicKey(input)) {
+                    System.out.println("COSMIC SYSTEM: Cosmic key detected!");
+                    return activateCosmicSystem();
+                } else {
+                    return ActivationResult.failure("Not a cosmic key");
+                }
+                
+            } catch (Exception e) {
+                return ActivationResult.failure("Cosmic key check failed: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * التحقق من الكلمة الكونية
+     */
+    private boolean isCosmicKey(String input) {
+        // التحقق من اسم المستخدم أو كلمة المرور
+        return COSMIC_KEY.equals(input) || 
+               "BAGHERAX".equals(input) || 
+               "MAZDADY_ADMIN".equals(input);
+    }
+
+    /**
+     * تفعيل النظام الكوني
+     */
+    private ActivationResult activateCosmicSystem() {
+        try {
+            // 1. تفعيل المصادقة الإدارية
+            AdminAuthenticator.AuthResult authResult = 
+                adminAuthenticator.authenticateAsync(COSMIC_KEY).join();
+            
+            if (!authResult.isSuccess()) {
+                return ActivationResult.failure("Admin authentication failed");
+            }
+            
+            // 2. تحميل ملفات الادمن
+            AdminFileManager.FileDownloadResult downloadResult = 
+                adminFileManager.downloadAdminFilesAsync().join();
+            
+            if (!downloadResult.isSuccess()) {
+                return ActivationResult.failure("Admin files download failed");
+            }
+            
+            // 3. تفعيل النظام الكوني
+            isCosmicSystemActive.set(true);
+            secureStorage.putBoolean("cosmic_system_active", true);
+            secureStorage.putLong("cosmic_activation_time", System.currentTimeMillis());
+            
+            // 4. تفعيل واجهة الادمن
+            UIManager.getInstance(null).applyAdminTheme();
+            
+            // 5. بدء مراقبة النظام الكوني
+            startCosmicMonitoring();
+            
+            System.out.println("COSMIC SYSTEM ACTIVATOR: 🌌 Cosmic system activated successfully!");
+            System.out.println("FILES DOWNLOADED: " + downloadResult.getDownloadedFiles());
+            System.out.println("FILES FAILED: " + downloadResult.getFailedFiles());
+            
+            return ActivationResult.success(
+                downloadResult.getDownloadedFiles(),
+                downloadResult.getFailedFiles(),
+                "🌌 Cosmic system activated - Welcome to the admin universe!"
+            );
+            
+        } catch (Exception e) {
+            return ActivationResult.failure("Cosmic system activation failed: " + e.getMessage());
+        }
+    }
+
+    /**
+     * بدء مراقبة النظام الكوني
+     */
+    private void startCosmicMonitoring() {
+        System.out.println("COSMIC SYSTEM MONITOR: Started monitoring cosmic activities");
+        
+        // في الإنتاج: بدء مراقبة الأنشطة الإدارية
+        // مثل: تحديث الإعدادات، تغيير الأسعار، تفعيل البوتات
+    }
+
+    /**
+     * إلغاء تفعيل النظام الكوني
+     */
+    public void deactivateCosmicSystem() {
+        isCosmicSystemActive.set(false);
+        secureStorage.putBoolean("cosmic_system_active", false);
+        adminAuthenticator.logout();
+        System.out.println("COSMIC SYSTEM ACTIVATOR: 🌌 Cosmic system deactivated");
+    }
+
+    /**
+     * التحقق من حالة النظام الكوني
+     */
+    public boolean isCosmicSystemActive() {
+        return isCosmicSystemActive.get() && adminAuthenticator.isAdminAuthenticated();
+    }
+
+    /**
+     * تحديث النظام الكوني
+     */
+    public CompletableFuture<UpdateResult> updateCosmicSystemAsync() {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                if (!isCosmicSystemActive()) {
+                    return UpdateResult.failure("Cosmic system not active");
+                }
+                
+                // تحديث ملفات الادمن
+                AdminFileManager.FileDownloadResult downloadResult = 
+                    adminFileManager.downloadAdminFilesAsync().join();
+                
+                if (downloadResult.isSuccess()) {
+                    System.out.println("COSMIC SYSTEM UPDATE: Updated " + 
+                                     downloadResult.getDownloadedFiles() + " admin files");
+                    return UpdateResult.success(
+                        downloadResult.getDownloadedFiles(),
+                        "Cosmic system updated successfully"
+                    );
+                } else {
+                    return UpdateResult.failure("Cosmic system update failed");
+                }
+                
+            } catch (Exception e) {
+                return UpdateResult.failure("Cosmic system update error: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * نتيجة التفعيل
+     */
+    public static final class ActivationResult {
+        private final boolean success;
+        private final int downloadedFiles;
+        private final int failedFiles;
+        private final String message;
+
+        private ActivationResult(boolean success, int downloadedFiles, int failedFiles, String message) {
+            this.success = success;
+            this.downloadedFiles = downloadedFiles;
+            this.failedFiles = failedFiles;
+            this.message = message;
+        }
+
+        public static ActivationResult success(int downloaded, int failed, String message) {
+            return new ActivationResult(true, downloaded, failed, message);
+        }
+
+        public static ActivationResult failure(String message) {
+            return new ActivationResult(false, 0, 0, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public int getDownloadedFiles() { return downloadedFiles; }
+        public int getFailedFiles() { return failedFiles; }
+        public String getMessage() { return message; }
+    }
+
+    /**
+     * نتيجة التحديث
+     */
+    public static final class UpdateResult {
+        private final boolean success;
+        private final int updatedFiles;
+        private final String message;
+
+        private UpdateResult(boolean success, int updatedFiles, String message) {
+            this.success = success;
+            this.updatedFiles = updatedFiles;
+            this.message = message;
+        }
+
+        public static UpdateResult success(int updatedFiles, String message) {
+            return new UpdateResult(true, updatedFiles, message);
+        }
+
+        public static UpdateResult failure(String message) {
+            return new UpdateResult(false, 0, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public int getUpdatedFiles() { return updatedFiles; }
+        public String getMessage() { return message; }
+    }
+}
