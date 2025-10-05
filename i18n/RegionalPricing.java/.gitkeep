@@ -1,0 +1,93 @@
+package mazdady.i18n;
+
+import java.math.BigDecimal;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+
+/**
+ * تسعير إقليمي مع دعم التخصيص الديناميكي
+ * يتبع نمط Strategy لفصل استراتيجيات التسعير
+ */
+public final class RegionalPricing {
+    private final Map<String, PricingStrategy> pricingStrategies = new ConcurrentHashMap<>();
+    private static RegionalPricing instance;
+
+    private RegionalPricing() {
+        initializePricingStrategies();
+    }
+
+    public static synchronized RegionalPricing getInstance() {
+        if (instance == null) {
+            instance = new RegionalPricing();
+        }
+        return instance;
+    }
+
+    private void initializePricingStrategies() {
+        // استراتيجيات تسعير افتراضية
+        pricingStrategies.put("GLOBAL", new GlobalPricingStrategy());
+        pricingStrategies.put("MENA", new MENAPricingStrategy());
+        pricingStrategies.put("GCC", new GCCPricingStrategy());
+    }
+
+    /**
+     * حساب السعر الإقليمي
+     */
+    public BigDecimal calculateRegionalPrice(double basePrice, String regionCode) {
+        PricingStrategy strategy = getPricingStrategyForRegion(regionCode);
+        return strategy.calculatePrice(basePrice, regionCode);
+    }
+
+    /**
+     * الحصول على استراتيجية التسعير للمنطقة
+     */
+    private PricingStrategy getPricingStrategyForRegion(String regionCode) {
+        // في الإنتاج: تحديد الاستراتيجية حسب المنطقة
+        if ("SA".equals(regionCode) || "AE".equals(regionCode) || "QA".equals(regionCode) ||
+            "KW".equals(regionCode) || "OM".equals(regionCode) || "BH".equals(regionCode)) {
+            return pricingStrategies.get("GCC");
+        } else if ("EG".equals(regionCode) || "JO".equals(regionCode) || "LB".equals(regionCode)) {
+            return pricingStrategies.get("MENA");
+        }
+        return pricingStrategies.get("GLOBAL");
+    }
+
+    /**
+     * واجهة استراتيجية التسعير
+     */
+    @FunctionalInterface
+    public interface PricingStrategy {
+        BigDecimal calculatePrice(double basePrice, String regionCode);
+    }
+
+    // --- استراتيجيات التسعير ---
+    private static final class GlobalPricingStrategy implements PricingStrategy {
+        @Override
+        public BigDecimal calculatePrice(double basePrice, String regionCode) {
+            return BigDecimal.valueOf(basePrice).setScale(2, java.math.RoundingMode.HALF_UP);
+        }
+    }
+
+    private static final class MENAPricingStrategy implements PricingStrategy {
+        @Override
+        public BigDecimal calculatePrice(double basePrice, String regionCode) {
+            // خصم 10% للمنطقة
+            return BigDecimal.valueOf(basePrice * 0.9).setScale(2, java.math.RoundingMode.HALF_UP);
+        }
+    }
+
+    private static final class GCCPricingStrategy implements PricingStrategy {
+        @Override
+        public BigDecimal calculatePrice(double basePrice, String regionCode) {
+            // سعر عادي للخليج
+            return BigDecimal.valueOf(basePrice).setScale(2, java.math.RoundingMode.HALF_UP);
+        }
+    }
+
+    /**
+     * إضافة استراتيجية تسعير مخصصة
+     */
+    public void addPricingStrategy(String regionGroup, PricingStrategy strategy) {
+        pricingStrategies.put(regionGroup, strategy);
+    }
+}
