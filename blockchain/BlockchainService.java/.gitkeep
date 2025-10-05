@@ -1,19 +1,369 @@
 package mazdady.blockchain;
 
-public class BlockchainService {
-    public boolean sendMAZDADY(String fromAddress, String toAddress, double amount) {
-        // في الإنتاج: إرسال عبر شبكة MAZDADY
-        System.out.println("تم إرسال " + amount + " MAZDADY من " + fromAddress + " إلى " + toAddress);
-        return true;
+import mazdady.security.SecureStorage;
+import mazdady.user.UserManager;
+
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.security.MessageDigest;
+import java.time.Instant;
+import java.util.Base64;
+import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.TimeUnit;
+import java.util.function.BiFunction;
+
+/**
+ * خدمة البلوك تشين مع دعم الشبكات المتعددة
+ * يتبع نمط Strategy لفصل استراتيجيات الشبكات المختلفة
+ */
+public final class BlockchainService {
+    private final SecureStorage secureStorage;
+    private final Map<BlockchainNetwork, NetworkStrategy> networkStrategies = new ConcurrentHashMap<>();
+    private final ScheduledExecutorService balanceScheduler = Executors.newScheduledThreadPool(1);
+    private final Map<String, BigDecimal> cachedBalances = new ConcurrentHashMap<>();
+    private static BlockchainService instance;
+
+    private BlockchainService(SecureStorage secureStorage) {
+        this.secureStorage = secureStorage;
+        initializeNetworkStrategies();
+        startBalanceCaching();
     }
 
-    public double getBalance(String address) {
-        // في الإنتاج: جلب الرصيد من البلوك تشين
-        return 1000.0; // قيمة افتراضية
+    public static synchronized BlockchainService getInstance(SecureStorage secureStorage) {
+        if (instance == null) {
+            instance = new BlockchainService(secureStorage);
+        }
+        return instance;
     }
 
-    public boolean isValidAddress(String address) {
-        // في الإنتاج: التحقق من صحة عنوان MAZDADY
-        return address.startsWith("MZD") && address.length() == 42;
+    private void initializeNetworkStrategies() {
+        networkStrategies.put(BlockchainNetwork.MAZDADY_CHAIN, new MAZDADYChainStrategy());
+        networkStrategies.put(BlockchainNetwork.ETHEREUM, new EthereumStrategy());
+        networkStrategies.put(BlockchainNetwork.BINANCE_SMART_CHAIN, new BinanceSmartChainStrategy());
+        networkStrategies.put(BlockchainNetwork.SOLANA, new SolanaStrategy());
+    }
+
+    private void startBalanceCaching() {
+        balanceScheduler.scheduleAtFixedRate(
+            this::refreshCachedBalances,
+            0,
+            30,
+            TimeUnit.SECONDS
+        );
+        
+        System.out.println("BLOCKCHAIN SERVICE: Started balance caching every 30 seconds");
+    }
+
+    /**
+     * إرسال MAZDADY غير متزامن عبر شبكة البلوك تشين
+     */
+    public CompletableFuture<TransactionResult> sendMAZDADYAsync(
+        String fromAddress,
+        String toAddress,
+        double amount,
+        BlockchainNetwork network
+    ) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                // التحقق من صحة المدخلات
+                if (fromAddress == null || toAddress == null || amount <= 0) {
+                    return TransactionResult.failure("Invalid transaction parameters");
+                }
+                
+                if (!isValidAddress(fromAddress, network)) {
+                    return TransactionResult.failure("Invalid sender address for " + network);
+                }
+                
+                if (!isValidAddress(toAddress, network)) {
+                    return TransactionResult.failure("Invalid receiver address for " + network);
+                }
+                
+                // التحقق من الرصيد
+                BigDecimal balance = getBalance(fromAddress, network);
+                BigDecimal amountBD = BigDecimal.valueOf(amount);
+                
+                if (balance.compareTo(amountBD) < 0) {
+                    return TransactionResult.failure("Insufficient balance");
+                }
+                
+                // تنفيذ المعاملة
+                NetworkStrategy strategy = networkStrategies.get(network);
+                if (strategy == null) {
+                    return TransactionResult.failure("Unsupported blockchain network: " + network);
+                }
+                
+                String transactionId = strategy.executeTransaction(fromAddress, toAddress, amount);
+                
+                if (transactionId != null && !transactionId.isEmpty()) {
+                    // تحديث الرصيد المخزن مؤقتًا
+                    cachedBalances.put(fromAddress, balance.subtract(amountBD));
+                    cachedBalances.put(toAddress, getBalance(toAddress, network).add(amountBD));
+                    
+                    System.out.println("BLOCKCHAIN: Sent " + amount + " MAZDADY from " + 
+                                     fromAddress + " to " + toAddress + " on " + network);
+                    
+                    return TransactionResult.success(transactionId, amount, "Transaction completed successfully");
+                } else {
+                    return TransactionResult.failure("Transaction execution failed");
+                }
+                
+            } catch (Exception e) {
+                return TransactionResult.failure("Transaction failed: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * الحصول على الرصيد غير المتزامن
+     */
+    public CompletableFuture<BalanceResult> getBalanceAsync(String address, BlockchainNetwork network) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                // التحقق من صحة العنوان
+                if (!isValidAddress(address, network)) {
+                    return BalanceResult.failure("Invalid address for " + network);
+                }
+                
+                // التحقق من الكاش أولاً
+                BigDecimal cachedBalance = cachedBalances.get(address);
+                if (cachedBalance != null) {
+                    return BalanceResult.success(cachedBalance.doubleValue(), "Balance from cache");
+                }
+                
+                // الحصول من الشبكة
+                NetworkStrategy strategy = networkStrategies.get(network);
+                if (strategy == null) {
+                    return BalanceResult.failure("Unsupported blockchain network: " + network);
+                }
+                
+                double balance = strategy.getBalance(address);
+                cachedBalances.put(address, BigDecimal.valueOf(balance));
+                
+                System.out.println("BLOCKCHAIN: Balance fetched for " + address + " = " + balance + " MAZDADY");
+                
+                return BalanceResult.success(balance, "Balance fetched from blockchain");
+                
+            } catch (Exception e) {
+                return BalanceResult.failure("Balance fetch failed: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * التحقق من صحة العنوان
+     */
+    public boolean isValidAddress(String address, BlockchainNetwork network) {
+        NetworkStrategy strategy = networkStrategies.get(network);
+        return strategy != null && strategy.isValidAddress(address);
+    }
+
+    /**
+     * تحديث الرصيد المخزن مؤقتًا
+     */
+    private void refreshCachedBalances() {
+        try {
+            for (Map.Entry<String, BigDecimal> entry : cachedBalances.entrySet()) {
+                String address = entry.getKey();
+                BigDecimal currentBalance = entry.getValue();
+                
+                // في الإنتاج: تحديث الرصيد من الشبكة
+                BigDecimal newBalance = fetchBalanceFromNetwork(address);
+                if (newBalance != null && newBalance.compareTo(currentBalance) != 0) {
+                    cachedBalances.put(address, newBalance);
+                    System.out.println("BLOCKCHAIN CACHE: Updated balance for " + address + 
+                                     " from " + currentBalance + " to " + newBalance);
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("BALANCE REFRESH ERROR: " + e.getMessage());
+        }
+    }
+
+    private BigDecimal fetchBalanceFromNetwork(String address) {
+        // في الإنتاج: جلب الرصيد من الشبكة الحقيقية
+        return BigDecimal.valueOf(ThreadLocalRandom.current().nextDouble(100, 10000));
+    }
+
+    /**
+     * إيقاف الخدمة (للاختبارات)
+     */
+    public void shutdown() {
+        balanceScheduler.shutdown();
+        cachedBalances.clear();
+        System.out.println("BLOCKCHAIN SERVICE: Shutdown completed");
+    }
+
+    /**
+     * شبكة البلوك تشين
+     */
+    public enum BlockchainNetwork {
+        MAZDADY_CHAIN, ETHEREUM, BINANCE_SMART_CHAIN, SOLANA
+    }
+
+    /**
+     * استراتيجية الشبكة
+     */
+    @FunctionalInterface
+    private interface NetworkStrategy {
+        String executeTransaction(String from, String to, double amount);
+        double getBalance(String address);
+        boolean isValidAddress(String address);
+        
+        // افتراضي
+        default String executeTransaction(String from, String to, double amount) {
+            return "txn_" + System.currentTimeMillis();
+        }
+        
+        default double getBalance(String address) {
+            return ThreadLocalRandom.current().nextDouble(100, 10000);
+        }
+        
+        default boolean isValidAddress(String address) {
+            return address != null && !address.isEmpty();
+        }
+    }
+
+    // --- استراتيجيات الشبكات ---
+    private static final class MAZDADYChainStrategy implements NetworkStrategy {
+        @Override
+        public String executeTransaction(String from, String to, double amount) {
+            // في الإنتاج: تنفيذ المعاملة عبر شبكة MAZDADY
+            System.out.println("MAZDADY CHAIN: Executing transaction - " + amount + " MAZDADY");
+            return "mzd_txn_" + System.currentTimeMillis();
+        }
+
+        @Override
+        public double getBalance(String address) {
+            // في الإنتاج: جلب الرصيد من شبكة MAZDADY
+            return ThreadLocalRandom.current().nextDouble(1000, 50000);
+        }
+
+        @Override
+        public boolean isValidAddress(String address) {
+            return address != null && 
+                   address.startsWith("MZD") && 
+                   address.length() == 42 &&
+                   address.matches("^MZD[0-9A-Za-z]{39}$");
+        }
+    }
+
+    private static final class EthereumStrategy implements NetworkStrategy {
+        @Override
+        public String executeTransaction(String from, String to, double amount) {
+            System.out.println("ETHEREUM: Executing transaction - " + amount + " ETH equivalent");
+            return "eth_txn_" + System.currentTimeMillis();
+        }
+
+        @Override
+        public double getBalance(String address) {
+            return ThreadLocalRandom.current().nextDouble(0.1, 10);
+        }
+
+        @Override
+        public boolean isValidAddress(String address) {
+            return address != null && 
+                   address.matches("^0x[a-fA-F0-9]{40}$");
+        }
+    }
+
+    private static final class BinanceSmartChainStrategy implements NetworkStrategy {
+        @Override
+        public String executeTransaction(String from, String to, double amount) {
+            System.out.println("BSC: Executing transaction - " + amount + " BNB equivalent");
+            return "bsc_txn_" + System.currentTimeMillis();
+        }
+
+        @Override
+        public double getBalance(String address) {
+            return ThreadLocalRandom.current().nextDouble(0.5, 50);
+        }
+
+        @Override
+        public boolean isValidAddress(String address) {
+            return address != null && 
+                   address.matches("^0x[a-fA-F0-9]{40}$");
+        }
+    }
+
+    private static final class SolanaStrategy implements NetworkStrategy {
+        @Override
+        public String executeTransaction(String from, String to, double amount) {
+            System.out.println("SOLANA: Executing transaction - " + amount + " SOL equivalent");
+            return "sol_txn_" + System.currentTimeMillis();
+        }
+
+        @Override
+        public double getBalance(String address) {
+            return ThreadLocalRandom.current().nextDouble(1, 100);
+        }
+
+        @Override
+        public boolean isValidAddress(String address) {
+            return address != null && 
+                   address.length() == 44 &&
+                   address.matches("^[1-9A-HJ-NP-Za-km-z]+$");
+        }
+    }
+
+    /**
+     * نتيجة المعاملة
+     */
+    public static final class TransactionResult {
+        private final boolean success;
+        private final String transactionId;
+        private final double amount;
+        private final String message;
+
+        private TransactionResult(boolean success, String transactionId, double amount, String message) {
+            this.success = success;
+            this.transactionId = transactionId;
+            this.amount = amount;
+            this.message = message;
+        }
+
+        public static TransactionResult success(String transactionId, double amount, String message) {
+            return new TransactionResult(true, transactionId, amount, message);
+        }
+
+        public static TransactionResult failure(String message) {
+            return new TransactionResult(false, null, 0, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public String getTransactionId() { return transactionId; }
+        public double getAmount() { return amount; }
+        public String getMessage() { return message; }
+    }
+
+    /**
+     * نتيجة الرصيد
+     */
+    public static final class BalanceResult {
+        private final boolean success;
+        private final double balance;
+        private final String message;
+
+        private BalanceResult(boolean success, double balance, String message) {
+            this.success = success;
+            this.balance = balance;
+            this.message = message;
+        }
+
+        public static BalanceResult success(double balance, String message) {
+            return new BalanceResult(true, balance, message);
+        }
+
+        public static BalanceResult failure(String message) {
+            return new BalanceResult(false, 0, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public double getBalance() { return balance; }
+        public String getMessage() { return message; }
     }
 }
