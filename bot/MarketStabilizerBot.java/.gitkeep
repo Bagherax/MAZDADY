@@ -5,66 +5,56 @@ import mazdady.trading.OrderBook;
 
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 
 /**
  * بوت تثبيت السوق مع دعم التدخل التلقائي
- * يتدخل عند اكتشاف تقلبات شديدة
+ * يتبع نمط Observer لمراقبة تغيرات السوق
  */
 public final class MarketStabilizerBot extends TradingBot {
-    private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
-    private double stabilizationFund = 20000.0; // صندوق التثبيت
+    private final ScheduledExecutorService stabilizerScheduler = Executors.newSingleThreadScheduledExecutor();
+    private final OrderBook orderBook;
+    private volatile double stabilizationFund = 20000.0; // صندوق التثبيت
 
-    public MarketStabilizerBot(String botId, PriceEngine priceEngine, OrderBook orderBook) {
-        super(botId, priceEngine, orderBook);
-        setBehavior(new VolatilityControlBehavior());
+    public MarketStabilizerBot(String botId, PriceEngine priceEngine) {
+        super(botId, priceEngine);
+        this.orderBook = new OrderBook();
+        setCapital(stabilizationFund);
     }
 
     @Override
-    protected void executeTradingStrategy() {
-        scheduler.scheduleAtFixedRate(
-            this::monitorAndStabilize,
-            0,
-            10,
-            TimeUnit.SECONDS
-        );
-    }
-
-    private void monitorAndStabilize() {
-        if (!isActive()) return;
-        
-        BotBehavior behavior = currentBehavior.get();
-        if (behavior != null) {
-            behavior.execute(this);
+    public void start() {
+        if (isActive.compareAndSet(false, true)) {
+            stabilizerScheduler.scheduleAtFixedRate(
+                this::monitorAndStabilize,
+                0,
+                5,
+                TimeUnit.SECONDS
+            );
+            
+            System.out.println("MARKET STABILIZER BOT: Started - ID: " + getBotId() + 
+                             " - Fund: " + stabilizationFund + " MAZDADY");
         }
     }
 
-    private void intervene(double amount, boolean isBuy) {
-        if (stabilizationFund >= amount) {
-            if (isBuy) {
-                priceEngine.executeBuyOrder(botId, amount);
-                stabilizationFund -= amount;
-                logger.accept("STABILIZATION: BUY intervention of " + amount + " MAZDADY");
-            } else {
-                priceEngine.executeSellOrder(botId, amount);
-                logger.accept("STABILIZATION: SELL intervention of " + amount + " MAZDADY");
-            }
+    @Override
+    public void stop() {
+        if (isActive.compareAndSet(true, false)) {
+            stabilizerScheduler.shutdown();
+            System.out.println("MARKET STABILIZER BOT: Stopped - ID: " + getBotId());
         }
     }
 
     /**
-     * سلوك التحكم في التقلب
+     * مراقبة وتثبيت السوق تلقائيًا
      */
-    private final class VolatilityControlBehavior implements BotBehavior {
-        @Override
-        public String getName() {
-            return "VOLATILITY_CONTROL";
-        }
-
-        @Override
-        public void execute(TradingBot bot) {
-            double volatility = priceEngine.getVolatility();
+    private void monitorAndStabilize() {
+        if (!isActive.get()) return;
+        
+        try {
             double currentPrice = priceEngine.getCurrentPrice();
+            double volatility = priceEngine.getVolatility();
             double trend = priceEngine.getMarketTrend();
             
             // التدخل عند التقلب الشديد
@@ -72,10 +62,10 @@ public final class MarketStabilizerBot extends TradingBot {
                 double interventionAmount = 500.0 * volatility;
                 
                 if (trend > 0.5) {
-                    // سوق صاعد بسرعة - بيع لتثبيت السعر
+                    // السوق صاعد بسرعة - بيع لتثبيت السعر
                     intervene(interventionAmount, false);
                 } else if (trend < -0.5) {
-                    // سوق هابط بسرعة - شراء لتثبيت السعر
+                    // السوق هابط بسرعة - شراء لتثبيت السعر
                     intervene(interventionAmount, true);
                 }
             }
@@ -86,6 +76,128 @@ public final class MarketStabilizerBot extends TradingBot {
             } else if (currentPrice < 80.0) {
                 intervene(300.0, true);  // شراء عند الانخفاض المفرط
             }
+            
+        } catch (Exception e) {
+            System.err.println("MARKET STABILIZER ERROR: " + e.getMessage());
         }
+    }
+
+    private void intervene(double amount, boolean isBuy) {
+        if (stabilizationFund < amount) return;
+        
+        try {
+            if (isBuy) {
+                priceEngine.executeBuyOrder(getBotId(), amount);
+                stabilizationFund -= amount;
+                System.out.println("MARKET STABILIZER BOT: BUY intervention - " + amount + " MAZDADY");
+            } else {
+                priceEngine.executeSellOrder(getBotId(), amount);
+                stabilizationFund -= amount;
+                System.out.println("MARKET STABILIZER BOT: SELL intervention - " + amount + " MAZDADY");
+            }
+            
+            // تحديث الصندوق
+            setCapital(stabilizationFund);
+            
+        } catch (Exception e) {
+            System.err.println("STABILIZATION INTERVENTION ERROR: " + e.getMessage());
+        }
+    }
+
+    /**
+     * تنفيذ صفقة تجارية
+     */
+    @Override
+    public void executeTrade(TradeType tradeType, double amount) {
+        if (!isActive.get() || amount <= 0) return;
+        
+        try {
+            if (tradeType == TradeType.BUY) {
+                priceEngine.executeBuyOrder(getBotId(), amount);
+                stabilizationFund -= amount;
+                System.out.println("MARKET STABILIZER BOT: Executed BUY trade - " + amount + " MAZDADY");
+            } else if (tradeType == TradeType.SELL) {
+                priceEngine.executeSellOrder(getBotId(), amount);
+                stabilizationFund -= amount;
+                System.out.println("MARKET STABILIZER BOT: Executed SELL trade - " + amount + " MAZDADY");
+            }
+            
+            // تحديث الصندوق
+            setCapital(stabilizationFund);
+            
+        } catch (Exception e) {
+            System.err.println("STABILIZER TRADE ERROR: " + e.getMessage());
+        }
+    }
+
+    /**
+     * إعادة تمويل صندوق التثبيت
+     */
+    public void refillStabilizationFund(double amount) {
+        if (amount > 0) {
+            stabilizationFund += amount;
+            setCapital(stabilizationFund);
+            System.out.println("MARKET STABILIZER BOT: Refilled fund - " + amount + " MAZDADY");
+        }
+    }
+
+    /**
+     * الحصول على حالة تثبيت السوق
+     */
+    public StabilizationStatus getStabilizationStatus() {
+        return new StabilizationStatus(
+            stabilizationFund,
+            priceEngine.getCurrentPrice(),
+            priceEngine.getVolatility(),
+            priceEngine.getMarketTrend(),
+            isActive.get()
+        );
+    }
+
+    /**
+     * حالة تثبيت السوق
+     */
+    public static final class StabilizationStatus {
+        private final double fund;
+        private final double currentPrice;
+        private final double volatility;
+        private final double trend;
+        private final boolean active;
+
+        public StabilizationStatus(double fund, double currentPrice, double volatility, double trend, boolean active) {
+            this.fund = fund;
+            this.currentPrice = currentPrice;
+            this.volatility = volatility;
+            this.trend = trend;
+            this.active = active;
+        }
+
+        // Getters
+        public double getFund() { return fund; }
+        public double getCurrentPrice() { return currentPrice; }
+        public double getVolatility() { return volatility; }
+        public double getTrend() { return trend; }
+        public boolean isActive() { return active; }
+        
+        public String getFormattedStatus() {
+            return "Fund: " + String.format("%.2f", fund) + " MAZDADY - " +
+                   "Price: " + String.format("%.4f", currentPrice) + " MAZDADY - " +
+                   "Volatility: " + String.format("%.2f", volatility * 100) + "% - " +
+                   "Trend: " + String.format("%.2f", trend * 100) + "% - " +
+                   "Status: " + (active ? "ACTIVE" : "INACTIVE");
+        }
+    }
+
+    // --- Getters ---
+    public double getStabilizationFund() { return stabilizationFund; }
+    public OrderBook getOrderBook() { return orderBook; }
+    public boolean hasSufficientFund() { return stabilizationFund > 1000.0; }
+    
+    /**
+     * إيقاف تثبيت السوق (للاختبارات)
+     */
+    public void shutdown() {
+        stop();
+        System.out.println("MARKET STABILIZER BOT: Shutdown completed - ID: " + getBotId());
     }
 }
