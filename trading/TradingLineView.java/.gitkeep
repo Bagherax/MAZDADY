@@ -206,3 +206,23 @@ public final class TradingLineView extends LinearLayout {
         });
     }
 }
+// أضف هذا إلى TradingLineView.java
+
+/**
+ * إظهار مؤشر خسارة للمستخدم
+ */
+public void showLossIndicator(String userId, double amount, String lossType) {
+    post(() -> {
+        try {
+            // إضافة مؤشر خسارة إلى واجهة التداول
+            addProfitIndicator("RED", -amount); // مؤشر أحمر للخسارة
+            
+            // إظهار رسالة للمستخدم
+            System.out.println("TRADING LINE: LOSS INDICATOR - User " + userId + 
+                             " lost " + amount + " MAZDADY via " + lossType);
+            
+        } catch (Exception e) {
+            System.err.println("LOSS INDICATOR ERROR: " + e.getMessage());
+        }
+    });
+}
