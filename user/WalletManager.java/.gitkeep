@@ -1,0 +1,130 @@
+package mazdady.user;
+
+import mazdady.wallet.WalletConnector;
+
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicReference;
+
+/**
+ * مدير المحفظة مع دعم العمليات الآمنة
+ * يتبع نمط Facade لتوفير واجهة موحدة
+ */
+public final class WalletManager {
+    private final AtomicReference<String> walletAddress = new AtomicReference<>();
+    private final AtomicReference<Double> balance = new AtomicReference<>(0.0);
+    private final AtomicReference<String> network = new AtomicReference<>("UNKNOWN");
+    private volatile boolean connected = false;
+    private static WalletManager instance;
+
+    private WalletManager() {}
+
+    public static synchronized WalletManager getInstance() {
+        if (instance == null) {
+            instance = new WalletManager();
+        }
+        return instance;
+    }
+
+    /**
+     * ربط المحفظة
+     */
+    public boolean connectWallet(String address, String network) {
+        if (address == null || address.isEmpty()) return false;
+        
+        try {
+            this.walletAddress.set(address);
+            this.network.set(network);
+            this.connected = true;
+            
+            // تحميل الرصيد من البلوك تشين
+            loadBalanceFromBlockchain();
+            
+            System.out.println("WALLET MANAGER: Wallet connected - " + address + " on " + network);
+            return true;
+            
+        } catch (Exception e) {
+            System.err.println("WALLET CONNECT ERROR: " + e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * فصل المحفظة
+     */
+    public void disconnectWallet() {
+        this.walletAddress.set(null);
+        this.network.set("UNKNOWN");
+        this.balance.set(0.0);
+        this.connected = false;
+        System.out.println("WALLET MANAGER: Wallet disconnected");
+    }
+
+    /**
+     * سحب MAZDADY غير متزامن
+     */
+    public CompletableFuture<Boolean> withdrawMAZDADYAsync(double amount) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                if (!connected || amount <= 0) {
+                    return false;
+                }
+                
+                if (balance.get() < amount) {
+                    System.out.println("WALLET MANAGER: Insufficient balance for withdrawal");
+                    return false;
+                }
+                
+                // تنفيذ السحب (في الإنتاج: عبر البلوك تشين)
+                boolean success = executeWithdrawal(amount);
+                
+                if (success) {
+                    balance.updateAndGet(current -> current - amount);
+                    System.out.println("WALLET MANAGER: Withdrew " + amount + " MAZDADY");
+                }
+                
+                return success;
+                
+            } catch (Exception e) {
+                System.err.println("WALLET WITHDRAW ERROR: " + e.getMessage());
+                return false;
+            }
+        });
+    }
+
+    /**
+     * إيداع MAZDADY
+     */
+    public void depositMAZDADY(double amount) {
+        if (amount > 0 && connected) {
+            balance.updateAndGet(current -> current + amount);
+            System.out.println("WALLET MANAGER: Deposited " + amount + " MAZDADY");
+        }
+    }
+
+    private void loadBalanceFromBlockchain() {
+        // في الإنتاج: تحميل الرصيد من البلوك تشين
+        balance.set(1000.0); // رصيد افتراضي
+        System.out.println("WALLET MANAGER: Balance loaded from blockchain");
+    }
+
+    private boolean executeWithdrawal(double amount) {
+        // في الإنتاج: تنفيذ السحب عبر البلوك تشين
+        System.out.println("WALLET MANAGER: Executing withdrawal of " + amount + " MAZDADY");
+        return true; // محاكاة النجاح
+    }
+
+    // --- Getters ---
+    public String getWalletAddress() { return walletAddress.get(); }
+    public double getBalance() { return balance.get(); }
+    public String getNetwork() { return network.get(); }
+    public boolean isConnected() { return connected; }
+    public void setBalance(double newBalance) { balance.set(newBalance); }
+    
+    /**
+     * إيقاف المدير (للاختبارات)
+     */
+    public void shutdown() {
+        disconnectWallet();
+        System.out.println("WALLET MANAGER: Shutdown completed");
+    }
+}
