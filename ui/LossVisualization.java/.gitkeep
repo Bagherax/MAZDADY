@@ -1,0 +1,293 @@
+package mazdady.ui;
+
+import android.animation.ObjectAnimator;
+import android.content.Context;
+import android.graphics.Canvas;
+import android.graphics.Color;
+import android.graphics.Paint;
+import android.graphics.Path;
+import android.util.AttributeSet;
+import android.view.View;
+import android.view.animation.DecelerateInterpolator;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
+
+/**
+ * تصور الخسائر بذكاء مع دعم التعلم من الأخطاء
+ * يتبع نمط Strategy لفصل استراتيجيات التصور
+ */
+public final class LossVisualization extends View {
+    private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Path lossPath = new Path();
+    private final List<LossPoint> lossPoints = new CopyOnWriteArrayList<>();
+    private final List<LearningTip> learningTips = new ArrayList<>();
+    private volatile boolean visualizationActive = true;
+    private volatile VisualizationStrategy currentStrategy = new GraphVisualizationStrategy();
+
+    public LossVisualization(Context context, AttributeSet attrs) {
+        super(context, attrs);
+        initializePaint();
+        initializeLearningTips();
+    }
+
+    private void initializePaint() {
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(6f);
+        paint.setColor(Color.RED);
+        paint.setStrokeCap(Paint.Cap.ROUND);
+        paint.setStrokeJoin(Paint.Join.ROUND);
+    }
+
+    private void initializeLearningTips() {
+        learningTips.add(new LearningTip("تنويع المحفظة", "لا تضع كل أموالك في عملة واحدة"));
+        learningTips.add(new LearningTip("تحديد الخسارة", "حدد حد الخسارة مسبقًا"));
+        learningTips.add(new LearningTip("التحليل الفني", "استخدم الرسوم البيانية لاتخاذ قرارات أفضل"));
+        learningTips.add(new LearningTip("التحكم في المشاعر", "لا تدع الخوف أو الجشع يؤثر على قراراتك"));
+    }
+
+    /**
+     * إضافة نقطة خسارة جديدة
+     */
+    public void addLossPoint(double lossAmount, String reason) {
+        if (!visualizationActive) return;
+
+        try {
+            LossPoint point = new LossPoint(lossAmount, reason, System.currentTimeMillis());
+            lossPoints.add(point);
+
+            // الحفاظ على أحدث 50 نقطة فقط
+            if (lossPoints.size() > 50) {
+                lossPoints.remove(0);
+            }
+
+            // تحديث الرسم
+            postInvalidate();
+
+            // عرض نصيحة تعلم
+            showLearningTip(point);
+
+            System.out.println("LOSS VISUALIZATION: Loss point added - Amount: " + lossAmount);
+        } catch (Exception e) {
+            System.err.println("LOSS POINT ERROR: " + e.getMessage());
+        }
+    }
+
+    /**
+     * عرض نصيحة تعلم
+     */
+    private void showLearningTip(LossPoint point) {
+        if (learningTips.isEmpty()) return;
+
+        // اختيار نصيحة عشوائية
+        int randomIndex = (int) (Math.random() * learningTips.size());
+        LearningTip tip = learningTips.get(randomIndex);
+
+        // في الإنتاج: عرض النصيحة للمستخدم
+        System.out.println("LEARNING TIP: " + tip.getTitle() + " - " + tip.getDescription());
+    }
+
+    @Override
+    protected void onDraw(Canvas canvas) {
+        super.onDraw(canvas);
+
+        if (!visualizationActive || lossPoints.isEmpty()) return;
+
+        // رسم تصور الخسارة
+        currentStrategy.visualize(canvas, lossPoints, paint);
+    }
+
+    /**
+     * تأثير تغير الخسارة
+     */
+    public void animateLossChange(double oldLoss, double newLoss) {
+        if (!visualizationActive) return;
+
+        try {
+            // تأثير الاهتزاز عند الخسارة الكبيرة
+            if (Math.abs(newLoss - oldLoss) > 100) {
+                animateVibrationEffect();
+            }
+
+            // تأثير تغير اللون
+            animateColorTransition(oldLoss, newLoss);
+
+            // تأثير الحركة
+            animateMovementEffect(oldLoss, newLoss);
+
+            System.out.println("LOSS ANIMATION: Loss changed from " + oldLoss + " to " + newLoss);
+        } catch (Exception e) {
+            System.err.println("LOSS ANIMATION ERROR: " + e.getMessage());
+        }
+    }
+
+    private void animateVibrationEffect() {
+        ObjectAnimator shake = ObjectAnimator.ofFloat(this, "translationX", 0f, -10f, 10f, -10f, 10f, 0f);
+        shake.setDuration(500);
+        shake.start();
+    }
+
+    private void animateColorTransition(double oldLoss, double newLoss) {
+        int oldColor = oldLoss > newLoss ? Color.GREEN : Color.RED;
+        int newColor = newLoss > oldLoss ? Color.RED : Color.GREEN;
+
+        ObjectAnimator colorAnimator = ObjectAnimator.ofArgb(this, "backgroundColor", oldColor, newColor);
+        colorAnimator.setDuration(1000);
+        colorAnimator.start();
+    }
+
+    private void animateMovementEffect(double oldLoss, double newLoss) {
+        float movement = (float) (newLoss - oldLoss);
+        ObjectAnimator move = ObjectAnimator.ofFloat(this, "translationY", 0f, movement);
+        move.setDuration(800);
+        move.setInterpolator(new DecelerateInterpolator());
+        move.start();
+    }
+
+    /**
+     * تفعيل تصور الخسارة
+     */
+    public void activateVisualization() {
+        this.visualizationActive = true;
+        postInvalidate();
+        System.out.println("LOSS VISUALIZATION: Activated");
+    }
+
+    /**
+     * تعطيل تصور الخسارة
+     */
+    public void deactivateVisualization() {
+        this.visualizationActive = false;
+        postInvalidate();
+        System.out.println("LOSS VISUALIZATION: Deactivated");
+    }
+
+    /**
+     * تغيير استراتيجية التصور
+     */
+    public void changeVisualizationStrategy(VisualizationStrategy strategy) {
+        this.currentStrategy = strategy;
+        postInvalidate();
+        System.out.println("LOSS VISUALIZATION: Strategy changed to " + strategy.getName());
+    }
+
+    /**
+     * نقطة الخسارة
+     */
+    private static final class LossPoint {
+        private final double amount;
+        private final String reason;
+        private final long timestamp;
+
+        public LossPoint(double amount, String reason, long timestamp) {
+            this.amount = amount;
+            this.reason = reason;
+            this.timestamp = timestamp;
+        }
+
+        // Getters
+        public double getAmount() { return amount; }
+        public String getReason() { return reason; }
+        public long getTimestamp() { return timestamp; }
+    }
+
+    /**
+     * نصيحة التعلم
+     */
+    private static final class LearningTip {
+        private final String title;
+        private final String description;
+
+        public LearningTip(String title, String description) {
+            this.title = title;
+            this.description = description;
+        }
+
+        // Getters
+        public String getTitle() { return title; }
+        public String getDescription() { return description; }
+    }
+
+    /**
+     * استراتيجية تصور الخسارة
+     */
+    @FunctionalInterface
+    public interface VisualizationStrategy {
+        String getName();
+        void visualize(Canvas canvas, List<LossPoint> points, Paint paint);
+    }
+
+    /**
+     * استراتيجية التصور البياني
+     */
+    private static final class GraphVisualizationStrategy implements VisualizationStrategy {
+        @Override
+        public String getName() {
+            return "GRAPH";
+        }
+
+        @Override
+        public void visualize(Canvas canvas, List<LossPoint> points, Paint paint) {
+            if (points.size() < 2) return;
+
+            Path path = new Path();
+            float width = canvas.getWidth();
+            float height = canvas.getHeight();
+
+            // حساب الحد الأدنى والأقصى
+            double minLoss = points.stream().mapToDouble(LossPoint::getAmount).min().orElse(0);
+            double maxLoss = points.stream().mapToDouble(LossPoint::getAmount).max().orElse(100);
+            double range = maxLoss - minLoss;
+            if (range == 0) range = 1;
+
+            for (int i = 0; i < points.size(); i++) {
+                LossPoint point = points.get(i);
+                float x = width * i / (points.size() - 1);
+                float y = height - (float) ((point.getAmount() - minLoss) / range * height);
+
+                if (i == 0) {
+                    path.moveTo(x, y);
+                } else {
+                    path.lineTo(x, y);
+                }
+            }
+
+            canvas.drawPath(path, paint);
+        }
+    }
+
+    /**
+     * استراتيجية التصور الدائري
+     */
+    private static final class CircularVisualizationStrategy implements VisualizationStrategy {
+        @Override
+        public String getName() {
+            return "CIRCULAR";
+        }
+
+        @Override
+        public void visualize(Canvas canvas, List<LossPoint> points, Paint paint) {
+            float centerX = canvas.getWidth() / 2f;
+            float centerY = canvas.getHeight() / 2f;
+            float radius = Math.min(centerX, centerY) * 0.8f;
+
+            canvas.drawCircle(centerX, centerY, radius, paint);
+
+            // رسم نقاط الخسارة كخطوط شعاعية
+            for (int i = 0; i < points.size(); i++) {
+                LossPoint point = points.get(i);
+                double angle = 2 * Math.PI * i / points.size();
+                float x = centerX + (float) (radius * Math.cos(angle));
+                float y = centerY + (float) (radius * Math.sin(angle));
+
+                canvas.drawLine(centerX, centerY, x, y, paint);
+            }
+        }
+    }
+
+    // --- Getters ---
+    public boolean isVisualizationActive() { return visualizationActive; }
+    public int getLossPointCount() { return lossPoints.size(); }
+    public void clearLossPoints() { lossPoints.clear(); postInvalidate(); }
+}
