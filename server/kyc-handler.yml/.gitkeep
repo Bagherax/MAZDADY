@@ -6,9 +6,11 @@ on:
       user_id:
         description: 'User ID'
         required: true
+        type: string
       document_data:
         description: 'Base64 Encrypted Document'
         required: true
+        type: string
 
 jobs:
   process-kyc:
@@ -18,14 +20,19 @@ jobs:
         env:
           USER_ID: ${{ github.event.inputs.user_id }}
           DOC_DATA: ${{ github.event.inputs.document_data }}
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
           echo "$DOC_DATA" | base64 --decode > "kyc_${USER_ID}.enc"
-          echo "Document stored securely for user $USER_ID"
+          
+          # رفع إلى GitHub Releases
+          curl -X POST \
+            -H "Authorization: token $GH_TOKEN" \
+            -H "Content-Type: application/octet-stream" \
+            --data-binary "@kyc_${USER_ID}.enc" \
+            "https://uploads.github.com/repos/BAGHERAX/MAZDADY/releases/assets?name=kyc_${USER_ID}.enc"
       
       - name: Notify User
         run: |
           echo "KYC approved for user ${{ github.event.inputs.user_id }}"
           
-          env:
-  GH_TOKEN: ${{ secrets.GH_TOKEN }}
-  }
+          # في الإنتاج: إرسال إشعار عبر FCM
