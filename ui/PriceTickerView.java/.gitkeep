@@ -1,35 +1,89 @@
 package mazdady.ui;
 
-import android.widget.TextView;
+import android.animation.ValueAnimator;
+import android.content.Context;
 import android.graphics.Color;
+import android.util.AttributeSet;
+import android.widget.TextView;
 
-public class PriceTickerView {
-    private TextView priceView;
-    private double lastPrice = 100.0;
+import java.text.DecimalFormat;
 
-    public PriceTickerView(TextView priceView) {
-        this.priceView = priceView;
+/**
+ * عرض السعر الحي مع تأثيرات متقدمة
+ * يتبع نمط Observer لمراقبة تغيرات السعر
+ */
+public final class PriceTickerView extends TextView {
+    private final DecimalFormat decimalFormat = new DecimalFormat("#,##0.00");
+    private volatile double currentPrice = 100.0;
+    private volatile double previousPrice = 100.0;
+    private final PriceAnimationEngine animationEngine;
+
+    public PriceTickerView(Context context, AttributeSet attrs) {
+        super(context, attrs);
+        this.animationEngine = new PriceAnimationEngine(this);
+        setText(decimalFormat.format(currentPrice));
+        setTextColor(Color.WHITE);
+        setTextSize(24);
     }
 
+    /**
+     * تحديث السعر مع تأثيرات بصرية
+     */
     public void updatePrice(double newPrice) {
-        double change = ((newPrice - lastPrice) / lastPrice) * 100;
-        String symbol = change >= 0 ? "🔺" : "🔻";
-        String formattedChange = String.format("%.2f", Math.abs(change));
-        String display = symbol + " " + formattedChange + "%";
+        if (newPrice <= 0) return;
+        
+        this.previousPrice = this.currentPrice;
+        this.currentPrice = newPrice;
+        
+        // تشغيل التأثير البصري
+        animationEngine.animatePriceChange(previousPrice, currentPrice);
+        
+        System.out.println("PRICE TICKER: Price updated to " + decimalFormat.format(newPrice));
+    }
 
-        int color = change >= 0 ? Color.parseColor("#4CAF50") : Color.parseColor("#F44336");
-        priceView.setTextColor(color);
-        priceView.setText(display);
-
-        if (Math.abs(change) > 5.0) {
-            animatePulse();
+    /**
+     * تطبيق تأثير اللون حسب التغير
+     */
+    public void applyColorEffect(double oldPrice, double newPrice) {
+        if (newPrice > oldPrice) {
+            // سعر ارتفع - لون أخضر
+            animateColorChange(Color.GREEN);
+        } else if (newPrice < oldPrice) {
+            // سعر انخفض - لون أحمر
+            animateColorChange(Color.RED);
+        } else {
+            // سعر ثابت - لون أبيض
+            animateColorChange(Color.WHITE);
         }
-
-        lastPrice = newPrice;
     }
 
-    private void animatePulse() {
-        priceView.animate().scaleX(1.1f).scaleY(1.1f).setDuration(100)
-                .withEndAction(() -> priceView.animate().scaleX(1.0f).scaleY(1.0f).setDuration(100));
+    /**
+     * تأثير تغير اللون بسلاسة
+     */
+    private void animateColorChange(int targetColor) {
+        ValueAnimator colorAnimator = ValueAnimator.ofArgb(getCurrentTextColor(), targetColor);
+        colorAnimator.addUpdateListener(animation -> {
+            setTextColor((int) animation.getAnimatedValue());
+        });
+        colorAnimator.setDuration(500);
+        colorAnimator.start();
     }
+
+    /**
+     * تأثير الوميض عند التحديث
+     */
+    public void flashEffect() {
+        // تأثير الوميض السريع
+        ValueAnimator flashAnimator = ValueAnimator.ofFloat(1f, 0.3f, 1f);
+        flashAnimator.addUpdateListener(animation -> {
+            setAlpha((Float) animation.getAnimatedValue());
+        });
+        flashAnimator.setDuration(300);
+        flashAnimator.start();
+    }
+
+    // --- Getters ---
+    public double getCurrentPrice() { return currentPrice; }
+    public double getPreviousPrice() { return previousPrice; }
+    public String getFormattedPrice() { return decimalFormat.format(currentPrice); }
 }
