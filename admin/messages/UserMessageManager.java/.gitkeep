@@ -1,0 +1,353 @@
+package mazdady.admin.messages;
+
+import mazdady.user.User;
+import mazdady.user.UserManager;
+import mazdady.admin.AdminConfig;
+import mazdady.security.SecurityMonitor;
+
+import java.time.Instant;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.Consumer;
+
+/**
+ * مدير رسائل المستخدمين مع دعم الأدوات التحكمية
+ * يتبع نمط Observer لإعلام النظام بالرسائل الجديدة
+ */
+public final class UserMessageManager {
+    private final CopyOnWriteArrayList<UserMessage> messages = new CopyOnWriteArrayList<>();
+    private final ConcurrentHashMap<String, MessageActionHandler> actionHandlers = new ConcurrentHashMap<>();
+    private final CopyOnWriteArrayList<Consumer<MessageEvent>> messageListeners = new CopyOnWriteArrayList<>();
+    private static UserMessageManager instance;
+
+    private UserMessageManager() {
+        initializeActionHandlers();
+    }
+
+    public static synchronized UserMessageManager getInstance() {
+        if (instance == null) {
+            instance = new UserMessageManager();
+        }
+        return instance;
+    }
+
+    private void initializeActionHandlers() {
+        actionHandlers.put("SEND_GIFT", new SendGiftActionHandler());
+        actionHandlers.put("BAN_USER", new BanUserActionHandler());
+        actionHandlers.put("WARN_USER", new WarnUserActionHandler());
+        actionHandlers.put("SUSPEND_ACCOUNT", new SuspendAccountActionHandler());
+        actionHandlers.put("DELETE_MESSAGE", new DeleteMessageActionHandler());
+        actionHandlers.put("REPLY_TO_USER", new ReplyToUserActionHandler());
+        actionHandlers.put("FORWARD_TO_SUPPORT", new ForwardToSupportActionHandler());
+        actionHandlers.put("MARK_AS_READ", new MarkAsReadActionHandler());
+        actionHandlers.put("MARK_AS_IMPORTANT", new MarkAsImportantActionHandler());
+        actionHandlers.put("EXPORT_MESSAGE", new ExportMessageActionHandler());
+    }
+
+    /**
+     * استقبال رسالة من مستخدم غير متزامن
+     */
+    public CompletableFuture<MessageResult> receiveMessageAsync(
+        String userId,
+        String messageType,
+        String content,
+        String attachmentUrl
+    ) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                User user = UserManager.getInstance(null).getUserById(userId);
+                if (user == null) {
+                    return MessageResult.failure("User not found: " + userId);
+                }
+
+                UserMessage message = new UserMessage(
+                    "msg_" + System.currentTimeMillis(),
+                    userId,
+                    user.getUsername(),
+                    messageType,
+                    content,
+                    attachmentUrl,
+                    Instant.now()
+                );
+
+                messages.add(message);
+                notifyMessageReceived(message);
+
+                System.out.println("USER MESSAGE MANAGER: Received message from " + userId + 
+                                 " - Type: " + messageType);
+
+                return MessageResult.success(message, "Message received successfully");
+
+            } catch (Exception e) {
+                return MessageResult.failure("Message reception failed: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * تنفيذ إجراء على رسالة غير متزامن
+     */
+    public CompletableFuture<ActionResult> executeMessageActionAsync(
+        String messageId,
+        String actionType,
+        Object... actionParams
+    ) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                UserMessage message = findMessageById(messageId);
+                if (message == null) {
+                    return ActionResult.failure("Message not found: " + messageId);
+                }
+
+                MessageActionHandler handler = actionHandlers.get(actionType);
+                if (handler == null) {
+                    return ActionResult.failure("Unsupported action: " + actionType);
+                }
+
+                ActionResult result = handler.execute(message, actionParams);
+                if (result.isSuccess()) {
+                    notifyActionExecuted(message, actionType, result);
+                }
+
+                System.out.println("USER MESSAGE MANAGER: Executed action " + actionType + 
+                                 " on message " + messageId);
+
+                return result;
+
+            } catch (Exception e) {
+                return ActionResult.failure("Action execution failed: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * إضافة مستمع لرسائل المستخدمين
+     */
+    public void addMessageListener(Consumer<MessageEvent> listener) {
+        messageListeners.add(listener);
+    }
+
+    /**
+     * إزالة مستمع لرسائل المستخدمين
+     */
+    public void removeMessageListener(Consumer<MessageEvent> listener) {
+        messageListeners.remove(listener);
+    }
+
+    private void notifyMessageReceived(UserMessage message) {
+        MessageEvent event = new MessageEvent(
+            MessageEvent.EventType.MESSAGE_RECEIVED,
+            message,
+            "New message received from " + message.getUsername()
+        );
+        notifyListeners(event);
+    }
+
+    private void notifyActionExecuted(UserMessage message, String actionType, ActionResult result) {
+        MessageEvent event = new MessageEvent(
+            MessageEvent.EventType.ACTION_EXECUTED,
+            message,
+            "Action " + actionType + " executed: " + result.getMessage()
+        );
+        notifyListeners(event);
+    }
+
+    private void notifyListeners(MessageEvent event) {
+        messageListeners.forEach(listener -> {
+            try {
+                listener.accept(event);
+            } catch (Exception e) {
+                // تجاهل أخطاء المستمعين
+            }
+        });
+    }
+
+    private UserMessage findMessageById(String messageId) {
+        return messages.stream()
+            .filter(msg -> messageId.equals(msg.getMessageId()))
+            .findFirst()
+            .orElse(null);
+    }
+
+    /**
+     * الحصول على جميع الرسائل
+     */
+    public CopyOnWriteArrayList<UserMessage> getAllMessages() {
+        return new CopyOnWriteArrayList<>(messages);
+    }
+
+    /**
+     * الحصول على الرسائل حسب النوع
+     */
+    public CopyOnWriteArrayList<UserMessage> getMessagesByType(String messageType) {
+        return messages.stream()
+            .filter(msg -> messageType.equals(msg.getMessageType()))
+            .collect(java.util.stream.Collectors.toCollection(CopyOnWriteArrayList::new));
+    }
+
+    /**
+     * الحصول على الرسائل من مستخدم محدد
+     */
+    public CopyOnWriteArrayList<UserMessage> getMessagesFromUser(String userId) {
+        return messages.stream()
+            .filter(msg -> userId.equals(msg.getUserId()))
+            .collect(java.util.stream.Collectors.toCollection(CopyOnWriteArrayList::new));
+    }
+
+    /**
+     * حذف رسالة
+     */
+    public boolean deleteMessage(String messageId) {
+        return messages.removeIf(msg -> messageId.equals(msg.getMessageId()));
+    }
+
+    /**
+     * حذف جميع الرسائل (للاختبارات)
+     */
+    public void clearAllMessages() {
+        messages.clear();
+        System.out.println("USER MESSAGE MANAGER: All messages cleared");
+    }
+
+    // --- Getters ---
+    public int getMessageCount() { return messages.size(); }
+    public int getUnreadMessageCount() {
+        return (int) messages.stream().filter(msg -> !msg.isRead()).count();
+    }
+    public int getImportantMessageCount() {
+        return (int) messages.stream().filter(UserMessage::isImportant).count();
+    }
+
+    /**
+     * رسالة المستخدم
+     */
+    public static final class UserMessage {
+        private final String messageId;
+        private final String userId;
+        private final String username;
+        private final String messageType;
+        private final String content;
+        private final String attachmentUrl;
+        private final Instant timestamp;
+        private volatile boolean read = false;
+        private volatile boolean important = false;
+        private volatile String adminNotes = "";
+
+        public UserMessage(String messageId, String userId, String username, String messageType,
+                          String content, String attachmentUrl, Instant timestamp) {
+            this.messageId = messageId;
+            this.userId = userId;
+            this.username = username;
+            this.messageType = messageType;
+            this.content = content;
+            this.attachmentUrl = attachmentUrl;
+            this.timestamp = timestamp;
+        }
+
+        // Getters
+        public String getMessageId() { return messageId; }
+        public String getUserId() { return userId; }
+        public String getUsername() { return username; }
+        public String getMessageType() { return messageType; }
+        public String getContent() { return content; }
+        public String getAttachmentUrl() { return attachmentUrl; }
+        public Instant getTimestamp() { return timestamp; }
+        public boolean isRead() { return read; }
+        public boolean isImportant() { return important; }
+        public String getAdminNotes() { return adminNotes; }
+
+        // Setters
+        public void setRead(boolean read) { this.read = read; }
+        public void setImportant(boolean important) { this.important = important; }
+        public void setAdminNotes(String adminNotes) { this.adminNotes = adminNotes; }
+
+        @Override
+        public String toString() {
+            return "UserMessage{" +
+                "id='" + messageId + '\'' +
+                ", user='" + username + '\'' +
+                ", type='" + messageType + '\'' +
+                ", content='" + content + '\'' +
+                ", timestamp=" + timestamp +
+                ", read=" + read +
+                ", important=" + important +
+                '}';
+        }
+    }
+
+    /**
+     * حدث الرسالة
+     */
+    public static final class MessageEvent {
+        private final EventType type;
+        private final UserMessage message;
+        private final String description;
+
+        public MessageEvent(EventType type, UserMessage message, String description) {
+            this.type = type;
+            this.message = message;
+            this.description = description;
+        }
+
+        public enum EventType {
+            MESSAGE_RECEIVED, ACTION_EXECUTED, MESSAGE_DELETED, MESSAGE_UPDATED
+        }
+
+        // Getters
+        public EventType getType() { return type; }
+        public UserMessage getMessage() { return message; }
+        public String getDescription() { return description; }
+    }
+
+    /**
+     * نتيجة الرسالة
+     */
+    public static final class MessageResult {
+        private final boolean success;
+        private final UserMessage message;
+        private final String messageContent;
+
+        private MessageResult(boolean success, UserMessage message, String messageContent) {
+            this.success = success;
+            this.message = message;
+            this.messageContent = messageContent;
+        }
+
+        public static MessageResult success(UserMessage message, String messageContent) {
+            return new MessageResult(true, message, messageContent);
+        }
+
+        public static MessageResult failure(String messageContent) {
+            return new MessageResult(false, null, messageContent);
+        }
+
+        public boolean isSuccess() { return success; }
+        public UserMessage getMessage() { return message; }
+        public String getMessageContent() { return messageContent; }
+    }
+
+    /**
+     * نتيجة الإجراء
+     */
+    public static final class ActionResult {
+        private final boolean success;
+        private final String message;
+
+        private ActionResult(boolean success, String message) {
+            this.success = success;
+            this.message = message;
+        }
+
+        public static ActionResult success(String message) {
+            return new ActionResult(true, message);
+        }
+
+        public static ActionResult failure(String message) {
+            return new ActionResult(false, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public String getMessage() { return message; }
+    }
+}
