@@ -1,44 +1,145 @@
 package mazdady.trading;
 
-import java.util.ArrayList;
-import java.util.List;
+import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.atomic.AtomicLong;
 
-public class OrderBook {
-    private List<Order> buyOrders = new ArrayList<>();
-    private List<Order> sellOrders = new ArrayList<>();
+/**
+ * سجل الأوامر مع دعم المطابقة الفورية
+ * يتبع نمط Observer لإعلام المتعاملين بالمطابقات
+ */
+public final class OrderBook {
+    private final ConcurrentSkipListMap<Double, Order> buyOrders = new ConcurrentSkipListMap<>((a, b) -> Double.compare(b, a)); // أعلى سعر أولاً
+    private final ConcurrentSkipListMap<Double, Order> sellOrders = new ConcurrentSkipListMap<>(); // أقل سعر أولاً
+    private final AtomicLong nextOrderId = new AtomicLong(1000);
 
+    /**
+     * إضافة أمر شراء
+     */
     public void addBuyOrder(String userId, double price, double quantity) {
-        buyOrders.add(new Order(userId, "BUY", price, quantity));
+        Order buyOrder = new Order(nextOrderId.getAndIncrement(), userId, "BUY", price, quantity, System.currentTimeMillis());
+        buyOrders.put(price, buyOrder);
+        System.out.println("ORDER BOOK: Buy order added - " + buyOrder);
+        
+        // محاولة مطابقة مع أوامر البيع
         matchOrders();
     }
 
+    /**
+     * إضافة أمر بيع
+     */
     public void addSellOrder(String userId, double price, double quantity) {
-        sellOrders.add(new Order(userId, "SELL", price, quantity));
+        Order sellOrder = new Order(nextOrderId.getAndIncrement(), userId, "SELL", price, quantity, System.currentTimeMillis());
+        sellOrders.put(price, sellOrder);
+        System.out.println("ORDER BOOK: Sell order added - " + sellOrder);
+        
+        // محاولة مطابقة مع أوامر الشراء
         matchOrders();
     }
 
+    /**
+     * مطابقة الأوامر تلقائيًا
+     */
     private void matchOrders() {
-        // في الإنتاج: مطابقة أوامر الشراء والبيع
-        System.out.println("تمت مطابقة الأوامر");
+        // الحصول على أفضل أسعار الشراء والبيع
+        Double bestBuyPrice = buyOrders.isEmpty() ? null : buyOrders.firstKey();
+        Double bestSellPrice = sellOrders.isEmpty() ? null : sellOrders.firstKey();
+        
+        if (bestBuyPrice != null && bestSellPrice != null && bestBuyPrice >= bestSellPrice) {
+            Order buyOrder = buyOrders.get(bestBuyPrice);
+            Order sellOrder = sellOrders.get(bestSellPrice);
+            
+            if (buyOrder != null && sellOrder != null) {
+                // تنفيذ المطابقة
+                double matchedQuantity = Math.min(buyOrder.getQuantity(), sellOrder.getQuantity());
+                double matchedPrice = (bestBuyPrice + bestSellPrice) / 2;
+                
+                System.out.println("ORDER MATCH: " + matchedQuantity + " MAZDADY matched at " + 
+                                 String.format("%.2f", matchedPrice));
+                
+                // تحديث الكميات
+                if (buyOrder.getQuantity() <= matchedQuantity) {
+                    buyOrders.remove(bestBuyPrice);
+                } else {
+                    buyOrder.reduceQuantity(matchedQuantity);
+                }
+                
+                if (sellOrder.getQuantity() <= matchedQuantity) {
+                    sellOrders.remove(bestSellPrice);
+                } else {
+                    sellOrder.reduceQuantity(matchedQuantity);
+                }
+            }
+        }
     }
 
-    public static class Order {
-        private String userId;
-        private String type; // "BUY" or "SELL"
-        private double price;
-        private double quantity;
+    /**
+     * الحصول على عمق السوق
+     */
+    public MarketDepth getMarketDepth() {
+        return new MarketDepth(
+            buyOrders.descendingMap(), // من الأعلى إلى الأسفل
+            sellOrders
+        );
+    }
 
-        public Order(String userId, String type, double price, double quantity) {
+    /**
+     * أمر التداول
+     */
+    public static final class Order {
+        private final long orderId;
+        private final String userId;
+        private final String type; // "BUY" or "SELL"
+        private final double price;
+        private volatile double quantity;
+        private final long timestamp;
+
+        public Order(long orderId, String userId, String type, double price, double quantity, long timestamp) {
+            this.orderId = orderId;
             this.userId = userId;
             this.type = type;
             this.price = price;
             this.quantity = quantity;
+            this.timestamp = timestamp;
+        }
+
+        public void reduceQuantity(double amount) {
+            this.quantity = Math.max(0, this.quantity - amount);
         }
 
         // Getters
+        public long getOrderId() { return orderId; }
         public String getUserId() { return userId; }
         public String getType() { return type; }
         public double getPrice() { return price; }
         public double getQuantity() { return quantity; }
+        public long getTimestamp() { return timestamp; }
+
+        @Override
+        public String toString() {
+            return "Order{" +
+                "orderId=" + orderId +
+                ", userId='" + userId + '\'' +
+                ", type='" + type + '\'' +
+                ", price=" + price +
+                ", quantity=" + quantity +
+                '}';
+        }
+    }
+
+    /**
+     * عمق السوق
+     */
+    public static final class MarketDepth {
+        private final ConcurrentSkipListMap<Double, Order> buyOrders;
+        private final ConcurrentSkipListMap<Double, Order> sellOrders;
+
+        public MarketDepth(ConcurrentSkipListMap<Double, Order> buyOrders, 
+                           ConcurrentSkipListMap<Double, Order> sellOrders) {
+            this.buyOrders = buyOrders;
+            this.sellOrders = sellOrders;
+        }
+
+        public ConcurrentSkipListMap<Double, Order> getBuyOrders() { return buyOrders; }
+        public ConcurrentSkipListMap<Double, Order> getSellOrders() { return sellOrders; }
     }
 }
