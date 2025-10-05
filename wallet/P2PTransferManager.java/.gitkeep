@@ -1,0 +1,155 @@
+package mazdady.wallet;
+
+import mazdady.user.User;
+import mazdady.user.UserManager;
+import mazdady.security.SecureStorage;
+
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ThreadLocalRandom;
+
+/**
+ * مدير التحويلات بين المستخدمين مع دعم الأرقام السرية
+ * يتبع نمط Strategy لفصل استراتيجيات التحويل
+ */
+public final class P2PTransferManager {
+    private final SecureStorage secureStorage;
+    private static P2PTransferManager instance;
+
+    private P2PTransferManager(SecureStorage secureStorage) {
+        this.secureStorage = secureStorage;
+    }
+
+    public static synchronized P2PTransferManager getInstance(SecureStorage secureStorage) {
+        if (instance == null) {
+            instance = new P2PTransferManager(secureStorage);
+        }
+        return instance;
+    }
+
+    /**
+     * تحويل MAZDADY إلى مستخدم آخر غير متزامن
+     */
+    public CompletableFuture<TransferResult> transferMAZDADYAsync(
+        String fromUserId,
+        String toUserId,
+        double amount,
+        String secretCode
+    ) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                // التحقق من صحة المدخلات
+                if (fromUserId == null || toUserId == null || amount <= 0 || secretCode == null) {
+                    return TransferResult.failure("Invalid transfer parameters");
+                }
+                
+                // التحقق من المستخدمين
+                UserManager userManager = UserManager.getInstance(null);
+                User fromUser = userManager.getUserById(fromUserId);
+                User toUser = userManager.getUserById(toUserId);
+                
+                if (fromUser == null || toUser == null) {
+                    return TransferResult.failure("User not found");
+                }
+                
+                // التحقق من الرصيد
+                if (fromUser.getBalance() < amount) {
+                    return TransferResult.failure("Insufficient balance");
+                }
+                
+                // حساب الضريبة (5% افتراضيًا)
+                double taxRate = 0.05;
+                double taxAmount = amount * taxRate;
+                double netAmount = amount - taxAmount;
+                
+                // خصم المبلغ من المرسل
+                fromUser.setBalance(fromUser.getBalance() - amount);
+                
+                // إضافة المبلغ للمستلم
+                toUser.setBalance(toUser.getBalance() + netAmount);
+                
+                // إضافة الضريبة إلى خزينة النظام
+                WalletManager systemWallet = new WalletManager();
+                systemWallet.depositMAZDADY(taxAmount);
+                
+                // حفظ الرمز السري (مشفر)
+                String transferId = "transfer_" + System.currentTimeMillis();
+                String encryptedCode = secureStorage.encrypt(secretCode);
+                secureStorage.putString("transfer_secret_" + transferId, encryptedCode);
+                
+                // تسجيل التحويل
+                recordTransfer(transferId, fromUserId, toUserId, amount, taxAmount, netAmount, secretCode);
+                
+                System.out.println("P2P TRANSFER: " + amount + " MAZDADY transferred from " + 
+                                 fromUserId + " to " + toUserId + 
+                                 " (Tax: " + taxAmount + " MAZDADY)");
+                
+                return TransferResult.success(transferId, netAmount, taxAmount, "Transfer completed successfully");
+                
+            } catch (Exception e) {
+                return TransferResult.failure("Transfer failed: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * التحقق من الرمز السري للتحويل
+     */
+    public boolean verifyTransferSecret(String transferId, String secretCode) {
+        try {
+            String encryptedCode = secureStorage.getString("transfer_secret_" + transferId, null);
+            if (encryptedCode == null) {
+                return false;
+            }
+            
+            String decryptedCode = secureStorage.decrypt(encryptedCode);
+            return secretCode.equals(decryptedCode);
+            
+        } catch (Exception e) {
+            System.err.println("SECRET VERIFICATION ERROR: " + e.getMessage());
+            return false;
+        }
+    }
+
+    private void recordTransfer(String transferId, String fromUserId, String toUserId, 
+                              double amount, double taxAmount, double netAmount, String secretCode) {
+        // في الإنتاج: تسجيل التحويل في قاعدة البيانات
+        System.out.println("TRANSFER RECORD: " + transferId + " - " + 
+                         fromUserId + " → " + toUserId + " - " + 
+                         amount + " MAZDADY (Net: " + netAmount + ", Tax: " + taxAmount + ")");
+    }
+
+    /**
+     * نتيجة التحويل
+     */
+    public static final class TransferResult {
+        private final boolean success;
+        private final String transferId;
+        private final double netAmount;
+        private final double taxAmount;
+        private final String message;
+
+        private TransferResult(boolean success, String transferId, double netAmount, 
+                             double taxAmount, String message) {
+            this.success = success;
+            this.transferId = transferId;
+            this.netAmount = netAmount;
+            this.taxAmount = taxAmount;
+            this.message = message;
+        }
+
+        public static TransferResult success(String transferId, double netAmount, 
+                                          double taxAmount, String message) {
+            return new TransferResult(true, transferId, netAmount, taxAmount, message);
+        }
+
+        public static TransferResult failure(String message) {
+            return new TransferResult(false, null, 0, 0, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public String getTransferId() { return transferId; }
+        public double getNetAmount() { return netAmount; }
+        public double getTaxAmount() { return taxAmount; }
+        public String getMessage() { return message; }
+    }
+}
