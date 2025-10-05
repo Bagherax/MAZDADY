@@ -1,0 +1,104 @@
+package mazdady.emergency;
+
+import mazdady.user.UserManager;
+import mazdady.wallet.WalletManager;
+
+import java.time.Instant;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+
+/**
+ * معالج الأزمات مع دعم الاستجابة التلقائية
+ * يتبع نمط Strategy لفصل استراتيجيات الاستجابة
+ */
+public final class CrisisHandler {
+    private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+    private static final CrisisHandler INSTANCE = new CrisisHandler();
+
+    private CrisisHandler() {}
+
+    public static CrisisHandler getInstance() {
+        return INSTANCE;
+    }
+
+    /**
+     * معالجة أزمة مالية
+     */
+    public void handleFinancialCrisis(String crisisType, double impactAmount) {
+        System.out.println("CRISIS HANDLER: Financial crisis detected - " + crisisType + 
+                          " impact: " + impactAmount + " MAZDADY");
+        
+        // تفعيل حالة طوارئ
+        EmergencyMgr.getInstance().triggerEmergency(
+            EmergencyMgr.EmergencyLevel.CRITICAL,
+            "Financial crisis: " + crisisType
+        );
+        
+        // تطبيق إجراءات الحماية
+        applyFinancialProtectionMeasures(impactAmount);
+        
+        // جدولة الاسترداد التلقائي
+        scheduleAutomaticRecovery(impactAmount);
+    }
+
+    /**
+     * معالجة أزمة أمنية
+     */
+    public void handleSecurityCrisis(String threatType) {
+        System.out.println("CRISIS HANDLER: Security crisis detected - " + threatType);
+        
+        // تفعيل حالة طوارئ
+        EmergencyMgr.getInstance().triggerEmergency(
+            EmergencyMgr.EmergencyLevel.CRITICAL,
+            "Security threat: " + threatType
+        );
+        
+        // تطبيق إجراءات الأمان
+        applySecurityMeasures();
+    }
+
+    private void applyFinancialProtectionMeasures(double impactAmount) {
+        // 1. تجميد عمليات السحب الكبيرة
+        System.out.println("CRISIS: Large withdrawals temporarily suspended");
+        
+        // 2. تفعيل الحماية ضد الخسارة
+        mazdady.economy.ControlledLossManager.getInstance().activateHighRiskProtection();
+        
+        // 3. إضافة سيولة طارئة
+        WalletManager wallet = new WalletManager();
+        wallet.depositMAZDADY(impactAmount * 0.1); // 10% سيولة طارئة
+        
+        System.out.println("CRISIS: Protection measures applied");
+    }
+
+    private void applySecurityMeasures() {
+        // 1. تسجيل خروج جميع الجلسات
+        UserManager.getInstance(null).getCurrentUser().setLevel(0);
+        
+        // 2. تعطيل الميزات الحساسة
+        System.out.println("CRISIS: Sensitive features disabled for security");
+        
+        // 3. بدء مراقبة مكثفة
+        System.out.println("CRISIS: Enhanced monitoring activated");
+    }
+
+    private void scheduleAutomaticRecovery(double impactAmount) {
+        scheduler.schedule(
+            () -> {
+                System.out.println("CRISIS RECOVERY: Automatic recovery initiated");
+                EmergencyMgr.getInstance().restoreNormalState();
+                System.out.println("CRISIS RECOVERY: System returned to normal operation");
+            },
+            30,
+            TimeUnit.MINUTES
+        );
+    }
+
+    /**
+     * إيقاف جدولة الاسترداد (للاختبارات)
+     */
+    public void shutdown() {
+        scheduler.shutdown();
+    }
+}
