@@ -1,0 +1,198 @@
+package mazdady.withdrawal;
+
+import mazdady.user.User;
+import mazdady.wallet.TransactionHistory;
+
+import java.time.Instant;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.stream.Collectors;
+
+/**
+ * سجل السحب مع دعم التتبع المتقدم
+ * يتبع نمط Observer لإعلام النظام بالتغيرات
+ */
+public final class WithdrawalHistory {
+    private final CopyOnWriteArrayList<WithdrawalRecord> records = new CopyOnWriteArrayList<>();
+    private final AtomicLong nextRecordId = new AtomicLong(1000);
+    private static WithdrawalHistory instance;
+
+    private WithdrawalHistory() {}
+
+    public static synchronized WithdrawalHistory getInstance() {
+        if (instance == null) {
+            instance = new WithdrawalHistory();
+        }
+        return instance;
+    }
+
+    /**
+     * تسجيل عملية سحب جديدة
+     */
+    public WithdrawalRecord recordWithdrawal(
+        String userId,
+        double amount,
+        double taxAmount,
+        double netAmount,
+        String method,
+        String status
+    ) {
+        WithdrawalRecord record = new WithdrawalRecord(
+            "WD_" + nextRecordId.getAndIncrement(),
+            userId,
+            amount,
+            taxAmount,
+            netAmount,
+            method,
+            status,
+            Instant.now()
+        );
+        
+        records.add(record);
+        System.out.println("WITHDRAWAL HISTORY: Recorded " + record);
+        return record;
+    }
+
+    /**
+     * البحث عن عمليات السحب حسب المستخدم
+     */
+    public List<WithdrawalRecord> findByUserId(String userId) {
+        return records.stream()
+            .filter(record -> userId.equals(record.getUserId()))
+            .collect(Collectors.toList());
+    }
+
+    /**
+     * البحث عن عمليات السحب حسب الحالة
+     */
+    public List<WithdrawalRecord> findByStatus(String status) {
+        return records.stream()
+            .filter(record -> status.equals(record.getStatus()))
+            .collect(Collectors.toList());
+    }
+
+    /**
+     * البحث عن عمليات السحب حسب الطريقة
+     */
+    public List<WithdrawalRecord> findByMethod(String method) {
+        return records.stream()
+            .filter(record -> method.equals(record.getMethod()))
+            .collect(Collectors.toList());
+    }
+
+    /**
+     * الحصول على أحدث عمليات السحب
+     */
+    public List<WithdrawalRecord> getRecentWithdrawals(int limit) {
+        return records.stream()
+            .sorted((r1, r2) -> r2.getTimestamp().compareTo(r1.getTimestamp()))
+            .limit(limit)
+            .collect(Collectors.toList());
+    }
+
+    /**
+     * حساب إجمالي السحب
+     */
+    public double getTotalWithdrawn() {
+        return records.stream()
+            .mapToDouble(WithdrawalRecord::getAmount)
+            .sum();
+    }
+
+    /**
+     * حساب إجمالي الضرائب
+     */
+    public double getTotalTaxes() {
+        return records.stream()
+            .mapToDouble(WithdrawalRecord::getTaxAmount)
+            .sum();
+    }
+
+    /**
+     * حساب عدد عمليات السحب
+     */
+    public int getWithdrawalCount() {
+        return records.size();
+    }
+
+    /**
+     * حذف عملية سحب (للصيانة)
+     */
+    public boolean removeWithdrawal(String recordId) {
+        return records.removeIf(record -> recordId.equals(record.getRecordId()));
+    }
+
+    /**
+     * مسح جميع عمليات السحب (للصيانة)
+     */
+    public void clearAllWithdrawals() {
+        records.clear();
+        System.out.println("WITHDRAWAL HISTORY: All withdrawals cleared");
+    }
+
+    /**
+     * تسجيل عملية سحب في سجل المعاملات
+     */
+    public void logToTransactionHistory(WithdrawalRecord record) {
+        TransactionHistory.getInstance().addTransaction(
+            record.getUserId(),
+            TransactionHistory.TransactionType.WITHDRAWAL,
+            record.getAmount(),
+            "MAZDADY_WALLET",
+            record.getMethod(),
+            record.getStatus()
+        );
+    }
+
+    /**
+     * عملية سحب
+     */
+    public static final class WithdrawalRecord {
+        private final String recordId;
+        private final String userId;
+        private final double amount;
+        private final double taxAmount;
+        private final double netAmount;
+        private final String method;
+        private final String status;
+        private final Instant timestamp;
+
+        public WithdrawalRecord(String recordId, String userId, double amount, 
+                              double taxAmount, double netAmount, String method, 
+                              String status, Instant timestamp) {
+            this.recordId = recordId;
+            this.userId = userId;
+            this.amount = amount;
+            this.taxAmount = taxAmount;
+            this.netAmount = netAmount;
+            this.method = method;
+            this.status = status;
+            this.timestamp = timestamp;
+        }
+
+        // Getters
+        public String getRecordId() { return recordId; }
+        public String getUserId() { return userId; }
+        public double getAmount() { return amount; }
+        public double getTaxAmount() { return taxAmount; }
+        public double getNetAmount() { return netAmount; }
+        public String getMethod() { return method; }
+        public String getStatus() { return status; }
+        public Instant getTimestamp() { return timestamp; }
+
+        @Override
+        public String toString() {
+            return "WithdrawalRecord{" +
+                "id='" + recordId + '\'' +
+                ", user='" + userId + '\'' +
+                ", amount=" + amount +
+                ", tax=" + taxAmount +
+                ", net=" + netAmount +
+                ", method='" + method + '\'' +
+                ", status='" + status + '\'' +
+                ", timestamp=" + timestamp +
+                '}';
+        }
+    }
+}
