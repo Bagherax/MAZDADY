@@ -1,75 +1,200 @@
 package mazdady.ctrl;
 
-import mazdady.user.UserManager;
 import mazdady.user.User;
-import mazdady.auth.LoginManager;
-import mazdady.auth.PhoneVerification;
+import mazdady.user.UserManager;
+import mazdady.auth.KYCValidator;
+import mazdady.security.SecurityMonitor;
 
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * وحدة تحكم المستخدم مع دعم العمليات الآمنة
  * يتبع نمط Facade لتوفير واجهة موحدة
  */
 public final class UserController {
-    private static final UserController INSTANCE = new UserController();
+    private final UserManager userManager;
+    private final KYCValidator kycValidator;
+    private final SecurityMonitor securityMonitor;
+    private static UserController instance;
 
-    private UserController() {}
+    private UserController(UserManager userManager, KYCValidator kycValidator, SecurityMonitor securityMonitor) {
+        this.userManager = userManager;
+        this.kycValidator = kycValidator;
+        this.securityMonitor = securityMonitor;
+    }
 
-    public static UserController getInstance() {
-        return INSTANCE;
+    public static synchronized UserController getInstance(UserManager userManager, 
+                                                       KYCValidator kycValidator, 
+                                                       SecurityMonitor securityMonitor) {
+        if (instance == null) {
+            instance = new UserController(userManager, kycValidator, securityMonitor);
+        }
+        return instance;
     }
 
     /**
-     * تسجيل الدخول غير المتزامن
+     * تحديث رصيد المستخدم غير متزامن
      */
-    public CompletableFuture<User> loginAsync(
-        LoginManager.LoginMethod method,
-        String identifier,
-        String credential
-    ) {
+    public CompletableFuture<UserResult> updateUserBalanceAsync(String userId, double newBalance) {
         return CompletableFuture.supplyAsync(() -> {
-            LoginManager.LoginResult result = 
-                LoginManager.getInstance().login(method, identifier, credential);
-            
-            if (result.isSuccess()) {
-                System.out.println("USER: Login successful for " + result.getUser().getUserId());
-                return result.getUser();
-            } else {
-                throw new RuntimeException(result.getMessage());
+            try {
+                User user = userManager.getUserById(userId);
+                if (user == null) {
+                    return UserResult.failure("User not found");
+                }
+                
+                double oldBalance = user.getBalance();
+                user.setBalance(newBalance);
+                
+                // تسجيل التغيير
+                System.out.println("USER CONTROLLER: Updated balance for " + userId + 
+                                 " from " + oldBalance + " to " + newBalance);
+                
+                // إشعار النظام
+                notifyBalanceChange(userId, oldBalance, newBalance);
+                
+                return UserResult.success(user, "Balance updated successfully");
+                
+            } catch (Exception e) {
+                return UserResult.failure("Balance update failed: " + e.getMessage());
             }
         });
     }
 
     /**
-     * التحقق من رقم الهاتف
+     * التحقق من KYC غير متزامن
      */
-    public CompletableFuture<Boolean> verifyPhoneAsync(String phoneNumber, String code) {
+    public CompletableFuture<UserResult> verifyKYCAsync(String userId, String documentData) {
         return CompletableFuture.supplyAsync(() -> {
-            PhoneVerification.VerificationResult result = 
-                PhoneVerification.getInstance().verifyCode(phoneNumber, code);
-            
-            if (result.isSuccess()) {
-                System.out.println("USER: Phone verified for " + phoneNumber);
-                return true;
-            } else {
-                throw new RuntimeException(result.getMessage());
+            try {
+                User user = userManager.getUserById(userId);
+                if (user == null) {
+                    return UserResult.failure("User not found");
+                }
+                
+                KYCValidator.KYCResult result = 
+                    kycValidator.startKYCVerificationAsync(userId, documentData).join();
+                
+                if (result.isSuccess()) {
+                    user.getKycStatus().markAsVerified("NATIONAL_ID", "verified_hash");
+                    System.out.println("USER CONTROLLER: KYC verified for " + userId);
+                    return UserResult.success(user, "KYC verification completed");
+                } else {
+                    return UserResult.failure(result.getMessage());
+                }
+                
+            } catch (Exception e) {
+                return UserResult.failure("KYC verification failed: " + e.getMessage());
             }
         });
     }
 
     /**
-     * الحصول على المستخدم الحالي
+     * تحديث مستوى المستخدم
      */
-    public User getCurrentUser() {
-        return UserManager.getInstance(null).getCurrentUser();
+    public CompletableFuture<UserResult> updateUserLevelAsync(String userId, int newLevel) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                User user = userManager.getUserById(userId);
+                if (user == null) {
+                    return UserResult.failure("User not found");
+                }
+                
+                int oldLevel = user.getLevel();
+                user.setLevel(newLevel);
+                
+                System.out.println("USER CONTROLLER: Updated level for " + userId + 
+                                 " from " + oldLevel + " to " + newLevel);
+                
+                return UserResult.success(user, "Level updated successfully");
+                
+            } catch (Exception e) {
+                return UserResult.failure("Level update failed: " + e.getMessage());
+            }
+        });
     }
 
     /**
-     * تحديث رصيد المستخدم
+     * تجميد حساب المستخدم
      */
-    public void updateBalance(double newBalance) {
-        UserManager.getInstance(null).updateBalance(newBalance);
-        System.out.println("USER: Balance updated to " + newBalance);
+    public CompletableFuture<UserResult> freezeUserAccountAsync(String userId, String reason) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                User user = userManager.getUserById(userId);
+                if (user == null) {
+                    return UserResult.failure("User not found");
+                }
+                
+                user.setSuspended(true);
+                user.setSuspensionReason(reason);
+                
+                System.out.println("USER CONTROLLER: Frozen account " + userId + " - Reason: " + reason);
+                
+                // إشعار النظام الأمني
+                securityMonitor.reportSuspiciousActivity(userId, "ACCOUNT_FROZEN: " + reason);
+                
+                return UserResult.success(user, "Account frozen successfully");
+                
+            } catch (Exception e) {
+                return UserResult.failure("Account freeze failed: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * إلغاء تجميد حساب المستخدم
+     */
+    public CompletableFuture<UserResult> unfreezeUserAccountAsync(String userId) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                User user = userManager.getUserById(userId);
+                if (user == null) {
+                    return UserResult.failure("User not found");
+                }
+                
+                user.setSuspended(false);
+                user.setSuspensionReason(null);
+                
+                System.out.println("USER CONTROLLER: Unfrozen account " + userId);
+                
+                return UserResult.success(user, "Account unfrozen successfully");
+                
+            } catch (Exception e) {
+                return UserResult.failure("Account unfreeze failed: " + e.getMessage());
+            }
+        });
+    }
+
+    private void notifyBalanceChange(String userId, double oldBalance, double newBalance) {
+        // في الإنتاج: إشعار النظام بتغيير الرصيد
+        System.out.println("USER CONTROLLER: Balance change notified for " + userId);
+    }
+
+    /**
+     * نتيجة المستخدم
+     */
+    public static final class UserResult {
+        private final boolean success;
+        private final User user;
+        private final String message;
+
+        private UserResult(boolean success, User user, String message) {
+            this.success = success;
+            this.user = user;
+            this.message = message;
+        }
+
+        public static UserResult success(User user, String message) {
+            return new UserResult(true, user, message);
+        }
+
+        public static UserResult failure(String message) {
+            return new UserResult(false, null, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public User getUser() { return user; }
+        public String getMessage() { return message; }
     }
 }
