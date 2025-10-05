@@ -1,133 +1,168 @@
 package mazdady.trading;
 
+import mazdady.admin.AdminConfig;
+import mazdady.bot.EmergencyBot;
+
+import java.time.Instant;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicDouble;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * محرك الأسعار مع دعم التقلبات الذكية
- * يتبع نمط State لتمثيل حالات السوق المختلفة
+ * محرك الأسعار مع دعم الارتفاع الديناميكي
+ * يتبع نمط Observer لإعلام النظام بتغيرات السعر
  */
 public final class PriceEngine {
     private final AtomicDouble currentPrice = new AtomicDouble(100.0);
-    private final AtomicDouble systemTreasury = new AtomicDouble(0.0);
-    private final AtomicDouble marketTrend = new AtomicDouble(0.0); // -1 إلى +1
-    private final AtomicDouble volatility = new AtomicDouble(0.5); // 0 إلى 1
-    private final AtomicReference<MarketState> marketState = new AtomicReference<>(new NormalMarketState());
+    private final AtomicDouble marketTrend = new AtomicDouble(0.0);
+    private final AtomicDouble volatility = new AtomicDouble(0.5);
+    private final AtomicReference<Instant> lastUpdate = new AtomicReference<>(Instant.now());
+    private final ScheduledExecutorService priceScheduler = Executors.newScheduledThreadPool(1);
+    private final EmergencyBot emergencyBot;
+    private static PriceEngine instance;
+
+    private PriceEngine(EmergencyBot emergencyBot) {
+        this.emergencyBot = emergencyBot;
+        startPriceUpdates();
+    }
+
+    public static synchronized PriceEngine getInstance(EmergencyBot emergencyBot) {
+        if (instance == null) {
+            instance = new PriceEngine(emergencyBot);
+        }
+        return instance;
+    }
+
+    private void startPriceUpdates() {
+        priceScheduler.scheduleAtFixedRate(
+            this::updatePrice,
+            0,
+            5,
+            TimeUnit.SECONDS
+        );
+        
+        System.out.println("PRICE ENGINE: Started price updates every 5 seconds");
+    }
+
+    /**
+     * تحديث السعر تلقائيًا
+     */
+    private void updatePrice() {
+        try {
+            double current = currentPrice.get();
+            double trend = marketTrend.get();
+            double vol = volatility.get();
+            
+            // توليد تغير عشوائي بناءً على التقلب والاتجاه
+            double randomChange = (ThreadLocalRandom.current().nextDouble() - 0.5) * 2 * vol;
+            double trendInfluence = trend * 0.1;
+            double totalChange = randomChange + trendInfluence;
+            
+            // تطبيق التغيير على السعر
+            double newPrice = current * (1 + totalChange / 100);
+            
+            // الحد الأدنى للسعر = 1 MAZDADY
+            newPrice = Math.max(newPrice, 1.0);
+            
+            currentPrice.set(newPrice);
+            lastUpdate.set(Instant.now());
+            
+            System.out.println("PRICE ENGINE: Price updated to " + String.format("%.4f", newPrice) + 
+                             " MAZDADY (Change: " + String.format("%.2f", totalChange) + "%)");
+            
+        } catch (Exception e) {
+            System.err.println("PRICE UPDATE ERROR: " + e.getMessage());
+        }
+    }
 
     /**
      * تنفيذ أمر شراء
      */
     public void executeBuyOrder(String userId, double amount) {
-        double price = currentPrice.get();
-        double newPrice = price + (amount * 0.01 * (1 + volatility.get()));
-        currentPrice.set(newPrice);
-        
-        // تحديث الاتجاه
-        marketTrend.set(Math.min(marketTrend.get() + 0.05, 1.0));
-        
-        // إضافة جزء من الصفقة إلى الخزينة (ضريبة هدايا)
-        systemTreasury.addAndGet(amount * 0.03); // 3% ضريبة
-        
-        // تحديث حالة السوق
-        marketState.get().onBuyOrder(this, amount);
-        
-        System.out.println("PRICE ENGINE: Buy order executed - Price: " + String.format("%.2f", newPrice));
+        try {
+            double price = currentPrice.get();
+            double totalPrice = amount * price;
+            
+            // زيادة الاتجاه الإيجابي
+            marketTrend.updateAndGet(current -> Math.min(current + 0.1, 1.0));
+            
+            // زيادة التقلب قليلاً
+            volatility.updateAndGet(current -> Math.min(current + 0.05, 1.0));
+            
+            System.out.println("PRICE ENGINE: BUY ORDER - User " + userId + 
+                             " bought " + amount + " MAZDADY at " + String.format("%.4f", price) + 
+                             " MAZDADY each (Total: " + String.format("%.2f", totalPrice) + " MAZDADY)");
+            
+        } catch (Exception e) {
+            System.err.println("BUY ORDER ERROR: " + e.getMessage());
+        }
     }
 
     /**
      * تنفيذ أمر بيع
      */
     public void executeSellOrder(String userId, double amount) {
-        double price = currentPrice.get();
-        double newPrice = price - (amount * 0.012 * (1 + volatility.get())); // البيع يخفض أكثر
-        currentPrice.set(Math.max(newPrice, 1.0));
-        
-        // تحديث الاتجاه
-        marketTrend.set(Math.max(marketTrend.get() - 0.05, -1.0));
-        
-        // إضافة جزء من الصفقة إلى الخزينة
-        systemTreasury.addAndGet(amount * 0.02); // 2% ضريبة
-        
-        // تحديث حالة السوق
-        marketState.get().onSellOrder(this, amount);
-        
-        System.out.println("PRICE ENGINE: Sell order executed - Price: " + String.format("%.2f", newPrice));
+        try {
+            double price = currentPrice.get();
+            double totalPrice = amount * price;
+            
+            // تقليل الاتجاه الإيجابي
+            marketTrend.updateAndGet(current -> Math.max(current - 0.1, -1.0));
+            
+            // زيادة التقلب قليلاً
+            volatility.updateAndGet(current -> Math.min(current + 0.05, 1.0));
+            
+            System.out.println("PRICE ENGINE: SELL ORDER - User " + userId + 
+                             " sold " + amount + " MAZDADY at " + String.format("%.4f", price) + 
+                             " MAZDADY each (Total: " + String.format("%.2f", totalPrice) + " MAZDADY)");
+            
+        } catch (Exception e) {
+            System.err.println("SELL ORDER ERROR: " + e.getMessage());
+        }
     }
 
     /**
-     * تحديث التقلب بناءً على نشاط السوق
+     * رفع سعر MAZDADY يدويًا (من لوحة التحكم)
      */
-    public void updateVolatility(double marketActivity) {
-        // التقلب يزداد مع نشاط السوق
-        double newVolatility = Math.min(1.0, marketActivity * 0.1);
-        volatility.set(newVolatility);
-        System.out.println("PRICE ENGINE: Volatility updated to " + String.format("%.2f", newVolatility));
+    public void boostMAZDADYPrice(double percentage) {
+        if (percentage <= 0) return;
+        
+        double current = currentPrice.get();
+        double boostedPrice = current * (1 + percentage / 100);
+        currentPrice.set(boostedPrice);
+        
+        System.out.println("PRICE ENGINE: MAZDADY price boosted by " + percentage + "% to " + 
+                         String.format("%.4f", boostedPrice) + " MAZDADY");
+    }
+
+    /**
+     * خفض سعر MAZDADY يدويًا (من بوت الطوارئ)
+     */
+    public void dropMAZDADYPrice(double percentage) {
+        if (percentage <= 0) return;
+        
+        double current = currentPrice.get();
+        double droppedPrice = current * (1 - percentage / 100);
+        currentPrice.set(Math.max(droppedPrice, 1.0)); // الحد الأدنى = 1 MAZDADY
+        
+        System.out.println("PRICE ENGINE: MAZDADY price dropped by " + percentage + "% to " + 
+                         String.format("%.4f", currentPrice.get()) + " MAZDADY");
     }
 
     // --- Getters ---
     public double getCurrentPrice() { return currentPrice.get(); }
-    public double getSystemTreasury() { return systemTreasury.get(); }
     public double getMarketTrend() { return marketTrend.get(); }
     public double getVolatility() { return volatility.get(); }
+    public Instant getLastUpdate() { return lastUpdate.get(); }
     
-    public void addToSystemTreasury(double amount) {
-        systemTreasury.addAndGet(amount);
-    }
-    
-    public void resetSystemTreasury() {
-        systemTreasury.set(0.0);
-    }
-
     /**
-     * واجهة حالة السوق
+     * إيقاف المحرك (للاختبارات)
      */
-    private interface MarketState {
-        void onBuyOrder(PriceEngine engine, double amount);
-        void onSellOrder(PriceEngine engine, double amount);
-    }
-
-    // --- حالات السوق ---
-    private static final class NormalMarketState implements MarketState {
-        @Override
-        public void onBuyOrder(PriceEngine engine, double amount) {
-            // في السوق العادي، كل صفقة تؤثر بشكل طبيعي
-        }
-
-        @Override
-        public void onSellOrder(PriceEngine engine, double amount) {
-            // في السوق العادي، كل صفقة تؤثر بشكل طبيعي
-        }
-    }
-
-    private static final class BullMarketState implements MarketState {
-        @Override
-        public void onBuyOrder(PriceEngine engine, double amount) {
-            // في السوق الصاعد، أوامر الشراء ترفع السعر أكثر
-            double currentPrice = engine.currentPrice.get();
-            engine.currentPrice.set(currentPrice + (amount * 0.02)); // تأثير مضاعف
-        }
-
-        @Override
-        public void onSellOrder(PriceEngine engine, double amount) {
-            // في السوق الصاعد، أوامر البيع تؤثر أقل
-            double currentPrice = engine.currentPrice.get();
-            engine.currentPrice.set(currentPrice - (amount * 0.005)); // تأثير أقل
-        }
-    }
-
-    private static final class BearMarketState implements MarketState {
-        @Override
-        public void onBuyOrder(PriceEngine engine, double amount) {
-            // في السوق الهابط، أوامر الشراء تؤثر أقل
-            double currentPrice = engine.currentPrice.get();
-            engine.currentPrice.set(currentPrice + (amount * 0.005)); // تأثير أقل
-        }
-
-        @Override
-        public void onSellOrder(PriceEngine engine, double amount) {
-            // في السوق الهابط، أوامر البيع تخفض السعر أكثر
-            double currentPrice = engine.currentPrice.get();
-            engine.currentPrice.set(currentPrice - (amount * 0.02)); // تأثير مضاعف
-        }
+    public void shutdown() {
+        priceScheduler.shutdown();
+        System.out.println("PRICE ENGINE: Shutdown completed");
     }
 }
