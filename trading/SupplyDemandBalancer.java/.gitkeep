@@ -1,0 +1,103 @@
+package mazdady.trading;
+
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+
+/**
+ * موازن العرض والطلب مع دعم التوازن الديناميكي
+ * يتبع نمط Observer لإعلام النظام بالتغيرات
+ */
+public final class SupplyDemandBalancer {
+    private final PriceEngine priceEngine;
+    private final OrderBook orderBook;
+    private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+    private volatile boolean balancingActive = true;
+
+    public SupplyDemandBalancer(PriceEngine priceEngine, OrderBook orderBook) {
+        this.priceEngine = priceEngine;
+        this.orderBook = orderBook;
+        startBalancing();
+    }
+
+    private void startBalancing() {
+        scheduler.scheduleAtFixedRate(
+            this::balanceSupplyDemand,
+            0,
+            15,
+            TimeUnit.SECONDS
+        );
+    }
+
+    /**
+     * موازنة العرض والطلب تلقائيًا
+     */
+    private void balanceSupplyDemand() {
+        if (!balancingActive) return;
+        
+        MarketDepthAnalyzer analyzer = new MarketDepthAnalyzer(orderBook);
+        MarketDepthAnalyzer.DepthAnalysis analysis = analyzer.analyzeDepth();
+        
+        // التحقق من حالة السوق
+        if (analysis.isBullish()) {
+            handleBullMarket(analysis);
+        } else if (analysis.isBearish()) {
+            handleBearMarket(analysis);
+        } else {
+            handleNeutralMarket(analysis);
+        }
+    }
+
+    private void handleBullMarket(MarketDepthAnalyzer.DepthAnalysis analysis) {
+        // في السوق الصاعد: زيادة العرض لمنع الفقاعات
+        double currentPrice = priceEngine.getCurrentPrice();
+        double supplyIncrease = analysis.getPriceSpread() * 0.1; // زيادة العرض بناءً على الفجوة
+        
+        System.out.println("SUPPLY DEMAND: Bull market detected - Increasing supply by " + 
+                         String.format("%.2f", supplyIncrease));
+        
+        // في الإنتاج: إضافة أوامر بيع تلقائية لموازنة السوق
+    }
+
+    private void handleBearMarket(MarketDepthAnalyzer.DepthAnalysis analysis) {
+        // في السوق الهابط: زيادة الطلب لدعم السعر
+        double demandIncrease = Math.abs(analysis.getMarketSentiment()) * 100; // زيادة الطلب
+        
+        System.out.println("SUPPLY DEMAND: Bear market detected - Increasing demand by " + 
+                         String.format("%.2f", demandIncrease));
+        
+        // في الإنتاج: إضافة أوامر شراء تلقائية لدعم السوق
+    }
+
+    private void handleNeutralMarket(MarketDepthAnalyzer.DepthAnalysis analysis) {
+        // في السوق المستقر: الحفاظ على التوازن
+        System.out.println("SUPPLY DEMAND: Neutral market - Maintaining balance");
+        
+        // في الإنتاج: مراقبة مستمرة للتغيرات
+    }
+
+    /**
+     * تعديل تقلبات السوق بناءً على التوازن
+     */
+    public void adjustMarketVolatility() {
+        MarketDepthAnalyzer analyzer = new MarketDepthAnalyzer(orderBook);
+        MarketDepthAnalyzer.DepthAnalysis analysis = analyzer.analyzeDepth();
+        
+        // تقليل التقلب في السوق المستقر
+        if (analysis.isNeutral() && analysis.getPriceSpread() < 5.0) {
+            priceEngine.updateVolatility(0.2); // تقلب منخفض
+        } else if (analysis.isBullish() || analysis.isBearish()) {
+            priceEngine.updateVolatility(0.8); // تقلب عالي
+        } else {
+            priceEngine.updateVolatility(0.5); // تقلب متوسط
+        }
+    }
+
+    /**
+     * إيقاف الموازنة (للاختبارات)
+     */
+    public void shutdown() {
+        balancingActive = false;
+        scheduler.shutdown();
+    }
+}
