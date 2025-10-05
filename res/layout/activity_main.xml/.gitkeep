@@ -1,86 +1,113 @@
 <?xml version="1.0" encoding="utf-8"?>
-<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<androidx.constraintlayout.widget.ConstraintLayout 
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/main_container"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#0f0f1b">
+    android:background="?attr/mainBackgroundColor">
 
+    <!-- الشريط العلوي -->
     <LinearLayout
         android:id="@+id/top_bar"
-        android:layout_width="match_parent"
+        android:layout_width="0dp"
         android:layout_height="60dp"
-        android:background="#1a1a2e"
-        android:orientation="horizontal">
+        android:background="?attr/topBarBackgroundColor"
+        android:orientation="horizontal"
+        android:gravity="center"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent">
 
         <TextView
             android:id="@+id/balance_view"
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
-            android:text="الرصيد: 0.00 MAZDADY"
-            android:textColor="#FFA726"
+            android:text="@string/balance_placeholder"
+            android:textColor="?attr/textColorPrimary"
             android:gravity="center"
-            android:textSize="18sp" />
+            android:textSize="18sp"
+            android:fontFamily="sans-serif-medium" />
 
         <ImageView
+            android:id="@+id/menu_button"
             android:layout_width="40dp"
             android:layout_height="40dp"
             android:src="@drawable/ic_menu"
             android:layout_gravity="center"
-            android:layout_marginEnd="10dp" />
+            android:layout_marginEnd="16dp"
+            android:layoutDirection="locale"
+            android:contentDescription="@string/menu" />
 
     </LinearLayout>
 
-    <View
+    <!-- خط التداول -->
+    <com.mazdady.ui.TradingLineView
         android:id="@+id/trading_line"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:layout_below="@id/top_bar"
-        android:layout_above="@+id/bottom_controls"
-        android:background="#16213e" />
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:background="?attr/tradingLineBackgroundColor"
+        app:layout_constraintTop_toBottomOf="@id/top_bar"
+        app:layout_constraintBottom_toTopOf="@id/bottom_controls"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
 
+    <!-- الأزرار السفلية -->
     <LinearLayout
         android:id="@+id/bottom_controls"
-        android:layout_width="match_parent"
-        android:layout_height="120dp"
-        android:layout_alignParentBottom="true"
-        android:background="#1a1a2e"
-        android:orientation="vertical">
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:background="?attr/bottomControlsBackgroundColor"
+        android:orientation="vertical"
+        android:padding="16dp"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent">
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:padding="10dp">
+            android:layout_marginBottom="12dp">
 
             <Button
                 android:id="@+id/buy_button"
                 android:layout_width="0dp"
-                android:layout_height="50dp"
+                android:layout_height="56dp"
                 android:layout_weight="1"
-                android:text="شراء"
-                android:textColor="#ffffff"
-                android:backgroundTint="#4CAF50" />
+                android:text="@string/buy"
+                android:textColor="?attr/buyButtonTextColor"
+                android:backgroundTint="?attr/buyButtonColor"
+                android:layout_marginEnd="8dp"
+                android:fontFamily="sans-serif-medium"
+                android:textAllCaps="false"
+                android:stateListAnimator="@animator/button_press" />
 
             <Button
                 android:id="@+id/sell_button"
                 android:layout_width="0dp"
-                android:layout_height="50dp"
+                android:layout_height="56dp"
                 android:layout_weight="1"
-                android:text="بيع"
-                android:textColor="#ffffff"
-                android:backgroundTint="#F44336" />
+                android:text="@string/sell"
+                android:textColor="?attr/sellButtonTextColor"
+                android:backgroundTint="?attr/sellButtonColor"
+                android:layout_marginStart="8dp"
+                android:fontFamily="sans-serif-medium"
+                android:textAllCaps="false"
+                android:stateListAnimator="@animator/button_press" />
 
         </LinearLayout>
 
         <TextView
+            android:id="@+id/investment_info"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="الاستثمار: 1 MAZDADY"
+            android:text="@string/investment_info"
             android:gravity="center"
-            android:textColor="#ffffff"
-            android:padding="5dp" />
+            android:textColor="?attr/textColorSecondary"
+            android:textSize="14sp" />
 
     </LinearLayout>
 
-</RelativeLayout>
+</androidx.constraintlayout.widget.ConstraintLayout>
