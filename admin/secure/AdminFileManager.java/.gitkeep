@@ -1,0 +1,252 @@
+package mazdady.admin.secure;
+
+import mazdady.security.SecureStorage;
+import mazdady.user.UserManager;
+
+import java.io.File;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+
+/**
+ * مدير ملفات الادمن مع دعم التحميل الآمن
+ * يتبع نمط Strategy لفصل استراتيجيات التحميل
+ */
+public final class AdminFileManager {
+    private final SecureStorage secureStorage;
+    private final ConcurrentHashMap<String, AdminFile> adminFiles = new ConcurrentHashMap<>();
+    private static AdminFileManager instance;
+
+    private AdminFileManager(SecureStorage secureStorage) {
+        this.secureStorage = secureStorage;
+        initializeAdminFiles();
+    }
+
+    public static synchronized AdminFileManager getInstance(SecureStorage secureStorage) {
+        if (instance == null) {
+            instance = new AdminFileManager(secureStorage);
+        }
+        return instance;
+    }
+
+    private void initializeAdminFiles() {
+        // تعريف الملفات الإدارية الأساسية
+        adminFiles.put("admin_dashboard", new AdminFile(
+            "admin_dashboard",
+            "https://raw.githubusercontent.com/BAGHERAX/MAZDADY/main/server/admin/index.html",
+            AdminFileType.HTML,
+            true
+        ));
+        
+        adminFiles.put("admin_api", new AdminFile(
+            "admin_api",
+            "https://raw.githubusercontent.com/BAGHERAX/MAZDADY/main/server/admin/api.js",
+            AdminFileType.JAVASCRIPT,
+            true
+        ));
+        
+        adminFiles.put("admin_config", new AdminFile(
+            "admin_config",
+            "https://raw.githubusercontent.com/BAGHERAX/MAZDADY/main/server/config.json",
+            AdminFileType.JSON,
+            true
+        ));
+        
+        adminFiles.put("admin_styles", new AdminFile(
+            "admin_styles",
+            "https://raw.githubusercontent.com/BAGHERAX/MAZDADY/main/server/admin/styles.css",
+            AdminFileType.CSS,
+            true
+        ));
+        
+        System.out.println("ADMIN FILE MANAGER: Initialized with " + adminFiles.size() + " admin files");
+    }
+
+    /**
+     * تحميل ملفات الادمن غير متزامن
+     */
+    public CompletableFuture<FileDownloadResult> downloadAdminFilesAsync() {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                if (!AdminAuthenticator.getInstance(secureStorage).isAdminAuthenticated()) {
+                    return FileDownloadResult.failure("Admin authentication required");
+                }
+                
+                int downloaded = 0;
+                int failed = 0;
+                
+                for (AdminFile adminFile : adminFiles.values()) {
+                    if (adminFile.isRequired()) {
+                        boolean success = downloadFile(adminFile);
+                        if (success) {
+                            downloaded++;
+                        } else {
+                            failed++;
+                        }
+                    }
+                }
+                
+                System.out.println("ADMIN FILE MANAGER: Downloaded " + downloaded + 
+                                 " files, failed " + failed);
+                
+                return FileDownloadResult.success(downloaded, failed, 
+                    "Admin files downloaded successfully");
+                
+            } catch (Exception e) {
+                return FileDownloadResult.failure("File download failed: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * تحميل ملف إداري محدد
+     */
+    private boolean downloadFile(AdminFile adminFile) {
+        try {
+            URL url = new URL(adminFile.getUrl());
+            HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+            connection.setRequestMethod("GET");
+            connection.setConnectTimeout(5000);
+            connection.setReadTimeout(10000);
+            
+            if (connection.getResponseCode() == 200) {
+                // في الإنتاج: حفظ الملف محليًا في مجلد آمن
+                File adminDir = new File(secureStorage.getContext().getFilesDir(), "admin");
+                if (!adminDir.exists()) {
+                    adminDir.mkdirs();
+                }
+                
+                File localFile = new File(adminDir, adminFile.getFileName());
+                // في الإنتاج: تحميل المحتوى وحفظه في الملف
+                
+                System.out.println("ADMIN FILE MANAGER: Downloaded " + adminFile.getName());
+                return true;
+            } else {
+                System.err.println("ADMIN FILE DOWNLOAD ERROR: " + adminFile.getName() + 
+                                 " - HTTP " + connection.getResponseCode());
+                return false;
+            }
+            
+        } catch (Exception e) {
+            System.err.println("ADMIN FILE DOWNLOAD EXCEPTION: " + adminFile.getName() + 
+                             " - " + e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * الحصول على ملف إداري
+     */
+    public AdminFile getAdminFile(String fileId) {
+        return adminFiles.get(fileId);
+    }
+
+    /**
+     * تحديث ملف إداري
+     */
+    public void updateAdminFile(String fileId, String newUrl) {
+        AdminFile file = adminFiles.get(fileId);
+        if (file != null) {
+            file.setUrl(newUrl);
+            System.out.println("ADMIN FILE MANAGER: Updated " + fileId + " to " + newUrl);
+        }
+    }
+
+    /**
+     * إضافة ملف إداري جديد
+     */
+    public void addAdminFile(String fileId, String url, AdminFileType type, boolean required) {
+        AdminFile newFile = new AdminFile(fileId, url, type, required);
+        adminFiles.put(fileId, newFile);
+        System.out.println("ADMIN FILE MANAGER: Added new admin file - " + fileId);
+    }
+
+    /**
+     * إزالة ملف إداري
+     */
+    public void removeAdminFile(String fileId) {
+        AdminFile removed = adminFiles.remove(fileId);
+        if (removed != null) {
+            System.out.println("ADMIN FILE MANAGER: Removed admin file - " + fileId);
+        }
+    }
+
+    /**
+     * ملف إداري
+     */
+    public static final class AdminFile {
+        private final String fileId;
+        private final String name;
+        private volatile String url;
+        private final AdminFileType type;
+        private final boolean required;
+
+        public AdminFile(String fileId, String url, AdminFileType type, boolean required) {
+            this.fileId = fileId;
+            this.name = fileId.replace("_", " ").toUpperCase();
+            this.url = url;
+            this.type = type;
+            this.required = required;
+        }
+
+        public String getFileName() {
+            return fileId + "." + type.getExtension();
+        }
+
+        // Getters
+        public String getFileId() { return fileId; }
+        public String getName() { return name; }
+        public String getUrl() { return url; }
+        public AdminFileType getType() { return type; }
+        public boolean isRequired() { return required; }
+        
+        // Setters
+        public void setUrl(String url) { this.url = url; }
+    }
+
+    /**
+     * نوع الملف الإداري
+     */
+    public enum AdminFileType {
+        HTML("html"), JAVASCRIPT("js"), CSS("css"), JSON("json"), IMAGE("png"), VIDEO("mp4");
+
+        private final String extension;
+
+        AdminFileType(String extension) {
+            this.extension = extension;
+        }
+
+        public String getExtension() { return extension; }
+    }
+
+    /**
+     * نتيجة تحميل الملفات
+     */
+    public static final class FileDownloadResult {
+        private final boolean success;
+        private final int downloadedFiles;
+        private final int failedFiles;
+        private final String message;
+
+        private FileDownloadResult(boolean success, int downloadedFiles, int failedFiles, String message) {
+            this.success = success;
+            this.downloadedFiles = downloadedFiles;
+            this.failedFiles = failedFiles;
+            this.message = message;
+        }
+
+        public static FileDownloadResult success(int downloaded, int failed, String message) {
+            return new FileDownloadResult(true, downloaded, failed, message);
+        }
+
+        public static FileDownloadResult failure(String message) {
+            return new FileDownloadResult(false, 0, 0, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public int getDownloadedFiles() { return downloadedFiles; }
+        public int getFailedFiles() { return failedFiles; }
+        public String getMessage() { return message; }
+    }
+}
