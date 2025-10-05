@@ -1,95 +1,202 @@
 package mazdady.user;
 
-public class User {
-    private String userId;
-    private int level = 1;
-    private double balance = 0.0;
-    private Subscription subscription;
-    private KYCStatus kycStatus;
-    private long registrationDate;
+import mazdady.wallet.WalletManager;
+import mazdady.auth.KYCValidator;
 
-    // Getters و Setters
-    public boolean isKYCVerified() {
-        return kycStatus != null && kycStatus.isVerified();
-    }
-}
+import java.time.Instant;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
-package mazdady.user;
+/**
+ * نموذج المستخدم الكامل مع دعم جميع الحالات
+ * يتبع نمط State لتمثيل حالات المستخدم المختلفة
+ */
+public final class User {
+    private final String userId;
+    private final AtomicReference<String> phoneNumber = new AtomicReference<>();
+    private final AtomicReference<String> email = new AtomicReference<>();
+    private final AtomicReference<String> walletAddress = new AtomicReference<>();
+    private final AtomicInteger level = new AtomicInteger(1);
+    private final AtomicReference<Double> balance = new AtomicReference<>(0.0);
+    private final AtomicInteger communityPoints = new AtomicInteger(0);
+    private final AtomicReference<KYCStatus> kycStatus = new AtomicReference<>(new KYCStatus());
+    private final AtomicReference<SubscriptionManager.Subscription> subscription = new AtomicReference<>();
+    private final AtomicReference<Instant> registrationDate = new AtomicReference<>(Instant.now());
+    private final AtomicReference<Instant> lastActivityDate = new AtomicReference<>(Instant.now());
+    private final AtomicInteger streakDays = new AtomicInteger(0);
+    private final AtomicInteger referralCount = new AtomicInteger(0);
+    private final AtomicReference<Instant> lastDailyRewardDate = new AtomicReference<>();
+    private final AtomicInteger dailyRewardStreak = new AtomicInteger(0);
+    private final AtomicReference<UserState> state = new AtomicReference<>(UserState.ACTIVE);
 
-import java.util.Date;
-
-public class User {
-    private String userId;
-    private String phoneNumber;
-    private String email;
-    private String socialLoginId;
-    private int level = 1;
-    private double balance = 0.0;
-    private double weeklyWithdrawn = 0.0;
-    private Subscription subscription;
-    private KYCStatus kycStatus;
-    private Date registrationDate;
-    private boolean hasRecentProfit = false;
-    private int communityPoints = 0;
-
-    // --- Constructors ---
     public User(String userId) {
         this.userId = userId;
-        this.registrationDate = new Date();
     }
 
-    // --- Business Logic ---
+    /**
+     * التحقق من حالة المستخدم
+     */
+    public boolean isActive() {
+        return state.get() == UserState.ACTIVE;
+    }
+
+    public boolean isSuspended() {
+        return state.get() == UserState.SUSPENDED;
+    }
+
+    public boolean isBanned() {
+        return state.get() == UserState.BANNED;
+    }
+
+    /**
+     * تفعيل المستخدم
+     */
+    public void activate() {
+        state.set(UserState.ACTIVE);
+        System.out.println("USER: " + userId + " activated");
+    }
+
+    /**
+     * تعليق المستخدم
+     */
+    public void suspend(String reason) {
+        state.set(UserState.SUSPENDED);
+        System.out.println("USER: " + userId + " suspended - Reason: " + reason);
+    }
+
+    /**
+     * حظر المستخدم
+     */
+    public void ban(String reason) {
+        state.set(UserState.BANNED);
+        System.out.println("USER: " + userId + " banned - Reason: " + reason);
+    }
+
+    /**
+     * التحقق من KYC
+     */
     public boolean isKYCVerified() {
-        return kycStatus != null && kycStatus.isVerified();
+        KYCStatus status = kycStatus.get();
+        return status != null && status.isVerified();
     }
 
+    /**
+     * التحقق من الاشتراك
+     */
     public boolean hasActiveSubscription() {
-        return subscription != null && subscription.isActive();
+        SubscriptionManager.Subscription sub = subscription.get();
+        return sub != null && sub.isActive();
     }
 
+    /**
+     * مستخدم جديد؟
+     */
     public boolean isNewUser() {
-        return registrationDate != null && 
-               (System.currentTimeMillis() - registrationDate.getTime()) < 24 * 60 * 60 * 1000;
+        Instant regDate = registrationDate.get();
+        return regDate != null && 
+               (System.currentTimeMillis() - regDate.toEpochMilli()) < 24 * 60 * 60 * 1000;
     }
 
-    public void addProfit(double amount) {
-        this.balance += amount;
-        this.hasRecentProfit = true;
-        // إعادة تعيين العلم بعد 5 دقائق
-        resetProfitFlagAfterDelay();
+    /**
+     * مستخدم نشط؟
+     */
+    public boolean isRecentlyActive() {
+        Instant lastActivity = lastActivityDate.get();
+        return lastActivity != null && 
+               (System.currentTimeMillis() - lastActivity.toEpochMilli()) < 30 * 60 * 1000;
     }
 
-    private void resetProfitFlagAfterDelay() {
-        new Thread(() -> {
-            try {
-                Thread.sleep(5 * 60 * 1000); // 5 دقائق
-                hasRecentProfit = false;
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
+    /**
+     * مستخدم محظوظ؟
+     */
+    public boolean hasRecentProfit() {
+        // في الإنتاج: التحقق من وجود ربح حديث
+        return balance.get() > 1000.0;
+    }
+
+    /**
+     * زيادة الرصيد
+     */
+    public void addBalance(double amount) {
+        if (amount > 0) {
+            balance.updateAndGet(current -> current + amount);
+            System.out.println("USER: " + userId + " balance increased by " + amount);
+        }
+    }
+
+    /**
+     * خصم الرصيد
+     */
+    public boolean deductBalance(double amount) {
+        if (amount <= 0) return false;
+        
+        return balance.getAndUpdate(current -> {
+            if (current >= amount) {
+                return current - amount;
             }
-        }).start();
+            return current;
+        }) >= amount;
     }
 
-    // --- Getters and Setters ---
+    /**
+     * إضافة نقاط مجتمعية
+     */
+    public void addCommunityPoints(int points) {
+        if (points > 0) {
+            communityPoints.addAndGet(points);
+            System.out.println("USER: " + userId + " community points increased by " + points);
+        }
+    }
+
+    /**
+     * زيادة عدد الإحالات
+     */
+    public void incrementReferralCount() {
+        referralCount.incrementAndGet();
+        System.out.println("USER: " + userId + " referral count incremented");
+    }
+
+    /**
+     * تحديث تاريخ آخر نشاط
+     */
+    public void updateLastActivity() {
+        lastActivityDate.set(Instant.now());
+    }
+
+    // --- Getters/Setters ---
     public String getUserId() { return userId; }
-    public int getLevel() { return level; }
-    public void setLevel(int level) { this.level = level; }
-    public double getBalance() { return balance; }
-    public void setBalance(double balance) { this.balance = balance; }
-    public double getWeeklyWithdrawn() { return weeklyWithdrawn; }
-    public void addWeeklyWithdrawn(double amount) { this.weeklyWithdrawn += amount; }
-    public Subscription getSubscription() { return subscription; }
-    public void setSubscription(Subscription subscription) { this.subscription = subscription; }
-    public KYCStatus getKycStatus() { return kycStatus; }
-    public void setKycStatus(KYCStatus kycStatus) { this.kycStatus = kycStatus; }
-    public Date getRegistrationDate() { return registrationDate; }
-    public boolean hasRecentProfit() { return hasRecentProfit; }
-    public int getCommunityPoints() { return communityPoints; }
-    public void addCommunityPoints(int points) { this.communityPoints += points; }
-    public String getPhoneNumber() { return phoneNumber; }
-    public void setPhoneNumber(String phoneNumber) { this.phoneNumber = phoneNumber; }
-    public String getEmail() { return email; }
-    public void setEmail(String email) { this.email = email; }
-    public String getSocialLoginId() { return socialLoginId; }
-    public void setSocialLoginId(String socialLoginId) { this.socialLoginId = socialLoginId; }
+    public String getPhoneNumber() { return phoneNumber.get(); }
+    public void setPhoneNumber(String number) { phoneNumber.set(number); }
+    public String getEmail() { return email.get(); }
+    public void setEmail(String mail) { email.set(mail); }
+    public String getWalletAddress() { return walletAddress.get(); }
+    public void setWalletAddress(String address) { walletAddress.set(address); }
+    public int getLevel() { return level.get(); }
+    public void setLevel(int lvl) { level.set(lvl); }
+    public double getBalance() { return balance.get(); }
+    public void setBalance(double bal) { balance.set(bal); }
+    public int getCommunityPoints() { return communityPoints.get(); }
+    public KYCStatus getKycStatus() { return kycStatus.get(); }
+    public void setKycStatus(KYCStatus status) { kycStatus.set(status); }
+    public SubscriptionManager.Subscription getSubscription() { return subscription.get(); }
+    public void setSubscription(SubscriptionManager.Subscription sub) { subscription.set(sub); }
+    public Instant getRegistrationDate() { return registrationDate.get(); }
+    public Instant getLastActivityDate() { return lastActivityDate.get(); }
+    public void setLastActivityDate(Instant date) { lastActivityDate.set(date); }
+    public int getStreakDays() { return streakDays.get(); }
+    public void setStreakDays(int days) { streakDays.set(days); }
+    public int getReferralCount() { return referralCount.get(); }
+    public Instant getLastDailyRewardDate() { return lastDailyRewardDate.get(); }
+    public void setLastDailyRewardDate(Instant date) { lastDailyRewardDate.set(date); }
+    public int getDailyRewardStreak() { return dailyRewardStreak.get(); }
+    public void setDailyRewardStreak(int streak) { dailyRewardStreak.set(streak); }
+    public UserState getState() { return state.get(); }
+    public void setState(UserState state) { this.state.set(state); }
+
+    /**
+     * حالات المستخدم
+     */
+    public enum UserState {
+        ACTIVE, SUSPENDED, BANNED, INACTIVE
+    }
 }
