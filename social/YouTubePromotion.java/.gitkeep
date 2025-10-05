@@ -1,0 +1,70 @@
+package mazdady.social;
+
+import mazdady.ad.AdCampaign;
+
+/**
+ * ترويج يوتيوب مع دعم التكامل المتقدم
+ * يتبع نمط Strategy لفصل منطق يوتيوب
+ */
+public final class YouTubePromotion {
+    private static YouTubePromotion instance;
+
+    private YouTubePromotion() {}
+
+    public static synchronized YouTubePromotion getInstance() {
+        if (instance == null) {
+            instance = new YouTubePromotion();
+        }
+        return instance;
+    }
+
+    /**
+     * التحقق من صحة رابط يوتيوب
+     */
+    public boolean isValidYouTubeUrl(String url) {
+        return url != null && 
+               (url.contains("youtube.com/watch") || url.contains("youtu.be/"));
+    }
+
+    /**
+     * إنشاء حملة يوتيوب
+     */
+    public AdCampaign createYouTubeCampaign(
+        String userId, 
+        String videoUrl, 
+        String goal, 
+        int targetCount, 
+        double budget
+    ) {
+        if (!isValidYouTubeUrl(videoUrl)) {
+            throw new IllegalArgumentException("Invalid YouTube URL");
+        }
+        
+        return new AdCampaign.Builder()
+            .userId(userId)
+            .platform(AdCampaign.Platform.YOUTUBE)
+            .contentUrl(videoUrl)
+            .goal(AdCampaign.Goal.valueOf(goal.toUpperCase()))
+            .targetCount(targetCount)
+            .budget(budget)
+            .build();
+    }
+
+    /**
+     * تقدير التكلفة لحملة يوتيوب
+     */
+    public double estimateYouTubeCost(String goal, int targetCount) {
+        switch (AdCampaign.Goal.valueOf(goal.toUpperCase())) {
+            case VIEWS:
+                return targetCount * 0.01; // 0.01 MAZDADY لكل مشاهدة
+            case LIKES:
+                return targetCount * 0.05; // 0.05 MAZDADY لكل إعجاب
+            case COMMENTS:
+                return targetCount * 0.10; // 0.10 MAZDADY لكل تعليق
+            case SUBSCRIBERS:
+                return targetCount * 0.20; // 0.20 MAZDADY لكل مشترك
+            default:
+                return targetCount * 0.01;
+        }
+    }
+}
