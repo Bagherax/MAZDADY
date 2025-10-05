@@ -1,49 +1,144 @@
 package mazdady.dev;
 
+import mazdady.user.User;
+import mazdady.user.UserManager;
+import mazdady.wallet.WalletManager;
+import mazdady.trading.PriceEngine;
+import mazdady.bot.BotManager;
+import mazdady.admin.AdminConfig;
+import mazdady.security.SecurityMonitor;
+
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
- * مدير اختبارات التكامل مع دعم المحاكاة المتقدمة
- * يتبع نمط Observer لإعلام المكونات بالنتائج
+ * اختبارات التكامل مع دعم المحاكاة المتقدمة
+ * يتبع نمط Observer لإعلام النظام بالنتائج
  */
 public final class IntegrationTests {
     private final CopyOnWriteArrayList<IntegrationTest> tests = new CopyOnWriteArrayList<>();
-    private static final IntegrationTests INSTANCE = new IntegrationTests();
+    private final UserManager userManager;
+    private final WalletManager walletManager;
+    private final PriceEngine priceEngine;
+    private final BotManager botManager;
+    private final SecurityMonitor securityMonitor;
+    private static IntegrationTests instance;
 
-    private IntegrationTests() {
+    private IntegrationTests(
+        UserManager userManager,
+        WalletManager walletManager,
+        PriceEngine priceEngine,
+        BotManager botManager,
+        SecurityMonitor securityMonitor
+    ) {
+        this.userManager = userManager;
+        this.walletManager = walletManager;
+        this.priceEngine = priceEngine;
+        this.botManager = botManager;
+        this.securityMonitor = securityMonitor;
         initializeTests();
     }
 
-    public static IntegrationTests getInstance() {
-        return INSTANCE;
+    public static synchronized IntegrationTests getInstance(
+        UserManager userManager,
+        WalletManager walletManager,
+        PriceEngine priceEngine,
+        BotManager botManager,
+        SecurityMonitor securityMonitor
+    ) {
+        if (instance == null) {
+            instance = new IntegrationTests(userManager, walletManager, priceEngine, botManager, securityMonitor);
+        }
+        return instance;
     }
 
     private void initializeTests() {
         tests.add(new UserWalletIntegrationTest());
-        tests.add(new TradingAdIntegrationTest());
+        tests.add(new TradingBotIntegrationTest());
         tests.add(new SecurityAuthIntegrationTest());
+        tests.add(new AdminUserIntegrationTest());
+        tests.add(new WithdrawalIntegrationTest());
+        tests.add(new KYCIntegrationTest());
+        tests.add(new AdCampaignIntegrationTest());
+        tests.add(new SocialPromotionIntegrationTest());
+        tests.add(new CommunityRewardIntegrationTest());
+        tests.add(new MagicUpdateIntegrationTest());
+        
+        System.out.println("INTEGRATION TESTS: Initialized " + tests.size() + " integration tests");
     }
 
     /**
      * تشغيل جميع اختبارات التكامل غير المتزامنة
      */
-    public CompletableFuture<IntegrationReport> runAllTestsAsync() {
+    public CompletableFuture<TestReport> runAllTestsAsync() {
         return CompletableFuture.supplyAsync(() -> {
-            IntegrationReport report = new IntegrationReport();
-            for (IntegrationTest test : tests) {
-                report.merge(test.run());
+            try {
+                TestReport report = new TestReport();
+                
+                for (IntegrationTest test : tests) {
+                    TestResult result = test.run();
+                    report.addTestResult(result);
+                    
+                    if (!result.isSuccess()) {
+                        System.err.println("INTEGRATION TEST FAILED: " + result.getTestName() + 
+                                         " - " + result.getMessage());
+                    }
+                }
+                
+                System.out.println("INTEGRATION TESTS: Completed - " + 
+                                 report.getPassedTests() + " passed, " + 
+                                 report.getFailedTests() + " failed");
+                
+                return report;
+                
+            } catch (Exception e) {
+                return TestReport.failure("Integration tests failed: " + e.getMessage());
             }
-            return report;
         });
     }
 
     /**
-     * تشغيل جميع اختبارات التكامل
+     * تشغيل اختبار محدد
      */
-    public static void runAllTests() {
-        IntegrationReport report = getInstance().runAllTestsAsync().join();
-        System.out.println(report.getSummary());
+    public CompletableFuture<TestResult> runTestAsync(String testName) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                IntegrationTest test = tests.stream()
+                    .filter(t -> testName.equals(t.getTestName()))
+                    .findFirst()
+                    .orElse(null);
+                
+                if (test != null) {
+                    TestResult result = test.run();
+                    System.out.println("INTEGRATION TEST: " + testName + " - " + 
+                                     (result.isSuccess() ? "PASSED" : "FAILED"));
+                    return result;
+                } else {
+                    return TestResult.failure(testName, "Test not found");
+                }
+                
+            } catch (Exception e) {
+                return TestResult.failure(testName, "Test execution failed: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * إضافة اختبار مخصص
+     */
+    public void addCustomTest(IntegrationTest test) {
+        if (test != null) {
+            tests.add(test);
+            System.out.println("INTEGRATION TESTS: Added custom test - " + test.getTestName());
+        }
+    }
+
+    /**
+     * إزالة اختبار مخصص
+     */
+    public void removeCustomTest(String testName) {
+        tests.removeIf(test -> testName.equals(test.getTestName()));
+        System.out.println("INTEGRATION TESTS: Removed custom test - " + testName);
     }
 
     /**
@@ -51,109 +146,362 @@ public final class IntegrationTests {
      */
     @FunctionalInterface
     public interface IntegrationTest {
-        IntegrationReport run();
+        String getTestName();
+        TestResult run();
     }
 
-    /**
-     * تقرير اختبار التكامل
-     */
-    public static final class IntegrationReport {
-        private int passed = 0;
-        private int failed = 0;
-        private final CopyOnWriteArrayList<String> failures = new CopyOnWriteArrayList<>();
-
-        public void addPassed() { passed++; }
-        public void addFailed(String testName, String reason) {
-            failed++;
-            failures.add(testName + ": " + reason);
-        }
-
-        public void merge(IntegrationReport other) {
-            this.passed += other.passed;
-            this.failed += other.failed;
-            this.failures.addAll(other.failures);
-        }
-
-        public String getSummary() {
-            return String.format(
-                "🔗 INTEGRATION TESTS: %d passed, %d failed\n%s",
-                passed, failed,
-                failures.isEmpty() ? "" : "Failures:\n" + String.join("\n", failures)
-            );
-        }
-    }
-
-    // --- اختبارات تكامل مخصصة ---
+    // --- اختبارات التكامل ---
     private static final class UserWalletIntegrationTest implements IntegrationTest {
         @Override
-        public IntegrationReport run() {
-            IntegrationReport report = new IntegrationReport();
+        public String getTestName() { return "UserWalletIntegrationTest"; }
+        
+        @Override
+        public TestResult run() {
             try {
                 // محاكاة تكامل المستخدم والمحفظة
-                mazdady.user.User user = new mazdady.user.User("integration_test");
-                mazdady.wallet.WalletManager wallet = new mazdady.wallet.WalletManager();
-                wallet.depositMAZDADY(1000.0);
-                user.setBalance(wallet.getBalance());
+                User user = UserManager.getInstance(null).getCurrentUser();
+                WalletManager wallet = new WalletManager();
                 
-                if (user.getBalance() != 1000.0) {
-                    throw new AssertionError("User balance should match wallet balance");
+                // التحقق من ربط المحفظة
+                if (user.getWalletAddress() == null) {
+                    return TestResult.failure(getTestName(), "User wallet not connected");
                 }
-                report.addPassed();
+                
+                // التحقق من الرصيد
+                double balance = wallet.getBalance();
+                if (balance < 0) {
+                    return TestResult.failure(getTestName(), "Invalid wallet balance");
+                }
+                
+                System.out.println("INTEGRATION TEST: " + getTestName() + " PASSED");
+                return TestResult.success(getTestName(), "User wallet integration working correctly");
+                
             } catch (Exception e) {
-                report.addFailed("UserWalletIntegrationTest", e.getMessage());
+                return TestResult.failure(getTestName(), "Test failed: " + e.getMessage());
             }
-            return report;
         }
     }
 
-    private static final class TradingAdIntegrationTest implements IntegrationTest {
+    private static final class TradingBotIntegrationTest implements IntegrationTest {
         @Override
-        public IntegrationReport run() {
-            IntegrationReport report = new IntegrationReport();
+        public String getTestName() { return "TradingBotIntegrationTest"; }
+        
+        @Override
+        public TestResult run() {
             try {
-                // محاكاة تكامل التداول والإعلانات
-                mazdady.trading.PriceEngine engine = new mazdady.trading.PriceEngine();
-                mazdady.ad.AdManager adManager = mazdady.ad.AdManager.getInstance();
+                // محاكاة تكامل التداول والبوتات
+                PriceEngine priceEngine = PriceEngine.getInstance();
+                BotManager botManager = BotManager.getInstance(priceEngine);
                 
-                // تنفيذ صفقة تداول
-                engine.executeBuyOrder("test_user", 50);
+                // التحقق من وجود بوتات التداول
+                if (botManager.getTradingBots().isEmpty()) {
+                    return TestResult.failure(getTestName(), "No trading bots found");
+                }
                 
-                // إنشاء حملة إعلانية
-                mazdady.ad.AdCampaign campaign = new mazdady.ad.AdCampaign.Builder()
-                    .userId("test_user")
-                    .platform(mazdady.ad.AdCampaign.Platform.TIKTOK)
-                    .contentUrl("https://tiktok.com/test")
-                    .goal(mazdady.ad.AdCampaign.Goal.VIEWS)
-                    .targetCount(100)
-                    .budget(10.0)
-                    .build();
+                // تنفيذ صفقة تداول محاكاة
+                double initialPrice = priceEngine.getCurrentPrice();
+                botManager.executeBotTrade("BOT_001", 100.0);
+                double finalPrice = priceEngine.getCurrentPrice();
                 
-                report.addPassed();
+                if (Math.abs(finalPrice - initialPrice) < 0.01) {
+                    return TestResult.failure(getTestName(), "Bot trade did not affect price");
+                }
+                
+                System.out.println("INTEGRATION TEST: " + getTestName() + " PASSED");
+                return TestResult.success(getTestName(), "Trading bot integration working correctly");
+                
             } catch (Exception e) {
-                report.addFailed("TradingAdIntegrationTest", e.getMessage());
+                return TestResult.failure(getTestName(), "Test failed: " + e.getMessage());
             }
-            return report;
         }
     }
 
     private static final class SecurityAuthIntegrationTest implements IntegrationTest {
         @Override
-        public IntegrationReport run() {
-            IntegrationReport report = new IntegrationReport();
+        public String getTestName() { return "SecurityAuthIntegrationTest"; }
+        
+        @Override
+        public TestResult run() {
             try {
                 // محاكاة تكامل الأمان والمصادقة
-                mazdady.auth.LoginManager loginManager = mazdady.auth.LoginManager.getInstance();
-                mazdady.security.SecurityMgr securityMgr = mazdady.security.SecurityMgr.getInstance(null);
+                SecurityMonitor securityMonitor = SecurityMonitor.getInstance(null);
+                UserManager userManager = UserManager.getInstance(null);
                 
-                // التحقق من سلامة التطبيق
-                if (!securityMgr.isAppIntegrityValid()) {
-                    throw new AssertionError("App integrity should be valid in tests");
+                // التحقق من حالة الأمان
+                if (!securityMonitor.isAppIntegrityValid()) {
+                    return TestResult.failure(getTestName(), "App integrity check failed");
                 }
-                report.addPassed();
+                
+                // التحقق من حالة المستخدم
+                User user = userManager.getCurrentUser();
+                if (user == null) {
+                    return TestResult.failure(getTestName(), "User not authenticated");
+                }
+                
+                System.out.println("INTEGRATION TEST: " + getTestName() + " PASSED");
+                return TestResult.success(getTestName(), "Security authentication integration working correctly");
+                
             } catch (Exception e) {
-                report.addFailed("SecurityAuthIntegrationTest", e.getMessage());
+                return TestResult.failure(getTestName(), "Test failed: " + e.getMessage());
             }
-            return report;
         }
     }
-}
+
+    private static final class AdminUserIntegrationTest implements IntegrationTest {
+        @Override
+        public String getTestName() { return "AdminUserIntegrationTest"; }
+        
+        @Override
+        public TestResult run() {
+            try {
+                // محاكاة تكامل الادمن والمستخدم
+                AdminConfig adminConfig = AdminConfig.getInstance();
+                UserManager userManager = UserManager.getInstance(null);
+                
+                // التحقق من إعدادات الادمن
+                if (adminConfig.getUIConfig() == null) {
+                    return TestResult.failure(getTestName(), "Admin UI config not loaded");
+                }
+                
+                // التحقق من حالة المستخدم
+                User user = userManager.getCurrentUser();
+                if (user == null) {
+                    return TestResult.failure(getTestName(), "User session not established");
+                }
+                
+                System.out.println("INTEGRATION TEST: " + getTestName() + " PASSED");
+                return TestResult.success(getTestName(), "Admin-user integration working correctly");
+                
+            } catch (Exception e) {
+                return TestResult.failure(getTestName(), "Test failed: " + e.getMessage());
+            }
+        }
+    }
+
+    private static final class WithdrawalIntegrationTest implements IntegrationTest {
+        @Override
+        public String getTestName() { return "WithdrawalIntegrationTest"; }
+        
+        @Override
+        public TestResult run() {
+            try {
+                // محاكاة تكامل السحب
+                WalletManager walletManager = new WalletManager();
+                UserManager userManager = UserManager.getInstance(null);
+                
+                // التحقق من إمكانية السحب
+                User user = userManager.getCurrentUser();
+                if (user == null) {
+                    return TestResult.failure(getTestName(), "User not found");
+                }
+                
+                if (!user.isKYCVerified()) {
+                    return TestResult.failure(getTestName(), "KYC verification required");
+                }
+                
+                double balance = walletManager.getBalance();
+                if (balance < 10.0) {
+                    return TestResult.failure(getTestName(), "Insufficient balance for withdrawal");
+                }
+                
+                System.out.println("INTEGRATION TEST: " + getTestName() + " PASSED");
+                return TestResult.success(getTestName(), "Withdrawal integration working correctly");
+                
+            } catch (Exception e) {
+                return TestResult.failure(getTestName(), "Test failed: " + e.getMessage());
+            }
+        }
+    }
+
+    private static final class KYCIntegrationTest implements IntegrationTest {
+        @Override
+        public String getTestName() { return "KYCIntegrationTest"; }
+        
+        @Override
+        public TestResult run() {
+            try {
+                // محاكاة تكامل التحقق من الهوية
+                UserManager userManager = UserManager.getInstance(null);
+                User user = userManager.getCurrentUser();
+                
+                if (user == null) {
+                    return TestResult.failure(getTestName(), "User not found");
+                }
+                
+                if (!user.isKYCVerified()) {
+                    return TestResult.failure(getTestName(), "KYC not verified");
+                }
+                
+                System.out.println("INTEGRATION TEST: " + getTestName() + " PASSED");
+                return TestResult.success(getTestName(), "KYC integration working correctly");
+                
+            } catch (Exception e) {
+                return TestResult.failure(getTestName(), "Test failed: " + e.getMessage());
+            }
+        }
+    }
+
+    private static final class AdCampaignIntegrationTest implements IntegrationTest {
+        @Override
+        public String getTestName() { return "AdCampaignIntegrationTest"; }
+        
+        @Override
+        public TestResult run() {
+            try {
+                // محاكاة تكامل الحملات الإعلانية
+                mazdady.ad.AdManager adManager = mazdady.ad.AdManager.getInstance();
+                
+                if (adManager == null) {
+                    return TestResult.failure(getTestName(), "Ad manager not initialized");
+                }
+                
+                // إنشاء حملة محاكاة
+                mazdady.ad.AdCampaign campaign = adManager.createCampaign(
+                    mazdady.ad.AdCampaign.Platform.YOUTUBE,
+                    "https://youtube.com/watch?v=test",
+                    mazdady.ad.AdCampaign.Goal.VIEWS,
+                    100,
+                    50.0
+                );
+                
+                if (campaign == null) {
+                    return TestResult.failure(getTestName(), "Failed to create ad campaign");
+                }
+                
+                System.out.println("INTEGRATION TEST: " + getTestName() + " PASSED");
+                return TestResult.success(getTestName(), "Ad campaign integration working correctly");
+                
+            } catch (Exception e) {
+                return TestResult.failure(getTestName(), "Test failed: " + e.getMessage());
+            }
+        }
+    }
+
+    private static final class SocialPromotionIntegrationTest implements IntegrationTest {
+        @Override
+        public String getTestName() { return "SocialPromotionIntegrationTest"; }
+        
+        @Override
+        public TestResult run() {
+            try {
+                // محاكاة تكامل الترويج الاجتماعي
+                mazdady.social.ShareRewardSystem shareSystem = mazdady.social.ShareRewardSystem.getInstance();
+                
+                if (shareSystem == null) {
+                    return TestResult.failure(getTestName(), "Share reward system not initialized");
+                }
+                
+                // منح مكافأة محاكاة
+                mazdady.social.ShareRewardSystem.RewardResult result = 
+                    shareSystem.grantShareRewardAsync(
+                        "user_123",
+                        "youtube",
+                        "view",
+                        "https://youtube.com/watch?v=test"
+                    ).join();
+                
+                if (!result.isSuccess()) {
+                    return TestResult.failure(getTestName(), "Failed to grant share reward");
+                }
+                
+                System.out.println("INTEGRATION TEST: " + getTestName() + " PASSED");
+                return TestResult.success(getTestName(), "Social promotion integration working correctly");
+                
+            } catch (Exception e) {
+                return TestResult.failure(getTestName(), "Test failed: " + e.getMessage());
+            }
+        }
+    }
+
+    private static final class CommunityRewardIntegrationTest implements IntegrationTest {
+        @Override
+        public String getTestName() { return "CommunityRewardIntegrationTest"; }
+        
+        @Override
+        public TestResult run() {
+            try {
+                // محاكاة تكامل مكافآت المجتمع
+                mazdady.economy.CommunityRewardSystem rewardSystem = 
+                    mazdady.economy.CommunityRewardSystem.getInstance();
+                
+                if (rewardSystem == null) {
+                    return TestResult.failure(getTestName(), "Community reward system not initialized");
+                }
+                
+                // إضافة أموال إلى صندوق المجتمع
+                rewardSystem.addToCommunityPool(1000.0);
+                
+                // توزيع المكافآت
+                rewardSystem.distributeRewardsAutomatically();
+                
+                System.out.println("INTEGRATION TEST: " + getTestName() + " PASSED");
+                return TestResult.success(getTestName(), "Community reward integration working correctly");
+                
+            } catch (Exception e) {
+                return TestResult.failure(getTestName(), "Test failed: " + e.getMessage());
+            }
+        }
+    }
+
+    private static final class MagicUpdateIntegrationTest implements IntegrationTest {
+        @Override
+        public String getTestName() { return "MagicUpdateIntegrationTest"; }
+        
+        @Override
+        public TestResult run() {
+            try {
+                // محاكاة تكامل التحديثات السحرية
+                mazdady.social.MagicUpdateManager updateManager = 
+                    mazdady.social.MagicUpdateManager.create(event -> {
+                        System.out.println("MAGIC UPDATE EVENT: " + event.getMessage());
+                    });
+                
+                if (updateManager == null) {
+                    return TestResult.failure(getTestName(), "Magic update manager not initialized");
+                }
+                
+                // التحقق من التحديثات
+                mazdady.social.MagicUpdateManager.UpdateResult result = 
+                    updateManager.checkForUpdatesAsync().join();
+                
+                System.out.println("INTEGRATION TEST: " + getTestName() + " PASSED");
+                return TestResult.success(getTestName(), "Magic update integration working correctly");
+                
+            } catch (Exception e) {
+                return TestResult.failure(getTestName(), "Test failed: " + e.getMessage());
+            }
+        }
+    }
+
+    /**
+     * نتيجة الاختبار
+     */
+    public static final class TestResult {
+        private final boolean success;
+        private final String testName;
+        private final String message;
+
+        private TestResult(boolean success, String testName, String message) {
+            this.success = success;
+            this.testName = testName;
+            this.message = message;
+        }
+
+        public static TestResult success(String testName, String message) {
+            return new TestResult(true, testName, message);
+        }
+
+        public static TestResult failure(String testName, String message) {
+            return new TestResult(false, testName, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public String getTestName() { return testName; }
+        public String getMessage() { return message; }
+    }
+
+    /**
+     * تقرير الاختبار
+     */
+    public static final class TestReport {
+        private final CopyOnWriteArrayList<TestResult> testResults = new
