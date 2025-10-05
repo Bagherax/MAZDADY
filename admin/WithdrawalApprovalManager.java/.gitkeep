@@ -1,0 +1,327 @@
+package mazdady.admin;
+
+import mazdady.user.User;
+import mazdady.user.UserManager;
+import mazdady.withdrawal.WithdrawalHistory;
+import mazdady.security.SecureStorage;
+
+import java.time.Instant;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.Consumer;
+
+/**
+ * مدير الموافقة على السحب مع دعم التقارير المتقدمة
+ * يتبع نمط Observer لإعلام النظام بالموافقات
+ */
+public final class WithdrawalApprovalManager {
+    private final CopyOnWriteArrayList<Consumer<ApprovalEvent>> approvalListeners = new CopyOnWriteArrayList<>();
+    private final SecureStorage secureStorage;
+    private static WithdrawalApprovalManager instance;
+
+    private WithdrawalApprovalManager(SecureStorage secureStorage) {
+        this.secureStorage = secureStorage;
+    }
+
+    public static synchronized WithdrawalApprovalManager getInstance(SecureStorage secureStorage) {
+        if (instance == null) {
+            instance = new WithdrawalApprovalManager(secureStorage);
+        }
+        return instance;
+    }
+
+    /**
+     * طلب سحب يتطلب موافقة إدارية غير متزامن
+     */
+    public CompletableFuture<ApprovalResult> requestWithdrawalApprovalAsync(
+        String userId,
+        double amount,
+        String withdrawalMethod,
+        String supportingDocuments
+    ) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                // التحقق من المستخدم
+                UserManager userManager = UserManager.getInstance(null);
+                User user = userManager.getUserById(userId);
+                if (user == null) {
+                    return ApprovalResult.failure("User not found");
+                }
+                
+                // إنشاء تقرير السحب
+                WithdrawalReport report = new WithdrawalReport(
+                    "report_" + System.currentTimeMillis(),
+                    userId,
+                    amount,
+                    withdrawalMethod,
+                    supportingDocuments,
+                    user.getProfitLossMap(),
+                    user.getIdentityDocument(),
+                    user.getActivityLog(),
+                    Instant.now()
+                );
+                
+                // حفظ التقرير (مشفر)
+                String encryptedReport = secureStorage.encrypt(report.toJson());
+                secureStorage.putString("withdrawal_report_" + report.getReportId(), encryptedReport);
+                
+                // إرسال طلب الموافقة إلى لوحة التحكم الإدارية
+                sendApprovalRequestToAdmin(report);
+                
+                System.out.println("WITHDRAWAL APPROVAL: Request submitted for user " + userId + 
+                                 " - Amount: " + amount + " MAZDADY");
+                
+                return ApprovalResult.pending(report.getReportId(), "Withdrawal request submitted for approval");
+                
+            } catch (Exception e) {
+                return ApprovalResult.failure("Withdrawal approval request failed: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * الموافقة على طلب السحب
+     */
+    public ApprovalResult approveWithdrawal(String reportId, String adminId) {
+        try {
+            // تحميل التقرير المشفر
+            String encryptedReport = secureStorage.getString("withdrawal_report_" + reportId, null);
+            if (encryptedReport == null) {
+                return ApprovalResult.failure("Withdrawal report not found");
+            }
+            
+            String decryptedReport = secureStorage.decrypt(encryptedReport);
+            WithdrawalReport report = WithdrawalReport.fromJson(decryptedReport);
+            
+            // تنفيذ السحب
+            boolean success = executeWithdrawal(report);
+            
+            if (success) {
+                // تسجيل الموافقة
+                recordApproval(reportId, adminId, true);
+                
+                // إشعار المستخدم
+                notifyUserOfApproval(report.getUserId(), true);
+                
+                System.out.println("WITHDRAWAL APPROVAL: Approved withdrawal for user " + 
+                                 report.getUserId() + " - Amount: " + report.getAmount());
+                
+                return ApprovalResult.approved("Withdrawal approved and executed successfully");
+            } else {
+                return ApprovalResult.failure("Withdrawal execution failed");
+            }
+            
+        } catch (Exception e) {
+            return ApprovalResult.failure("Withdrawal approval failed: " + e.getMessage());
+        }
+    }
+
+    /**
+     * رفض طلب السحب
+     */
+    public ApprovalResult rejectWithdrawal(String reportId, String adminId, String reason) {
+        try {
+            // تسجيل الرفض
+            recordApproval(reportId, adminId, false);
+            
+            // تحميل التقرير للمحصول على معرف المستخدم
+            String encryptedReport = secureStorage.getString("withdrawal_report_" + reportId, null);
+            if (encryptedReport != null) {
+                String decryptedReport = secureStorage.decrypt(encryptedReport);
+                WithdrawalReport report = WithdrawalReport.fromJson(decryptedReport);
+                
+                // إشعار المستخدم
+                notifyUserOfApproval(report.getUserId(), false);
+            }
+            
+            System.out.println("WITHDRAWAL APPROVAL: Rejected withdrawal request " + reportId + 
+                             " - Reason: " + reason);
+            
+            return ApprovalResult.rejected("Withdrawal request rejected: " + reason);
+            
+        } catch (Exception e) {
+            return ApprovalResult.failure("Withdrawal rejection failed: " + e.getMessage());
+        }
+    }
+
+    private boolean executeWithdrawal(WithdrawalReport report) {
+        // في الإنتاج: تنفيذ السحب عبر طريقة السحب المحددة
+        System.out.println("WITHDRAWAL APPROVAL: Executing withdrawal for user " + 
+                         report.getUserId() + " - Amount: " + report.getAmount());
+        return true; // محاكاة النجاح
+    }
+
+    private void sendApprovalRequestToAdmin(WithdrawalReport report) {
+        // في الإنتاج: إرسال إشعار إلى لوحة التحكم الإدارية
+        System.out.println("WITHDRAWAL APPROVAL: Sending approval request to admin panel");
+    }
+
+    private void recordApproval(String reportId, String adminId, boolean approved) {
+        // في الإنتاج: تسجيل الموافقة في قاعدة البيانات
+        System.out.println("WITHDRAWAL APPROVAL: Recorded " + (approved ? "approval" : "rejection") + 
+                         " for report " + reportId + " by admin " + adminId);
+    }
+
+    private void notifyUserOfApproval(String userId, boolean approved) {
+        // في الإنتاج: إرسال إشعار للمستخدم
+        System.out.println("WITHDRAWAL APPROVAL: Notifying user " + userId + 
+                         " of " + (approved ? "approval" : "rejection"));
+    }
+
+    /**
+     * إضافة مستمع للموافقات
+     */
+    public void addApprovalListener(Consumer<ApprovalEvent> listener) {
+        approvalListeners.add(listener);
+    }
+
+    /**
+     * إزالة مستمع للموافقات
+     */
+    public void removeApprovalListener(Consumer<ApprovalEvent> listener) {
+        approvalListeners.remove(listener);
+    }
+
+    private void notifyApprovalListeners(ApprovalEvent event) {
+        approvalListeners.forEach(listener -> {
+            try {
+                listener.accept(event);
+            } catch (Exception e) {
+                // تجاهل أخطاء المستمعين
+            }
+        });
+    }
+
+    /**
+     * نتيجة الموافقة
+     */
+    public static final class ApprovalResult {
+        private final boolean success;
+        private final boolean approved;
+        private final String reportId;
+        private final String message;
+
+        private ApprovalResult(boolean success, boolean approved, String reportId, String message) {
+            this.success = success;
+            this.approved = approved;
+            this.reportId = reportId;
+            this.message = message;
+        }
+
+        public static ApprovalResult pending(String reportId, String message) {
+            return new ApprovalResult(true, false, reportId, message);
+        }
+
+        public static ApprovalResult approved(String message) {
+            return new ApprovalResult(true, true, null, message);
+        }
+
+        public static ApprovalResult rejected(String message) {
+            return new ApprovalResult(true, false, null, message);
+        }
+
+        public static ApprovalResult failure(String message) {
+            return new ApprovalResult(false, false, null, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public boolean isApproved() { return approved; }
+        public String getReportId() { return reportId; }
+        public String getMessage() { return message; }
+    }
+
+    /**
+     * حدث الموافقة
+     */
+    public static final class ApprovalEvent {
+        private final String reportId;
+        private final String userId;
+        private final boolean approved;
+        private final String adminId;
+        private final String reason;
+        private final Instant timestamp;
+
+        public ApprovalEvent(String reportId, String userId, boolean approved, 
+                           String adminId, String reason, Instant timestamp) {
+            this.reportId = reportId;
+            this.userId = userId;
+            this.approved = approved;
+            this.adminId = adminId;
+            this.reason = reason;
+            this.timestamp = timestamp;
+        }
+
+        // Getters
+        public String getReportId() { return reportId; }
+        public String getUserId() { return userId; }
+        public boolean isApproved() { return approved; }
+        public String getAdminId() { return adminId; }
+        public String getReason() { return reason; }
+        public Instant getTimestamp() { return timestamp; }
+    }
+
+    /**
+     * تقرير السحب
+     */
+    private static final class WithdrawalReport {
+        private final String reportId;
+        private final String userId;
+        private final double amount;
+        private final String withdrawalMethod;
+        private final String supportingDocuments;
+        private final String profitLossMap;
+        private final String identityDocument;
+        private final String activityLog;
+        private final Instant timestamp;
+
+        public WithdrawalReport(String reportId, String userId, double amount, 
+                              String withdrawalMethod, String supportingDocuments,
+                              String profitLossMap, String identityDocument, 
+                              String activityLog, Instant timestamp) {
+            this.reportId = reportId;
+            this.userId = userId;
+            this.amount = amount;
+            this.withdrawalMethod = withdrawalMethod;
+            this.supportingDocuments = supportingDocuments;
+            this.profitLossMap = profitLossMap;
+            this.identityDocument = identityDocument;
+            this.activityLog = activityLog;
+            this.timestamp = timestamp;
+        }
+
+        // Getters
+        public String getReportId() { return reportId; }
+        public String getUserId() { return userId; }
+        public double getAmount() { return amount; }
+        public String getWithdrawalMethod() { return withdrawalMethod; }
+        public String getSupportingDocuments() { return supportingDocuments; }
+        public String getProfitLossMap() { return profitLossMap; }
+        public String getIdentityDocument() { return identityDocument; }
+        public String getActivityLog() { return activityLog; }
+        public Instant getTimestamp() { return timestamp; }
+
+        public String toJson() {
+            // في الإنتاج: تحويل التقرير إلى JSON
+            return "{ \"reportId\": \"" + reportId + "\", " +
+                   "\"userId\": \"" + userId + "\", " +
+                   "\"amount\": " + amount + ", " +
+                   "\"withdrawalMethod\": \"" + withdrawalMethod + "\", " +
+                   "\"timestamp\": " + timestamp.toEpochMilli() + " }";
+        }
+
+        public static WithdrawalReport fromJson(String json) {
+            // في الإنتاج: تحويل JSON إلى تقرير
+            return new WithdrawalReport(
+                "sample_report",
+                "sample_user",
+                100.0,
+                "wallet_crypto",
+                "sample_documents",
+                "sample_map",
+                "sample_doc",
+                "sample_log",
+                Instant.now()
+            );
+        }
+    }
+}
