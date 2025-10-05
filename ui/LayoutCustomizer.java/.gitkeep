@@ -1,0 +1,255 @@
+package mazdady.ui;
+
+import android.view.View;
+import android.view.ViewGroup;
+import android.widget.FrameLayout;
+import android.widget.LinearLayout;
+
+import mazdady.admin.AdminConfig;
+
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+
+/**
+ * تخصيص التخطيط ديناميكيًا حسب إعدادات الإدارة
+ * يتبع نمط Strategy لفصل استراتيجيات التخصيص
+ */
+public final class LayoutCustomizer {
+    private final Map<String, CustomizationStrategy> strategies = new ConcurrentHashMap<>();
+
+    public LayoutCustomizer() {
+        initializeStrategies();
+    }
+
+    private void initializeStrategies() {
+        strategies.put("position", new PositionCustomizationStrategy());
+        strategies.put("size", new SizeCustomizationStrategy());
+        strategies.put("visibility", new VisibilityCustomizationStrategy());
+        strategies.put("spacing", new SpacingCustomizationStrategy());
+        strategies.put("alignment", new AlignmentCustomizationStrategy());
+    }
+
+    /**
+     * تخصيص التخطيط بالكامل
+     */
+    public void customizeLayout(ViewGroup rootView, AdminConfig.UIConfig uiConfig) {
+        if (rootView == null || uiConfig == null) return;
+
+        try {
+            // تطبيق التخصيصات من الإدارة
+            Map<String, AdminConfig.UIConfig.LayoutCustomization> customizations = 
+                uiConfig.getLayoutCustomizations();
+
+            for (Map.Entry<String, AdminConfig.UIConfig.LayoutCustomization> entry : customizations.entrySet()) {
+                String elementId = entry.getKey();
+                AdminConfig.UIConfig.LayoutCustomization customization = entry.getValue();
+
+                // العثور على العنصر في التخطيط
+                View element = findElementById(rootView, elementId);
+                if (element != null) {
+                    applyCustomizations(element, customization);
+                }
+            }
+
+            System.out.println("LAYOUT CUSTOMIZER: Applied " + customizations.size() + " customizations");
+        } catch (Exception e) {
+            System.err.println("LAYOUT CUSTOMIZATION ERROR: " + e.getMessage());
+        }
+    }
+
+    private void applyCustomizations(View element, AdminConfig.UIConfig.LayoutCustomization customization) {
+        if (element == null || customization == null) return;
+
+        try {
+            // تطبيق كل استراتيجية تخصيص
+            for (Map.Entry<String, Object> property : customization.getProperties().entrySet()) {
+                String propertyName = property.getKey();
+                Object propertyValue = property.getValue();
+
+                CustomizationStrategy strategy = strategies.get(propertyName);
+                if (strategy != null) {
+                    strategy.apply(element, propertyValue);
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("CUSTOMIZATION APPLY ERROR: " + e.getMessage());
+        }
+    }
+
+    private View findElementById(ViewGroup parent, String id) {
+        if (parent == null || id == null) return null;
+
+        for (int i = 0; i < parent.getChildCount(); i++) {
+            View child = parent.getChildAt(i);
+            if (id.equals(child.getTag())) {
+                return child;
+            }
+
+            if (child instanceof ViewGroup) {
+                View found = findElementById((ViewGroup) child, id);
+                if (found != null) {
+                    return found;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * تحديث التخطيط ديناميكيًا
+     */
+    public void updateLayoutDynamically(ViewGroup rootView, String elementId, String property, Object value) {
+        try {
+            View element = findElementById(rootView, elementId);
+            if (element != null) {
+                CustomizationStrategy strategy = strategies.get(property);
+                if (strategy != null) {
+                    strategy.apply(element, value);
+                    System.out.println("LAYOUT CUSTOMIZER: Updated " + elementId + "." + property);
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("DYNAMIC UPDATE ERROR: " + e.getMessage());
+        }
+    }
+
+    // --- استراتيجيات التخصيص ---
+
+    /**
+     * استراتيجية تخصيص الموضع
+     */
+    private static final class PositionCustomizationStrategy implements CustomizationStrategy {
+        @Override
+        public void apply(View element, Object value) {
+            if (element.getLayoutParams() instanceof FrameLayout.LayoutParams) {
+                FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) element.getLayoutParams();
+                
+                if (value instanceof Map) {
+                    Map<String, Object> positionMap = (Map<String, Object>) value;
+                    Integer left = (Integer) positionMap.get("left");
+                    Integer top = (Integer) positionMap.get("top");
+                    Integer right = (Integer) positionMap.get("right");
+                    Integer bottom = (Integer) positionMap.get("bottom");
+
+                    if (left != null) params.leftMargin = left;
+                    if (top != null) params.topMargin = top;
+                    if (right != null) params.rightMargin = right;
+                    if (bottom != null) params.bottomMargin = bottom;
+
+                    element.setLayoutParams(params);
+                }
+            }
+        }
+    }
+
+    /**
+     * استراتيجية تخصيص الحجم
+     */
+    private static final class SizeCustomizationStrategy implements CustomizationStrategy {
+        @Override
+        public void apply(View element, Object value) {
+            if (element.getLayoutParams() != null) {
+                ViewGroup.LayoutParams params = element.getLayoutParams();
+                
+                if (value instanceof Map) {
+                    Map<String, Object> sizeMap = (Map<String, Object>) value;
+                    Integer width = (Integer) sizeMap.get("width");
+                    Integer height = (Integer) sizeMap.get("height");
+
+                    if (width != null && width > 0) params.width = width;
+                    if (height != null && height > 0) params.height = height;
+
+                    element.setLayoutParams(params);
+                }
+            }
+        }
+    }
+
+    /**
+     * استراتيجية تخصيص الرؤية
+     */
+    private static final class VisibilityCustomizationStrategy implements CustomizationStrategy {
+        @Override
+        public void apply(View element, Object value) {
+            if (value instanceof Boolean) {
+                boolean visible = (Boolean) value;
+                element.setVisibility(visible ? View.VISIBLE : View.GONE);
+            }
+        }
+    }
+
+    /**
+     * استراتيجية تخصيص التباعد
+     */
+    private static final class SpacingCustomizationStrategy implements CustomizationStrategy {
+        @Override
+        public void apply(View element, Object value) {
+            if (element instanceof ViewGroup.MarginLayoutParams) {
+                ViewGroup.MarginLayoutParams params = (ViewGroup.MarginLayoutParams) element.getLayoutParams();
+                
+                if (value instanceof Map) {
+                    Map<String, Object> spacingMap = (Map<String, Object>) value;
+                    Integer marginLeft = (Integer) spacingMap.get("marginLeft");
+                    Integer marginTop = (Integer) spacingMap.get("marginTop");
+                    Integer marginRight = (Integer) spacingMap.get("marginRight");
+                    Integer marginBottom = (Integer) spacingMap.get("marginBottom");
+
+                    if (marginLeft != null) params.leftMargin = marginLeft;
+                    if (marginTop != null) params.topMargin = marginTop;
+                    if (marginRight != null) params.rightMargin = marginRight;
+                    if (marginBottom != null) params.bottomMargin = marginBottom;
+
+                    element.setLayoutParams(params);
+                }
+            }
+        }
+    }
+
+    /**
+     * استراتيجية تخصيص المحاذاة
+     */
+    private static final class AlignmentCustomizationStrategy implements CustomizationStrategy {
+        @Override
+        public void apply(View element, Object value) {
+            if (element.getLayoutParams() instanceof FrameLayout.LayoutParams) {
+                FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) element.getLayoutParams();
+                
+                if (value instanceof String) {
+                    String alignment = (String) value;
+                    switch (alignment.toLowerCase()) {
+                        case "center":
+                            params.gravity = android.view.Gravity.CENTER;
+                            break;
+                        case "top":
+                            params.gravity = android.view.Gravity.TOP | android.view.Gravity.CENTER_HORIZONTAL;
+                            break;
+                        case "bottom":
+                            params.gravity = android.view.Gravity.BOTTOM | android.view.Gravity.CENTER_HORIZONTAL;
+                            break;
+                        case "left":
+                            params.gravity = android.view.Gravity.LEFT | android.view.Gravity.CENTER_VERTICAL;
+                            break;
+                        case "right":
+                            params.gravity = android.view.Gravity.RIGHT | android.view.Gravity.CENTER_VERTICAL;
+                            break;
+                    }
+
+                    element.setLayoutParams(params);
+                }
+            }
+        }
+    }
+
+    /**
+     * واجهة استراتيجية التخصيص
+     */
+    @FunctionalInterface
+    private interface CustomizationStrategy {
+        void apply(View element, Object value);
+    }
+
+    // --- Getters ---
+    public int getCustomizationCount() { return strategies.size(); }
+    public boolean hasStrategy(String strategyName) { return strategies.containsKey(strategyName); }
+}
