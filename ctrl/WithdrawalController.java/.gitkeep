@@ -1,0 +1,146 @@
+package mazdady.ctrl;
+
+import mazdady.withdrawal.WithdrawalRulesEngine;
+import mazdady.withdrawal.WithdrawalProcessor;
+import mazdady.user.User;
+import mazdady.user.UserManager;
+import mazdady.wallet.WalletManager;
+import mazdady.security.SecurityMonitor;
+
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicReference;
+
+/**
+ * وحدة تحكم السحب مع دعم القواعد المتقدمة
+ * يتبع نمط Facade لتوفير واجهة موحدة
+ */
+public final class WithdrawalController {
+    private final WithdrawalRulesEngine rulesEngine;
+    private final WithdrawalProcessor withdrawalProcessor;
+    private final UserManager userManager;
+    private final WalletManager walletManager;
+    private final SecurityMonitor securityMonitor;
+    private static WithdrawalController instance;
+
+    private WithdrawalController(
+        WithdrawalRulesEngine rulesEngine,
+        WithdrawalProcessor withdrawalProcessor,
+        UserManager userManager,
+        WalletManager walletManager,
+        SecurityMonitor securityMonitor
+    ) {
+        this.rulesEngine = rulesEngine;
+        this.withdrawalProcessor = withdrawalProcessor;
+        this.userManager = userManager;
+        this.walletManager = walletManager;
+        this.securityMonitor = securityMonitor;
+    }
+
+    public static synchronized WithdrawalController getInstance(
+        WithdrawalRulesEngine rulesEngine,
+        WithdrawalProcessor withdrawalProcessor,
+        UserManager userManager,
+        WalletManager walletManager,
+        SecurityMonitor securityMonitor
+    ) {
+        if (instance == null) {
+            instance = new WithdrawalController(rulesEngine, withdrawalProcessor, userManager, walletManager, securityMonitor);
+        }
+        return instance;
+    }
+
+    /**
+     * معالجة سحب غير متزامن
+     */
+    public CompletableFuture<WithdrawalResult> processWithdrawalAsync(
+        String userId,
+        double amount,
+        String withdrawalMethod
+    ) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                User user = userManager.getUserById(userId);
+                if (user == null) {
+                    return WithdrawalResult.failure("User not found");
+                }
+                
+                // التحقق من القواعد
+                WithdrawalRulesEngine.WithdrawalResult rulesResult = 
+                    rulesEngine.canWithdraw(user, amount);
+                
+                if (!rulesResult.isAllowed()) {
+                    return WithdrawalResult.failure(rulesResult.getMessage());
+                }
+                
+                // معالجة السحب
+                WithdrawalProcessor.WithdrawalResult processorResult = 
+                    withdrawalProcessor.processWithdrawalAsync(userId, amount, withdrawalMethod).join();
+                
+                if (processorResult.isSuccess()) {
+                    System.out.println("WITHDRAWAL CONTROLLER: Processed withdrawal for " + userId + 
+                                     " - Amount: " + amount + " MAZDADY via " + withdrawalMethod);
+                    
+                    return WithdrawalResult.success(
+                        amount,
+                        processorResult.getTaxAmount(),
+                        processorResult.getNetAmount(),
+                        "Withdrawal processed successfully"
+                    );
+                } else {
+                    return WithdrawalResult.failure(processorResult.getMessage());
+                }
+                
+            } catch (Exception e) {
+                return WithdrawalResult.failure("Withdrawal processing failed: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * تحديث قواعد السحب من الإعدادات الإدارية
+     */
+    public void updateWithdrawalRules(AdminConfig.WithdrawalConfig config) {
+        try {
+            rulesEngine.updateRules(config);
+            System.out.println("WITHDRAWAL CONTROLLER: Rules updated from admin config");
+            
+        } catch (Exception e) {
+            System.err.println("WITHDRAWAL RULES UPDATE ERROR: " + e.getMessage());
+        }
+    }
+
+    /**
+     * نتيجة السحب
+     */
+    public static final class WithdrawalResult {
+        private final boolean success;
+        private final double amount;
+        private final double taxAmount;
+        private final double netAmount;
+        private final String message;
+
+        private WithdrawalResult(boolean success, double amount, double taxAmount, 
+                              double netAmount, String message) {
+            this.success = success;
+            this.amount = amount;
+            this.taxAmount = taxAmount;
+            this.netAmount = netAmount;
+            this.message = message;
+        }
+
+        public static WithdrawalResult success(double amount, double taxAmount, 
+                                            double netAmount, String message) {
+            return new WithdrawalResult(true, amount, taxAmount, netAmount, message);
+        }
+
+        public static WithdrawalResult failure(String message) {
+            return new WithdrawalResult(false, 0, 0, 0, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public double getAmount() { return amount; }
+        public double getTaxAmount() { return taxAmount; }
+        public double getNetAmount() { return netAmount; }
+        public String getMessage() { return message; }
+    }
+}
