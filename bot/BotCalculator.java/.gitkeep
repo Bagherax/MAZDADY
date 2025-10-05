@@ -1,0 +1,138 @@
+package mazdady.bot;
+
+import mazdady.trading.PriceEngine;
+import mazdady.user.User;
+
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.util.concurrent.CompletableFuture;
+
+/**
+ * حاسبة البوتات مع دعم الحسابات المتقدمة
+ * يتبع نمط Strategy لفصل استراتيجيات الحساب
+ */
+public final class BotCalculator {
+    private final PriceEngine priceEngine;
+    private static BotCalculator instance;
+
+    private BotCalculator(PriceEngine priceEngine) {
+        this.priceEngine = priceEngine;
+    }
+
+    public static synchronized BotCalculator getInstance(PriceEngine priceEngine) {
+        if (instance == null) {
+            instance = new BotCalculator(priceEngine);
+        }
+        return instance;
+    }
+
+    /**
+     * حساب الربح من البوت غير متزامن
+     */
+    public CompletableFuture<ProfitResult> calculateBotProfitAsync(
+        String botId,
+        double initialInvestment,
+        double currentValue
+    ) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                // حساب الربح الصافي
+                double profit = currentValue - initialInvestment;
+                double profitPercentage = (profit / initialInvestment) * 100;
+                
+                // تطبيق تحديات منصة التداول
+                double adjustedProfit = applyTradingChallenges(profit, profitPercentage);
+                
+                System.out.println("BOT CALCULATOR: " + botId + 
+                                 " - Initial: " + initialInvestment + 
+                                 " - Current: " + currentValue + 
+                                 " - Profit: " + String.format("%.2f", adjustedProfit) + " MAZDADY");
+                
+                return ProfitResult.success(initialInvestment, currentValue, adjustedProfit, profitPercentage);
+                
+            } catch (Exception e) {
+                return ProfitResult.failure("Profit calculation failed: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * تطبيق تحديات منصة التداول
+     */
+    private double applyTradingChallenges(double profit, double profitPercentage) {
+        // تحدي 1: تكيف مع ارتفاع عملة MAZDADY
+        double mazdadyValueIncrease = getPriceEngineValueIncrease();
+        double adjustedProfit = profit * (1 + (mazdadyValueIncrease / 100));
+        
+        // تحدي 2: من يخسر يفقد كل شيء
+        if (profit < 0) {
+            adjustedProfit = profit * 2; // خسارة مضاعفة
+        }
+        
+        return adjustedProfit;
+    }
+
+    private double getPriceEngineValueIncrease() {
+        // في الإنتاج: حساب نسبة ارتفاع عملة MAZDADY
+        return 10.0; // محاكاة ارتفاع 10%
+    }
+
+    /**
+     * حساب قيمة عملة MAZDADY
+     */
+    public double calculateMAZDADYValue(double coinAmount) {
+        // كل عملة MAZDADY تساوي 1000 MAZ
+        return coinAmount * 1000.0;
+    }
+
+    /**
+     * حساب الربح من الصفقة
+     */
+    public double calculateTradeProfit(double buyPrice, double sellPrice, double quantity) {
+        BigDecimal buy = BigDecimal.valueOf(buyPrice);
+        BigDecimal sell = BigDecimal.valueOf(sellPrice);
+        BigDecimal qty = BigDecimal.valueOf(quantity);
+        
+        BigDecimal profit = sell.subtract(buy).multiply(qty);
+        return profit.setScale(2, RoundingMode.HALF_UP).doubleValue();
+    }
+
+    /**
+     * نتيجة الربح
+     */
+    public static final class ProfitResult {
+        private final boolean success;
+        private final double initialInvestment;
+        private final double currentValue;
+        private final double profit;
+        private final double profitPercentage;
+        private final String message;
+
+        private ProfitResult(boolean success, double initialInvestment, double currentValue, 
+                           double profit, double profitPercentage, String message) {
+            this.success = success;
+            this.initialInvestment = initialInvestment;
+            this.currentValue = currentValue;
+            this.profit = profit;
+            this.profitPercentage = profitPercentage;
+            this.message = message;
+        }
+
+        public static ProfitResult success(double initialInvestment, double currentValue, 
+                                        double profit, double profitPercentage) {
+            return new ProfitResult(true, initialInvestment, currentValue, profit, profitPercentage, 
+                                  "Profit calculated successfully");
+        }
+
+        public static ProfitResult failure(String message) {
+            return new ProfitResult(false, 0, 0, 0, 0, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public double getInitialInvestment() { return initialInvestment; }
+        public double getCurrentValue() { return currentValue; }
+        public double getProfit() { return profit; }
+        public double getProfitPercentage() { return profitPercentage; }
+        public String getMessage() { return message; }
+    }
+}
