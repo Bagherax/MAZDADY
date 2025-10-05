@@ -1,63 +1,167 @@
 package mazdady.ctrl;
 
 import mazdady.trading.PriceEngine;
-import mazdady.ui.PriceTickerView;
+import mazdady.trading.TradingLineView;
+import mazdady.ui.DynamicPopupManager;
+import mazdady.user.User;
+import mazdady.user.UserManager;
 
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
-import java.util.function.Consumer;
 
 /**
  * وحدة تحكم واجهة التداول مع دعم التحديثات الحية
- * يتبع نمط Observer لإعلام واجهة المستخدم بالتغيرات
+ * يتبع نمط Observer لإعلام الواجهة بالتغيرات
  */
 public final class TradingUIController {
     private final PriceEngine priceEngine;
-    private final ScheduledExecutorService scheduler;
-    private PriceTickerView priceTickerView;
-    private static final TradingUIController INSTANCE = new TradingUIController();
+    private final TradingLineView tradingLineView;
+    private final DynamicPopupManager popupManager;
+    private final ScheduledExecutorService uiScheduler = Executors.newScheduledThreadPool(1);
+    private static TradingUIController instance;
 
-    private TradingUIController() {
-        this.priceEngine = new PriceEngine();
-        this.scheduler = Executors.newSingleThreadScheduledExecutor();
+    private TradingUIController(
+        PriceEngine priceEngine,
+        TradingLineView tradingLineView,
+        DynamicPopupManager popupManager
+    ) {
+        this.priceEngine = priceEngine;
+        this.tradingLineView = tradingLineView;
+        this.popupManager = popupManager;
+        startUIUpdates();
     }
 
-    public static TradingUIController getInstance() {
-        return INSTANCE;
+    public static synchronized TradingUIController getInstance(
+        PriceEngine priceEngine,
+        TradingLineView tradingLineView,
+        DynamicPopupManager popupManager
+    ) {
+        if (instance == null) {
+            instance = new TradingUIController(priceEngine, tradingLineView, popupManager);
+        }
+        return instance;
     }
 
-    /**
-     * ربط واجهة عرض السعر
-     */
-    public void bindPriceTickerView(PriceTickerView priceTickerView) {
-        this.priceTickerView = priceTickerView;
-        startPriceUpdates();
-    }
-
-    /**
-     * بدء تحديثات السعر الحية
-     */
-    private void startPriceUpdates() {
-        scheduler.scheduleAtFixedRate(
-            this::updatePriceDisplay,
+    private void startUIUpdates() {
+        uiScheduler.scheduleAtFixedRate(
+            this::updateTradingUI,
             0,
-            5,
+            1,
             TimeUnit.SECONDS
         );
+        
+        System.out.println("TRADING UI CONTROLLER: Started UI updates every second");
     }
 
-    private void updatePriceDisplay() {
-        if (priceTickerView != null) {
+    /**
+     * تحديث واجهة التداول غير متزامن
+     */
+    private void updateTradingUI() {
+        try {
+            // تحديث سعر التداول
             double currentPrice = priceEngine.getCurrentPrice();
-            priceTickerView.updatePrice(currentPrice);
+            tradingLineView.updatePrice(currentPrice);
+            
+            // تحديث اتجاه السوق
+            double marketTrend = priceEngine.getMarketTrend();
+            tradingLineView.updateTrend(marketTrend);
+            
+            // تحديث التقلب
+            double volatility = priceEngine.getVolatility();
+            tradingLineView.updateVolatility(volatility);
+            
+            // تحديث رصيد المستخدم
+            User user = UserManager.getInstance(null).getCurrentUser();
+            if (user != null) {
+                tradingLineView.updateUserBalance(user.getBalance());
+            }
+            
+            System.out.println("TRADING UI CONTROLLER: Updated UI - Price: " + 
+                             String.format("%.4f", currentPrice) + " MAZDADY");
+            
+        } catch (Exception e) {
+            System.err.println("TRADING UI UPDATE ERROR: " + e.getMessage());
         }
     }
 
     /**
-     * إيقاف تحديثات السعر
+     * عرض مؤشر الربح غير متزامن
      */
-    public void stopPriceUpdates() {
-        scheduler.shutdown();
+    public CompletableFuture<Void> showProfitIndicatorAsync(String userId, double profitAmount) {
+        return CompletableFuture.runAsync(() -> {
+            try {
+                tradingLineView.showProfitIndicator(userId, profitAmount);
+                System.out.println("TRADING UI CONTROLLER: Showed profit indicator for " + userId + 
+                                 " - Amount: " + profitAmount);
+                
+            } catch (Exception e) {
+                System.err.println("PROFIT INDICATOR ERROR: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * عرض مؤشر الخسارة غير متزامن
+     */
+    public CompletableFuture<Void> showLossIndicatorAsync(String userId, double lossAmount) {
+        return CompletableFuture.runAsync(() -> {
+            try {
+                tradingLineView.showLossIndicator(userId, lossAmount);
+                System.out.println("TRADING UI CONTROLLER: Showed loss indicator for " + userId + 
+                                 " - Amount: " + lossAmount);
+                
+            } catch (Exception e) {
+                System.err.println("LOSS INDICATOR ERROR: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * تطبيق خلفية متحركة للخط التجاري
+     */
+    public void applyAnimatedBackground(String backgroundType) {
+        try {
+            tradingLineView.applyAnimatedBackground(backgroundType);
+            System.out.println("TRADING UI CONTROLLER: Applied animated background - " + backgroundType);
+            
+        } catch (Exception e) {
+            System.err.println("ANIMATED BACKGROUND ERROR: " + e.getMessage());
+        }
+    }
+
+    /**
+     * تطبيق خلفية ثابتة للخط التجاري
+     */
+    public void applyStaticBackground(String imageUrl) {
+        try {
+            tradingLineView.applyStaticBackground(imageUrl);
+            System.out.println("TRADING UI CONTROLLER: Applied static background - " + imageUrl);
+            
+        } catch (Exception e) {
+            System.err.println("STATIC BACKGROUND ERROR: " + e.getMessage());
+        }
+    }
+
+    /**
+     * عرض نافذة منبثقة تفاعلية
+     */
+    public void showInteractivePopup(String title, String content) {
+        try {
+            popupManager.showScrollablePopup(title, content);
+            System.out.println("TRADING UI CONTROLLER: Showed interactive popup - " + title);
+            
+        } catch (Exception e) {
+            System.err.println("INTERACTIVE POPUP ERROR: " + e.getMessage());
+        }
+    }
+
+    /**
+     * إيقاف التحديثات (للاختبارات)
+     */
+    public void shutdown() {
+        uiScheduler.shutdown();
+        System.out.println("TRADING UI CONTROLLER: Shutdown completed");
     }
 }
