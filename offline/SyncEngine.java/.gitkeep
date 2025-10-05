@@ -1,0 +1,143 @@
+package mazdady.offline;
+
+import mazdady.user.UserManager;
+
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
+
+/**
+ * محرك المزامنة مع دعم المزامنة التلقائية
+ * يتبع نمط Observer لإعلام المكونات بحالة المزامنة
+ */
+public final class SyncEngine {
+    private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+    private final Connectivity connectivity;
+    private final QueueMgr queueMgr;
+    private final Consumer<SyncEvent> syncListener;
+    private volatile boolean isSyncing = false;
+
+    private SyncEngine(Connectivity connectivity, Consumer<SyncEvent> syncListener) {
+        this.connectivity = connectivity;
+        this.queueMgr = QueueMgr.getInstance();
+        this.syncListener = syncListener;
+        
+        // بدء مراقبة الاتصال
+        connectivity.addConnectionListener(this::handleConnectionChange);
+        
+        // جدولة مزامنة دورية
+        scheduler.scheduleAtFixedRate(
+            this::performPeriodicSync,
+            30,
+            30,
+            TimeUnit.SECONDS
+        );
+    }
+
+    public static SyncEngine create(Connectivity connectivity, Consumer<SyncEvent> syncListener) {
+        return new SyncEngine(connectivity, syncListener);
+    }
+
+    /**
+     * تنفيذ مزامنة يدوية
+     */
+    public void manualSync() {
+        if (!isSyncing) {
+            performSync();
+        }
+    }
+
+    private void handleConnectionChange(Connectivity.ConnectivityEvent event) {
+        if (event.isConnected()) {
+            // محاولة المزامنة عند استعادة الاتصال
+            scheduler.schedule(this::performSync, 2, TimeUnit.SECONDS);
+        }
+    }
+
+    private void performPeriodicSync() {
+        if (connectivity.isConnected() && !isSyncing) {
+            performSync();
+        }
+    }
+
+    private void performSync() {
+        if (isSyncing || queueMgr.size() == 0) {
+            return;
+        }
+        
+        isSyncing = true;
+        notifySyncStarted();
+        
+        try {
+            while (connectivity.isConnected() && queueMgr.size() > 0) {
+                QueueMgr.QueuedOperation queuedOp = queueMgr.dequeue();
+                try {
+                    queuedOp.getOperation().execute();
+                    notifyOperationSuccess(queuedOp);
+                } catch (Exception e) {
+                    if (queuedOp.getOperation().isRetryable()) {
+                        // إعادة إدخال العملية في الطابور
+                        queueMgr.enqueue(queuedOp.getOperation(), queuedOp.getPriority());
+                        notifyOperationRetry(queuedOp, e);
+                    } else {
+                        notifyOperationFailed(queuedOp, e);
+                    }
+                }
+            }
+            notifySyncCompleted();
+        } finally {
+            isSyncing = false;
+        }
+    }
+
+    private void notifySyncStarted() {
+        syncListener.accept(new SyncEvent(SyncEvent.Type.STARTED, "Sync started"));
+    }
+
+    private void notifySyncCompleted() {
+        syncListener.accept(new SyncEvent(SyncEvent.Type.COMPLETED, "Sync completed"));
+    }
+
+    private void notifyOperationSuccess(QueueMgr.QueuedOperation op) {
+        syncListener.accept(new SyncEvent(SyncEvent.Type.OPERATION_SUCCESS, 
+            "Operation " + op.getOperation().getType() + " succeeded"));
+    }
+
+    private void notifyOperationFailed(QueueMgr.QueuedOperation op, Exception e) {
+        syncListener.accept(new SyncEvent(SyncEvent.Type.OPERATION_FAILED, 
+            "Operation " + op.getOperation().getType() + " failed: " + e.getMessage()));
+    }
+
+    private void notifyOperationRetry(QueueMgr.QueuedOperation op, Exception e) {
+        syncListener.accept(new SyncEvent(SyncEvent.Type.OPERATION_RETRY, 
+            "Operation " + op.getOperation().getType() + " will be retried: " + e.getMessage()));
+    }
+
+    /**
+     * حدث المزامنة
+     */
+    public static final class SyncEvent {
+        private final Type type;
+        private final String message;
+
+        public SyncEvent(Type type, String message) {
+            this.type = type;
+            this.message = message;
+        }
+
+        public Type getType() { return type; }
+        public String getMessage() { return message; }
+
+        public enum Type {
+            STARTED, COMPLETED, OPERATION_SUCCESS, OPERATION_FAILED, OPERATION_RETRY
+        }
+    }
+
+    /**
+     * إيقاف المحرك (للاختبارات)
+     */
+    public void shutdown() {
+        scheduler.shutdown();
+    }
+}
