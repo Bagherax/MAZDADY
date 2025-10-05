@@ -1,0 +1,214 @@
+package mazdady.social;
+
+import mazdady.admin.AdminConfig;
+import mazdady.user.UserManager;
+
+import java.io.File;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
+
+/**
+ * مدير التحديثات السحرية مع دعم التطوير الحي
+ * يتبع نمط Observer لإعلام النظام بالتحديثات
+ */
+public final class MagicUpdateManager {
+    private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
+    private final Consumer<UpdateEvent> updateListener;
+    private static MagicUpdateManager instance;
+
+    private MagicUpdateManager(Consumer<UpdateEvent> updateListener) {
+        this.updateListener = updateListener;
+        startUpdateMonitoring();
+    }
+
+    public static MagicUpdateManager create(Consumer<UpdateEvent> updateListener) {
+        return new MagicUpdateManager(updateListener);
+    }
+
+    private void startUpdateMonitoring() {
+        scheduler.scheduleAtFixedRate(
+            this::checkForUpdates,
+            0,
+            5,
+            TimeUnit.MINUTES
+        );
+        
+        System.out.println("MAGIC UPDATE: Started monitoring for updates");
+    }
+
+    /**
+     * التحقق من وجود تحديثات غير متزامن
+     */
+    public CompletableFuture<UpdateResult> checkForUpdatesAsync() {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                AdminConfig adminConfig = AdminConfig.getInstance();
+                String latestVersion = adminConfig.getLatestAppVersion();
+                String currentVersion = getCurrentAppVersion();
+                
+                if (!latestVersion.equals(currentVersion)) {
+                    System.out.println("MAGIC UPDATE: New version detected - " + latestVersion);
+                    return UpdateResult.available(latestVersion, "Update available");
+                } else {
+                    System.out.println("MAGIC UPDATE: App is up to date");
+                    return UpdateResult.upToDate("App is up to date");
+                }
+                
+            } catch (Exception e) {
+                return UpdateResult.failure("Update check failed: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * تطبيق التحديث غير المتزامن
+     */
+    public CompletableFuture<UpdateResult> applyUpdateAsync(String version) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                System.out.println("MAGIC UPDATE: Applying update to version " + version);
+                
+                // في الإنتاج: تحميل وتطبيق التحديث
+                boolean success = downloadAndApplyUpdate(version);
+                
+                if (success) {
+                    // تحديث رقم الإصدار
+                    updateAppVersion(version);
+                    
+                    // إشعار النظام بالتحديث
+                    notifyUpdateApplied(version);
+                    
+                    System.out.println("MAGIC UPDATE: Update applied successfully - " + version);
+                    return UpdateResult.success(version, "Update applied successfully");
+                } else {
+                    return UpdateResult.failure("Failed to apply update");
+                }
+                
+            } catch (Exception e) {
+                return UpdateResult.failure("Update application failed: " + e.getMessage());
+            }
+        });
+    }
+
+    private void checkForUpdates() {
+        checkForUpdatesAsync().thenAccept(result -> {
+            if (result.isAvailable()) {
+                notifyUpdateAvailable(result.getVersion());
+            }
+        });
+    }
+
+    private boolean downloadAndApplyUpdate(String version) {
+        // في الإنتاج: تحميل التحديث من GitHub Releases
+        System.out.println("MAGIC UPDATE: Downloading update " + version + " from GitHub");
+        try {
+            Thread.sleep(2000); // محاكاة التحميل
+            return true; // محاكاة النجاح
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
+        }
+    }
+
+    private String getCurrentAppVersion() {
+        // في الإنتاج: الحصول من build.gradle أو GitHub
+        return "1.0.0"; // محاكاة الإصدار الحالي
+    }
+
+    private void updateAppVersion(String newVersion) {
+        // في الإنتاج: تحديث الإصدار في التخزين الآمن
+        System.out.println("MAGIC UPDATE: App version updated to " + newVersion);
+    }
+
+    private void notifyUpdateAvailable(String version) {
+        if (updateListener != null) {
+            updateListener.accept(UpdateEvent.updateAvailable(version));
+        }
+    }
+
+    private void notifyUpdateApplied(String version) {
+        if (updateListener != null) {
+            updateListener.accept(UpdateEvent.updateApplied(version));
+        }
+    }
+
+    /**
+     * إيقاف المراقبة (للاختبارات)
+     */
+    public void shutdown() {
+        scheduler.shutdown();
+        System.out.println("MAGIC UPDATE: Shutdown completed");
+    }
+
+    /**
+     * نتيجة التحديث
+     */
+    public static final class UpdateResult {
+        private final boolean success;
+        private final boolean available;
+        private final String version;
+        private final String message;
+
+        private UpdateResult(boolean success, boolean available, String version, String message) {
+            this.success = success;
+            this.available = available;
+            this.version = version;
+            this.message = message;
+        }
+
+        public static UpdateResult available(String version, String message) {
+            return new UpdateResult(true, true, version, message);
+        }
+
+        public static UpdateResult upToDate(String message) {
+            return new UpdateResult(true, false, null, message);
+        }
+
+        public static UpdateResult success(String version, String message) {
+            return new UpdateResult(true, false, version, message);
+        }
+
+        public static UpdateResult failure(String message) {
+            return new UpdateResult(false, false, null, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public boolean isAvailable() { return available; }
+        public String getVersion() { return version; }
+        public String getMessage() { return message; }
+    }
+
+    /**
+     * حدث التحديث
+     */
+    public static final class UpdateEvent {
+        private final Type type;
+        private final String version;
+        private final String message;
+
+        private UpdateEvent(Type type, String version, String message) {
+            this.type = type;
+            this.version = version;
+            this.message = message;
+        }
+
+        public static UpdateEvent updateAvailable(String version) {
+            return new UpdateEvent(Type.UPDATE_AVAILABLE, version, "New update available: " + version);
+        }
+
+        public static UpdateEvent updateApplied(String version) {
+            return new UpdateEvent(Type.UPDATE_APPLIED, version, "Update applied: " + version);
+        }
+
+        public enum Type {
+            UPDATE_AVAILABLE, UPDATE_APPLIED, UPDATE_FAILED
+        }
+
+        public Type getType() { return type; }
+        public String getVersion() { return version; }
+        public String getMessage() { return message; }
+    }
+}
