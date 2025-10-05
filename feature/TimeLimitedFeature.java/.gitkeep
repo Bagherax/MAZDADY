@@ -1,0 +1,157 @@
+package mazdady.feature;
+
+import java.time.Duration;
+import java.time.Instant;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
+
+/**
+ * ميزة مؤقتة مع دعم الحالات الديناميكية
+ * يتبع نمط State لتمثيل حالة الميزة (نشطة، منتهية، معطلة)
+ */
+public final class TimeLimitedFeature {
+    private final String featureId;
+    private final Duration duration;
+    private final Instant startTime;
+    private final AtomicReference<FeatureState> state;
+    private final Consumer<TimeLimitedFeature> onExpiryCallback;
+
+    private TimeLimitedFeature(Builder builder) {
+        this.featureId = builder.featureId;
+        this.duration = builder.duration;
+        this.startTime = Instant.now();
+        this.onExpiryCallback = builder.onExpiryCallback;
+        this.state = new AtomicReference<>(new ActiveState());
+    }
+
+    /**
+     * التحقق من صلاحية الميزة
+     */
+    public boolean isValid() {
+        return state.get().isValid(this);
+    }
+
+    /**
+     * الحصول على وقت الانتهاء
+     */
+    public Instant getExpiryTime() {
+        return startTime.plus(duration);
+    }
+
+    /**
+     * الحصول على الوقت المتبقي
+     */
+    public Duration getRemainingTime() {
+        Instant now = Instant.now();
+        Instant expiry = getExpiryTime();
+        return now.isBefore(expiry) ? Duration.between(now, expiry) : Duration.ZERO;
+    }
+
+    /**
+     * تجديد الميزة
+     */
+    public TimeLimitedFeature renew(Duration additionalDuration) {
+        return new Builder(this)
+            .duration(this.duration.plus(additionalDuration))
+            .build();
+    }
+
+    /**
+     * تعطيل الميزة يدويًا
+     */
+    public void disable() {
+        state.set(new DisabledState());
+    }
+
+    /**
+     * تفعيل الميزة يدويًا
+     */
+    public void enable() {
+        if (getRemainingTime().toMillis() > 0) {
+            state.set(new ActiveState());
+        }
+    }
+
+    // --- Getters ---
+    public String getFeatureId() { return featureId; }
+    public Duration getDuration() { return duration; }
+    public Instant getStartTime() { return startTime; }
+
+    /**
+     * معالجة انتهاء الصلاحية
+     */
+    void handleExpiry() {
+        state.set(new ExpiredState());
+        if (onExpiryCallback != null) {
+            onExpiryCallback.accept(this);
+        }
+    }
+
+    /**
+     * واجهة حالة الميزة
+     */
+    private interface FeatureState {
+        boolean isValid(TimeLimitedFeature feature);
+    }
+
+    // --- حالات الميزة ---
+    private static final class ActiveState implements FeatureState {
+        @Override
+        public boolean isValid(TimeLimitedFeature feature) {
+            return feature.getRemainingTime().toMillis() > 0;
+        }
+    }
+
+    private static final class ExpiredState implements FeatureState {
+        @Override
+        public boolean isValid(TimeLimitedFeature feature) {
+            return false;
+        }
+    }
+
+    private static final class DisabledState implements FeatureState {
+        @Override
+        public boolean isValid(TimeLimitedFeature feature) {
+            return false;
+        }
+    }
+
+    /**
+     * منشئ الميزة المؤقتة
+     */
+    public static class Builder {
+        private String featureId;
+        private Duration duration;
+        private Consumer<TimeLimitedFeature> onExpiryCallback;
+
+        public Builder() {}
+
+        private Builder(TimeLimitedFeature feature) {
+            this.featureId = feature.featureId;
+            this.duration = feature.duration;
+            this.onExpiryCallback = feature.onExpiryCallback;
+        }
+
+        public Builder featureId(String featureId) {
+            this.featureId = featureId;
+            return this;
+        }
+
+        public Builder duration(Duration duration) {
+            this.duration = duration;
+            return this;
+        }
+
+        public Builder onExpiry(Consumer<TimeLimitedFeature> callback) {
+            this.onExpiryCallback = callback;
+            return this;
+        }
+
+        public TimeLimitedFeature build() {
+            if (featureId == null || duration == null) {
+                throw new IllegalArgumentException("Feature ID and duration are required");
+            }
+            return new TimeLimitedFeature(this);
+        }
+    }
+}
