@@ -1,0 +1,171 @@
+package mazdady.trading;
+
+import mazdady.user.User;
+import mazdady.user.UserManager;
+import mazdady.team.TeamManager;
+import mazdady.team.BuyingTeam;
+import mazdady.team.SellingTeam;
+
+import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
+import java.util.stream.Collectors;
+
+/**
+ * مدير التداول الجماعي مع دعم الفرق والمستخدمين الفرديين
+ * يتبع نمط Observer لإعلام النظام بتغيرات التداول
+ */
+public final class TeamTradingManager {
+    private final TeamManager teamManager;
+    private final TradingLineView tradingLineView;
+    private final List<User> activeTraders = new CopyOnWriteArrayList<>();
+    private final AtomicInteger tradeCounter = new AtomicInteger(0);
+    private static TeamTradingManager instance;
+
+    private TeamTradingManager(TeamManager teamManager, TradingLineView tradingLineView) {
+        this.teamManager = teamManager;
+        this.tradingLineView = tradingLineView;
+        startTradingLineUpdates();
+    }
+
+    public static synchronized TeamTradingManager getInstance(
+        TeamManager teamManager, 
+        TradingLineView tradingLineView
+    ) {
+        if (instance == null) {
+            instance = new TeamTradingManager(teamManager, tradingLineView);
+        }
+        return instance;
+    }
+
+    /**
+     * بدء التداول الجماعي غير المتزامن
+     */
+    public CompletableFuture<TradingResult> startTeamTradingAsync() {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                // تحميل المستخدمين النشطين
+                List<User> realUsers = UserManager.getInstance(null)
+                    .getAllUsers()
+                    .stream()
+                    .filter(User::isActive)
+                    .collect(Collectors.toList());
+                
+                // تحديث قائمة المستخدمين النشطين
+                activeTraders.clear();
+                activeTraders.addAll(realUsers);
+                
+                // تنفيذ التداولات للفريقين
+                BuyingTeam buyingTeam = teamManager.getBuyingTeam();
+                SellingTeam sellingTeam = teamManager.getSellingTeam();
+                
+                buyingTeam.executeTrades(realUsers);
+                sellingTeam.executeTrades(realUsers);
+                
+                // تحديث خط التداول
+                updateTradingLine(realUsers);
+                
+                System.out.println("TEAM TRADING: Executed team trades with " + 
+                                 realUsers.size() + " active users");
+                
+                return TradingResult.success("Team trading executed successfully");
+                
+            } catch (Exception e) {
+                return TradingResult.failure("Team trading failed: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * بدء التداول الفردي غير المتزامن
+     */
+    public CompletableFuture<TradingResult> startIndividualTradingAsync(User user, double amount, boolean isBuy) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                if (user == null || amount <= 0) {
+                    return TradingResult.failure("Invalid user or amount");
+                }
+                
+                // تنفيذ الصفقة الفردية
+                if (isBuy) {
+                    PriceEngine.getInstance().executeBuyOrder(user.getUserId(), amount);
+                } else {
+                    PriceEngine.getInstance().executeSellOrder(user.getUserId(), amount);
+                }
+                
+                // إضافة المستخدم إلى قائمة المتداولين النشطين
+                if (!activeTraders.contains(user)) {
+                    activeTraders.add(user);
+                }
+                
+                // تحديث خط التداول
+                updateTradingLine(List.of(user));
+                
+                System.out.println("INDIVIDUAL TRADING: " + (isBuy ? "BUY" : "SELL") + 
+                                 " order executed for user " + user.getUserId() + 
+                                 " with amount " + amount);
+                
+                return TradingResult.success("Individual trading executed successfully");
+                
+            } catch (Exception e) {
+                return TradingResult.failure("Individual trading failed: " + e.getMessage());
+            }
+        });
+    }
+
+    private void updateTradingLine(List<User> traders) {
+        tradingLineView.post(() -> {
+            traders.forEach(trader -> {
+                // إضافة صورة المستخدم إلى خط التداول
+                tradingLineView.addTraderImage(trader.getAvatarUrl());
+                
+                // إضافة مؤشر الربح/الخسارة
+                double profit = trader.getRecentProfit();
+                tradingLineView.addProfitIndicator(profit > 0 ? "GREEN" : "RED", profit);
+                
+                // بعد 5 ثوانٍ، إزالة الصورة ومؤشر الربح
+                tradingLineView.postDelayed(() -> {
+                    tradingLineView.removeTraderImage(trader.getAvatarUrl());
+                    tradingLineView.removeProfitIndicator();
+                }, 5000);
+            });
+        });
+    }
+
+    private void startTradingLineUpdates() {
+        // تحديث خط التداول كل 30 ثانية
+        tradingLineView.postDelayed(this::refreshTradingLine, 30000);
+    }
+
+    private void refreshTradingLine() {
+        // في الإنتاج: تحديث خط التداول بصفقات حقيقية
+        System.out.println("TRADING LINE: Refreshed with latest trades");
+        startTradingLineUpdates(); // جدولة التحديث التالي
+    }
+
+    /**
+     * نتيجة التداول
+     */
+    public static final class TradingResult {
+        private final boolean success;
+        private final String message;
+
+        private TradingResult(boolean success, String message) {
+            this.success = success;
+            this.message = message;
+        }
+
+        public static TradingResult success(String message) {
+            return new TradingResult(true, message);
+        }
+
+        public static TradingResult failure(String message) {
+            return new TradingResult(false, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public String getMessage() { return message; }
+    }
+}
