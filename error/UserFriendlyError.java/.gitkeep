@@ -1,0 +1,112 @@
+package mazdady.error;
+
+import mazdady.i18n.TranslationManager;
+
+import android.content.Context;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+
+/**
+ * أخطاء ودية للمستخدم مع دعم الترجمة الديناميكية
+ * يتبع نمط Strategy لفصل رسائل الأخطاء
+ */
+public final class UserFriendlyError {
+    private final Map<String, ErrorMessage> errorMessages = new ConcurrentHashMap<>();
+    private final TranslationManager translationManager;
+    private static UserFriendlyError instance;
+
+    private UserFriendlyError(Context context) {
+        this.translationManager = new TranslationManager(context);
+        initializeErrorMessages();
+    }
+
+    public static synchronized UserFriendlyError getInstance(Context context) {
+        if (instance == null) {
+            instance = new UserFriendlyError(context.getApplicationContext());
+        }
+        return instance;
+    }
+
+    private void initializeErrorMessages() {
+        errorMessages.put("NETWORK_ERROR", new ErrorMessage(
+            "network_error_title",
+            "network_error_message",
+            "retry_button"
+        ));
+        errorMessages.put("INSUFFICIENT_BALANCE", new ErrorMessage(
+            "insufficient_balance_title",
+            "insufficient_balance_message",
+            "deposit_button"
+        ));
+        errorMessages.put("KYC_REQUIRED", new ErrorMessage(
+            "kyc_required_title",
+            "kyc_required_message",
+            "verify_button"
+        ));
+        errorMessages.put("WALLET_NOT_CONNECTED", new ErrorMessage(
+            "wallet_not_connected_title",
+            "wallet_not_connected_message",
+            "connect_button"
+        ));
+        errorMessages.put("GENERIC_ERROR", new ErrorMessage(
+            "error_title",
+            "generic_error_message",
+            "ok_button"
+        ));
+    }
+
+    /**
+     * الحصول على رسالة خطأ ودية
+     */
+    public FriendlyError getFriendlyError(String errorCode) {
+        ErrorMessage msg = errorMessages.getOrDefault(errorCode, errorMessages.get("GENERIC_ERROR"));
+        return new FriendlyError(
+            translationManager.getString(msg.titleKey),
+            translationManager.getString(msg.messageKey),
+            translationManager.getString(msg.actionKey)
+        );
+    }
+
+    /**
+     * عرض رسالة خطأ للمستخدم
+     */
+    public void showError(Context context, String errorCode) {
+        FriendlyError error = getFriendlyError(errorCode);
+        // في الإنتاج: عرض Popup أو Toast
+        System.out.println("USER ERROR: " + error.getTitle() + " - " + error.getMessage());
+    }
+
+    /**
+     * رسالة خطأ
+     */
+    private static final class ErrorMessage {
+        private final String titleKey;
+        private final String messageKey;
+        private final String actionKey;
+
+        public ErrorMessage(String titleKey, String messageKey, String actionKey) {
+            this.titleKey = titleKey;
+            this.messageKey = messageKey;
+            this.actionKey = actionKey;
+        }
+    }
+
+    /**
+     * خطأ ودي
+     */
+    public static final class FriendlyError {
+        private final String title;
+        private final String message;
+        private final String actionText;
+
+        public FriendlyError(String title, String message, String actionText) {
+            this.title = title;
+            this.message = message;
+            this.actionText = actionText;
+        }
+
+        public String getTitle() { return title; }
+        public String getMessage() { return message; }
+        public String getActionText() { return actionText; }
+    }
+}
