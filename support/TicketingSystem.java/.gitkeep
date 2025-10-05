@@ -1,65 +1,136 @@
 package mazdady.support;
 
-import java.util.Date;
-import java.util.HashMap;
+import mazdady.user.User;
+import mazdady.user.UserManager;
+
+import java.time.Instant;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 
-public class TicketingSystem {
-    private Map<String, SupportTicket> tickets = new HashMap<>();
-    private static int nextTicketId = 1000;
+/**
+ * نظام التذاكر مع دعم تتبع الحالة المتقدم
+ * يتبع نمط State لتمثيل حالات التذكرة
+ */
+public final class TicketingSystem {
+    private final Map<String, SupportTicket> tickets = new ConcurrentHashMap<>();
+    private final AtomicInteger nextTicketId = new AtomicInteger(1000);
+    private static TicketingSystem instance;
 
-    public String createTicket(String userId, String subject, String description, String category) {
-        String ticketId = "TICKET-" + nextTicketId++;
-        SupportTicket ticket = new SupportTicket(ticketId, userId, subject, description, category);
-        tickets.put(ticketId, ticket);
-        
-        // في الإنتاج: إرسال إشعار لفريق الدعم
-        System.out.println("تم إنشاء تذكرة دعم جديدة: " + ticketId);
-        return ticketId;
+    private TicketingSystem() {}
+
+    public static synchronized TicketingSystem getInstance() {
+        if (instance == null) {
+            instance = new TicketingSystem();
+        }
+        return instance;
     }
 
+    /**
+     * إنشاء تذكرة دعم جديدة
+     */
+    public SupportTicket createTicket(String subject, String description, String category) {
+        User user = UserManager.getInstance(null).getCurrentUser();
+        String ticketId = "TICKET-" + nextTicketId.getAndIncrement();
+        
+        SupportTicket ticket = new SupportTicket.Builder()
+            .ticketId(ticketId)
+            .userId(user.getUserId())
+            .subject(subject)
+            .description(description)
+            .category(category)
+            .build();
+            
+        tickets.put(ticketId, ticket);
+        System.out.println("TICKET CREATED: " + ticketId + " for user " + user.getUserId());
+        
+        return ticket;
+    }
+
+    /**
+     * تحديث حالة التذكرة
+     */
+    public void updateTicketStatus(String ticketId, TicketStatus status) {
+        SupportTicket ticket = tickets.get(ticketId);
+        if (ticket != null) {
+            ticket.updateStatus(status);
+            System.out.println("TICKET UPDATED: " + ticketId + " status changed to " + status);
+        }
+    }
+
+    /**
+     * الحصول على تذكرة
+     */
     public SupportTicket getTicket(String ticketId) {
         return tickets.get(ticketId);
     }
 
-    public void updateTicketStatus(String ticketId, String status) {
-        SupportTicket ticket = tickets.get(ticketId);
-        if (ticket != null) {
-            ticket.setStatus(status);
-            System.out.println("تم تحديث حالة التذكرة " + ticketId + " إلى: " + status);
-        }
-    }
+    /**
+     * تذكرة الدعم
+     */
+    public static final class SupportTicket {
+        private final String ticketId;
+        private final String userId;
+        private final String subject;
+        private final String description;
+        private final String category;
+        private volatile TicketStatus status;
+        private final Instant createdAt;
+        private volatile Instant resolvedAt;
 
-    public static class SupportTicket {
-        private String ticketId;
-        private String userId;
-        private String subject;
-        private String description;
-        private String category; // "payment", "kyc", "trading", "bug"
-        private String status; // "open", "in_progress", "resolved", "closed"
-        private Date createdAt;
-        private Date resolvedAt;
-
-        public SupportTicket(String ticketId, String userId, String subject, String description, String category) {
-            this.ticketId = ticketId;
-            this.userId = userId;
-            this.subject = subject;
-            this.description = description;
-            this.category = category;
-            this.status = "open";
-            this.createdAt = new Date();
+        private SupportTicket(Builder builder) {
+            this.ticketId = builder.ticketId;
+            this.userId = builder.userId;
+            this.subject = builder.subject;
+            this.description = builder.description;
+            this.category = builder.category;
+            this.status = TicketStatus.OPEN;
+            this.createdAt = Instant.now();
         }
 
-        // Getters and Setters
+        public void updateStatus(TicketStatus status) {
+            this.status = status;
+            if (status == TicketStatus.RESOLVED || status == TicketStatus.CLOSED) {
+                this.resolvedAt = Instant.now();
+            }
+        }
+
+        // Getters
         public String getTicketId() { return ticketId; }
         public String getUserId() { return userId; }
         public String getSubject() { return subject; }
         public String getDescription() { return description; }
         public String getCategory() { return category; }
-        public String getStatus() { return status; }
-        public void setStatus(String status) { this.status = status; }
-        public Date getCreatedAt() { return createdAt; }
-        public Date getResolvedAt() { return resolvedAt; }
-        public void setResolvedAt(Date resolvedAt) { this.resolvedAt = resolvedAt; }
+        public TicketStatus getStatus() { return status; }
+        public Instant getCreatedAt() { return createdAt; }
+        public Instant getResolvedAt() { return resolvedAt; }
+
+        /**
+         * منشئ التذكرة
+         */
+        public static class Builder {
+            private String ticketId;
+            private String userId;
+            private String subject;
+            private String description;
+            private String category;
+
+            public Builder ticketId(String ticketId) { this.ticketId = ticketId; return this; }
+            public Builder userId(String userId) { this.userId = userId; return this; }
+            public Builder subject(String subject) { this.subject = subject; return this; }
+            public Builder description(String description) { this.description = description; return this; }
+            public Builder category(String category) { this.category = category; return this; }
+
+            public SupportTicket build() {
+                return new SupportTicket(this);
+            }
+        }
+    }
+
+    /**
+     * حالة التذكرة
+     */
+    public enum TicketStatus {
+        OPEN, IN_PROGRESS, RESOLVED, CLOSED
     }
 }
