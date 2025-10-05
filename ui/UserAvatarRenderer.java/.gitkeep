@@ -1,0 +1,191 @@
+package mazdady.ui;
+
+import android.content.Context;
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
+import android.graphics.Color;
+import android.graphics.Paint;
+import android.graphics.PorterDuff;
+import android.graphics.PorterDuffXfermode;
+import android.graphics.Rect;
+import android.graphics.RectF;
+import android.graphics.drawable.Drawable;
+import android.util.AttributeSet;
+import android.widget.ImageView;
+
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
+/**
+ * عرض الصور الشخصية مع دعم التأثيرات المتقدمة
+ * يتبع نمط Strategy لفصل استراتيجيات التحميل
+ */
+public final class UserAvatarRenderer extends ImageView {
+    private final ExecutorService executor = Executors.newCachedThreadPool();
+    private final ConcurrentHashMap<String, Bitmap> avatarCache = new ConcurrentHashMap<>();
+    private volatile AvatarStyle currentStyle = AvatarStyle.CIRCULAR;
+    private volatile boolean showOnlineIndicator = true;
+    private volatile boolean animateOnLoad = true;
+
+    public UserAvatarRenderer(Context context, AttributeSet attrs) {
+        super(context, attrs);
+        setScaleType(ScaleType.CENTER_CROP);
+    }
+
+    /**
+     * تحميل الصورة الشخصية مع تأثيرات متقدمة
+     */
+    public void loadAvatar(String userId, String avatarUrl) {
+        if (userId == null || userId.isEmpty()) return;
+        
+        // التحقق من الكاش أولاً
+        Bitmap cachedAvatar = avatarCache.get(userId);
+        if (cachedAvatar != null) {
+            setImageBitmap(cachedAvatar);
+            if (animateOnLoad) {
+                animateAvatarLoad();
+            }
+            return;
+        }
+        
+        // تحميل الصورة في الخلفية
+        executor.submit(() -> {
+            try {
+                // في الإنتاج: تحميل الصورة من URL أو قاعدة البيانات
+                Bitmap avatar = loadAvatarFromSource(avatarUrl);
+                
+                if (avatar != null) {
+                    // تطبيق النمط على الصورة
+                    Bitmap styledAvatar = applyAvatarStyle(avatar);
+                    
+                    // حفظ في الكاش
+                    avatarCache.put(userId, styledAvatar);
+                    
+                    // تحديث واجهة المستخدم
+                    post(() -> {
+                        setImageBitmap(styledAvatar);
+                        if (animateOnLoad) {
+                            animateAvatarLoad();
+                        }
+                    });
+                }
+                
+            } catch (Exception e) {
+                System.err.println("AVATAR LOADER ERROR: " + e.getMessage());
+            }
+        });
+    }
+
+    private Bitmap loadAvatarFromSource(String avatarUrl) {
+        // في الإنتاج: استخدام Glide أو Picasso
+        // هنا نستخدم صورة افتراضية
+        Drawable drawable = getResources().getDrawable(android.R.drawable.ic_menu_gallery, null);
+        return drawableToBitmap(drawable, 200, 200);
+    }
+
+    private Bitmap drawableToBitmap(Drawable drawable, int width, int height) {
+        Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(bitmap);
+        drawable.setBounds(0, 0, canvas.getWidth(), canvas.getHeight());
+        drawable.draw(canvas);
+        return bitmap;
+    }
+
+    /**
+     * تطبيق النمط على الصورة الشخصية
+     */
+    private Bitmap applyAvatarStyle(Bitmap original) {
+        if (original == null) return null;
+        
+        switch (currentStyle) {
+            case CIRCULAR:
+                return createCircularBitmap(original);
+            case ROUNDED_RECT:
+                return createRoundedRectBitmap(original, 25f);
+            case SQUARE:
+            default:
+                return original;
+        }
+    }
+
+    private Bitmap createCircularBitmap(Bitmap bitmap) {
+        int size = Math.min(bitmap.getWidth(), bitmap.getHeight());
+        Bitmap output = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(output);
+        
+        final Paint paint = new Paint();
+        final Rect rect = new Rect(0, 0, size, size);
+        final RectF rectF = new RectF(rect);
+        
+        paint.setAntiAlias(true);
+        canvas.drawARGB(0, 0, 0, 0);
+        paint.setColor(Color.BLUE);
+        canvas.drawOval(rectF, paint);
+        
+        paint.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.SRC_IN));
+        canvas.drawBitmap(bitmap, rect, rect, paint);
+        
+        return output;
+    }
+
+    private Bitmap createRoundedRectBitmap(Bitmap bitmap, float radius) {
+        int width = bitmap.getWidth();
+        int height = bitmap.getHeight();
+        Bitmap output = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(output);
+        
+        final Paint paint = new Paint();
+        final Rect rect = new Rect(0, 0, width, height);
+        final RectF rectF = new RectF(rect);
+        
+        paint.setAntiAlias(true);
+        canvas.drawARGB(0, 0, 0, 0);
+        paint.setColor(Color.BLUE);
+        canvas.drawRoundRect(rectF, radius, radius, paint);
+        
+        paint.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.SRC_IN));
+        canvas.drawBitmap(bitmap, rect, rect, paint);
+        
+        return output;
+    }
+
+    /**
+     * تأثير التحميل البصري
+     */
+    private void animateAvatarLoad() {
+        // تأثير التلاشي عند التحميل
+        animate().alpha(0f).setDuration(200)
+            .withEndAction(() -> {
+                animate().alpha(1f).setDuration(300).start();
+            })
+            .start();
+    }
+
+    /**
+     * عرض مؤشر الاتصال
+     */
+    public void showOnlineIndicator(boolean online) {
+        if (showOnlineIndicator) {
+            // في الإنتاج: عرض دائرة خضراء أو حمراء في الزاوية
+            System.out.println("AVATAR: Online indicator " + (online ? "ON" : "OFF"));
+        }
+    }
+
+    /**
+     * أنماط الصور الشخصية
+     */
+    public enum AvatarStyle {
+        CIRCULAR, ROUNDED_RECT, SQUARE
+    }
+
+    // --- Getters/Setters ---
+    public AvatarStyle getCurrentStyle() { return currentStyle; }
+    public void setCurrentStyle(AvatarStyle style) { this.currentStyle = style; }
+    public boolean isShowOnlineIndicator() { return showOnlineIndicator; }
+    public void setShowOnlineIndicator(boolean show) { this.showOnlineIndicator = show; }
+    public boolean isAnimateOnLoad() { return animateOnLoad; }
+    public void setAnimateOnLoad(boolean animate) { this.animateOnLoad = animate; }
+    public int getCacheSize() { return avatarCache.size(); }
+    public void clearCache() { avatarCache.clear(); }
+}
