@@ -1,0 +1,187 @@
+package mazdady.withdrawal;
+
+import mazdady.user.User;
+import mazdady.user.UserManager;
+import mazdady.wallet.WalletManager;
+import mazdady.security.SecureStorage;
+
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicReference;
+
+/**
+ * معالج السحب مع دعم التنفيذ الآمن
+ * يتبع نمط Facade لتوفير واجهة موحدة
+ */
+public final class WithdrawalProcessor {
+    private final LevelBasedLimiter levelLimiter;
+    private final TaxCalculator taxCalculator;
+    private final WithdrawalHistory withdrawalHistory;
+    private final WithdrawalMethodManager methodManager;
+    private final WalletManager walletManager;
+    private static WithdrawalProcessor instance;
+
+    private WithdrawalProcessor(
+        LevelBasedLimiter levelLimiter,
+        TaxCalculator taxCalculator,
+        WithdrawalHistory withdrawalHistory,
+        WithdrawalMethodManager methodManager,
+        WalletManager walletManager
+    ) {
+        this.levelLimiter = levelLimiter;
+        this.taxCalculator = taxCalculator;
+        this.withdrawalHistory = withdrawalHistory;
+        this.methodManager = methodManager;
+        this.walletManager = walletManager;
+    }
+
+    public static synchronized WithdrawalProcessor getInstance(
+        LevelBasedLimiter levelLimiter,
+        TaxCalculator taxCalculator,
+        WithdrawalHistory withdrawalHistory,
+        WithdrawalMethodManager methodManager,
+        WalletManager walletManager
+    ) {
+        if (instance == null) {
+            instance = new WithdrawalProcessor(
+                levelLimiter, taxCalculator, withdrawalHistory, methodManager, walletManager
+            );
+        }
+        return instance;
+    }
+
+    /**
+     * معالجة عملية سحب غير متزامنة
+     */
+    public CompletableFuture<WithdrawalResult> processWithdrawalAsync(
+        String userId,
+        double amount,
+        String method
+    ) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                // 1. التحقق من المستخدم
+                User user = UserManager.getInstance(null).getCurrentUser();
+                if (user == null || !user.getUserId().equals(userId)) {
+                    return WithdrawalResult.failure("Invalid user");
+                }
+
+                // 2. التحقق من طريقة السحب
+                if (!methodManager.isMethodAvailable(method)) {
+                    return WithdrawalResult.failure("Withdrawal method not available: " + method);
+                }
+
+                // 3. التحقق من الحد الأدنى للمبلغ
+                WithdrawalMethodManager.WithdrawalMethod withdrawalMethod = methodManager.getMethod(method);
+                if (amount < withdrawalMethod.getMinimumAmount()) {
+                    return WithdrawalResult.failure(
+                        "Minimum amount for " + method + " is " + 
+                        withdrawalMethod.getMinimumAmount() + " MAZDADY"
+                    );
+                }
+
+                // 4. التحقق من الحد الأقصى للمبلغ
+                if (amount > withdrawalMethod.getMaximumAmount()) {
+                    return WithdrawalResult.failure(
+                        "Maximum amount for " + method + " is " + 
+                        withdrawalMethod.getMaximumAmount() + " MAZDADY"
+                    );
+                }
+
+                // 5. التحقق من حد المستوى
+                LevelBasedLimiter.LimitResult limitResult = levelLimiter.canWithdraw(user, amount);
+                if (!limitResult.isAllowed()) {
+                    return WithdrawalResult.failure(limitResult.getMessage());
+                }
+
+                // 6. حساب الضريبة
+                TaxCalculator.TaxResult taxResult = taxCalculator.calculateTax(amount, method);
+                if (!taxResult.isSuccess()) {
+                    return WithdrawalResult.failure(taxResult.getMessage());
+                }
+
+                // 7. التحقق من الرصيد
+                if (user.getBalance() < amount) {
+                    return WithdrawalResult.failure("Insufficient balance");
+                }
+
+                // 8. تنفيذ السحب
+                boolean success = executeWithdrawal(user, amount, method);
+                if (!success) {
+                    return WithdrawalResult.failure("Withdrawal execution failed");
+                }
+
+                // 9. خصم المبلغ من الرصيد
+                user.setBalance(user.getBalance() - amount);
+                user.addWeeklyWithdrawn(amount);
+
+                // 10. تسجيل عملية السحب
+                WithdrawalHistory.WithdrawalRecord record = withdrawalHistory.recordWithdrawal(
+                    userId,
+                    amount,
+                    taxResult.getTaxAmount(),
+                    taxResult.getNetAmount(),
+                    method,
+                    "COMPLETED"
+                );
+
+                // 11. تسجيل في سجل المعاملات
+                withdrawalHistory.logToTransactionHistory(record);
+
+                System.out.println("WITHDRAWAL PROCESSOR: Withdrawal completed - " + 
+                                 amount + " MAZDADY via " + method);
+
+                return WithdrawalResult.success(
+                    amount,
+                    taxResult.getTaxAmount(),
+                    taxResult.getNetAmount(),
+                    "Withdrawal completed successfully"
+                );
+
+            } catch (Exception e) {
+                return WithdrawalResult.failure("Withdrawal processing failed: " + e.getMessage());
+            }
+        });
+    }
+
+    private boolean executeWithdrawal(User user, double amount, String method) {
+        // في الإنتاج: تنفيذ السحب عبر طريقة السحب المحددة
+        System.out.println("WITHDRAWAL PROCESSOR: Executing " + amount + 
+                         " MAZDADY withdrawal via " + method);
+        return true; // محاكاة النجاح
+    }
+
+    /**
+     * نتيجة السحب
+     */
+    public static final class WithdrawalResult {
+        private final boolean success;
+        private final double amount;
+        private final double taxAmount;
+        private final double netAmount;
+        private final String message;
+
+        private WithdrawalResult(boolean success, double amount, double taxAmount, 
+                               double netAmount, String message) {
+            this.success = success;
+            this.amount = amount;
+            this.taxAmount = taxAmount;
+            this.netAmount = netAmount;
+            this.message = message;
+        }
+
+        public static WithdrawalResult success(double amount, double taxAmount, 
+                                            double netAmount, String message) {
+            return new WithdrawalResult(true, amount, taxAmount, netAmount, message);
+        }
+
+        public static WithdrawalResult failure(String message) {
+            return new WithdrawalResult(false, 0, 0, 0, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public double getAmount() { return amount; }
+        public double getTaxAmount() { return taxAmount; }
+        public double getNetAmount() { return netAmount; }
+        public String getMessage() { return message; }
+    }
+}
