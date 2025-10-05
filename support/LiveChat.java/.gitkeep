@@ -1,0 +1,60 @@
+package mazdady.support;
+
+import android.content.Context;
+import android.widget.Toast;
+
+/**
+ * واجهة الدردشة الحية مع دعم الرسائل الغنية
+ * يتبع نمط Facade لتوفير واجهة مبسطة
+ */
+public final class LiveChat {
+    private final Context context;
+    private LiveChatManager chatManager;
+
+    private LiveChat(Context context) {
+        this.context = context.getApplicationContext();
+    }
+
+    public static LiveChat create(Context context) {
+        return new LiveChat(context);
+    }
+
+    /**
+     * بدء الدردشة الحية
+     */
+    public void startLiveChat() {
+        chatManager = LiveChatManager.create(event -> {
+            switch (event.getType()) {
+                case AGENT_CONNECTED:
+                    Toast.makeText(context, "تم الاتصال بوكيل الدعم", Toast.LENGTH_SHORT).show();
+                    break;
+                case MESSAGE_RECEIVED:
+                    // في الإنتاج: عرض الرسالة في واجهة الدردشة
+                    System.out.println("AGENT: " + event.getMessage());
+                    break;
+            }
+        });
+        
+        chatManager.startChatSession();
+    }
+
+    /**
+     * إرسال رسالة
+     */
+    public void sendMessage(String message) {
+        if (chatManager != null) {
+            // في الإنتاج: الحصول من واجهة الدردشة
+            chatManager.sendMessage("current_session", message, true);
+        }
+    }
+
+    /**
+     * إنهاء الدردشة
+     */
+    public void endChat() {
+        if (chatManager != null) {
+            // في الإنتاج: إغلاق جلسة الدردشة
+            System.out.println("Chat session ended");
+        }
+    }
+}
