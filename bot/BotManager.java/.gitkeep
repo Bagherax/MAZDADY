@@ -1,12 +1,16 @@
 package mazdady.bot;
 
 import mazdady.trading.PriceEngine;
-import mazdady.trading.OrderBook;
 import mazdady.user.User;
 import mazdady.user.UserManager;
+import mazdady.admin.AdminConfig;
 
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 
 /**
@@ -14,92 +18,252 @@ import java.util.function.Supplier;
  * يتبع نمط Factory لإنشاء أنواع البوتات المختلفة
  */
 public final class BotManager {
-    private final Map<String, TradingBot> activeBots = new ConcurrentHashMap<>();
     private final PriceEngine priceEngine;
-    private final OrderBook orderBook;
-    private final Map<String, Supplier<TradingBot>> botFactories;
+    private final Map<String, TradingBot> activeBots = new ConcurrentHashMap<>();
+    private final Map<String, Supplier<TradingBot>> botFactories = new ConcurrentHashMap<>();
+    private final ScheduledExecutorService botScheduler = Executors.newScheduledThreadPool(2);
     private static BotManager instance;
 
-    private BotManager() {
-        this.priceEngine = new PriceEngine();
-        this.orderBook = new OrderBook();
-        this.botFactories = new ConcurrentHashMap<>();
+    private BotManager(PriceEngine priceEngine) {
+        this.priceEngine = priceEngine;
         initializeBotFactories();
+        startBotManagement();
     }
 
-    public static synchronized BotManager getInstance() {
+    public static synchronized BotManager getInstance(PriceEngine priceEngine) {
         if (instance == null) {
-            instance = new BotManager();
+            instance = new BotManager(priceEngine);
         }
         return instance;
     }
 
     private void initializeBotFactories() {
-        botFactories.put("liquidity", () -> new LiquidityBot("LIQ_BOT_" + System.currentTimeMillis(), priceEngine, orderBook));
-        botFactories.put("market_maker", () -> new MarketMakerBot("MM_BOT_" + System.currentTimeMillis(), priceEngine, orderBook));
-        botFactories.put("stabilizer", () -> new MarketStabilizerBot("STAB_BOT_" + System.currentTimeMillis(), priceEngine, orderBook));
+        botFactories.put("liquidity", () -> new LiquidityBot("LIQ_BOT_" + System.currentTimeMillis(), priceEngine));
+        botFactories.put("market_maker", () -> new MarketMakerBot("MM_BOT_" + System.currentTimeMillis(), priceEngine));
+        botFactories.put("stabilizer", () -> new MarketStabilizerBot("STAB_BOT_" + System.currentTimeMillis(), priceEngine));
+        botFactories.put("teaching", () -> new TeachingBot("TEACH_BOT_" + System.currentTimeMillis(), priceEngine));
+        
+        System.out.println("BOT MANAGER: Initialized " + botFactories.size() + " bot factories");
+    }
+
+    private void startBotManagement() {
+        botScheduler.scheduleAtFixedRate(
+            this::manageActiveBots,
+            0,
+            30,
+            TimeUnit.SECONDS
+        );
+        
+        System.out.println("BOT MANAGER: Started bot management every 30 seconds");
     }
 
     /**
-     * إنشاء بوت جديد
+     * إنشاء بوت جديد غير متزامن
      */
-    public TradingBot createBot(String botType) {
-        Supplier<TradingBot> factory = botFactories.get(botType);
-        if (factory == null) {
-            throw new IllegalArgumentException("Unsupported bot type: " + botType);
-        }
-        TradingBot bot = factory.get();
-        activeBots.put(bot.botId, bot);
-        return bot;
+    public CompletableFuture<BotCreationResult> createBotAsync(String botType, double initialCapital) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                Supplier<TradingBot> factory = botFactories.get(botType);
+                if (factory == null) {
+                    return BotCreationResult.failure("Unsupported bot type: " + botType);
+                }
+                
+                TradingBot bot = factory.get();
+                bot.setCapital(initialCapital);
+                
+                activeBots.put(bot.getBotId(), bot);
+                
+                // بدء تشغيل البوت
+                bot.start();
+                
+                System.out.println("BOT MANAGER: Created " + botType + " bot - ID: " + bot.getBotId() + 
+                                 " - Capital: " + initialCapital + " MAZDADY");
+                
+                return BotCreationResult.success(bot, "Bot created successfully");
+                
+            } catch (Exception e) {
+                return BotCreationResult.failure("Bot creation failed: " + e.getMessage());
+            }
+        });
     }
 
     /**
-     * إنشاء بوت تعليمي للمستخدم
+     * إيقاف بوت محدد
      */
-    public TeachingBot createTeachingBot(User user) {
-        TeachingBot bot = new TeachingBot("TEACH_BOT_" + user.getUserId(), priceEngine, orderBook, user);
-        activeBots.put(bot.botId, bot);
-        return bot;
-    }
-
-    /**
-     * بدء جميع البوتات
-     */
-    public void startAllBots() {
-        activeBots.values().forEach(TradingBot::start);
-        System.out.println("BOT MANAGER: All bots started (" + activeBots.size() + " active)");
+    public CompletableFuture<BotOperationResult> stopBotAsync(String botId) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                TradingBot bot = activeBots.get(botId);
+                if (bot == null) {
+                    return BotOperationResult.failure("Bot not found: " + botId);
+                }
+                
+                bot.stop();
+                activeBots.remove(botId);
+                
+                System.out.println("BOT MANAGER: Stopped bot - ID: " + botId);
+                
+                return BotOperationResult.success("Bot stopped successfully");
+                
+            } catch (Exception e) {
+                return BotOperationResult.failure("Bot stop failed: " + e.getMessage());
+            }
+        });
     }
 
     /**
      * إيقاف جميع البوتات
      */
-    public void stopAllBots() {
-        activeBots.values().forEach(TradingBot::stop);
-        System.out.println("BOT MANAGER: All bots stopped");
+    public CompletableFuture<BotOperationResult> stopAllBotsAsync() {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                for (TradingBot bot : activeBots.values()) {
+                    bot.stop();
+                }
+                activeBots.clear();
+                
+                System.out.println("BOT MANAGER: Stopped all " + activeBots.size() + " bots");
+                
+                return BotOperationResult.success("All bots stopped successfully");
+                
+            } catch (Exception e) {
+                return BotOperationResult.failure("Stop all bots failed: " + e.getMessage());
+            }
+        });
     }
 
     /**
-     * الحصول على بوت تداول
+     * إدارة البوتات النشطة
      */
-    public TradingBot getTradingBot(String botId) {
-        return activeBots.get(botId);
+    private void manageActiveBots() {
+        try {
+            for (TradingBot bot : activeBots.values()) {
+                if (bot.isActive()) {
+                    // تحديث سلوك البوت
+                    updateBotBehavior(bot);
+                    
+                    // التحقق من الرصيد
+                    if (bot.getCapital() <= 0) {
+                        bot.stop();
+                        activeBots.remove(bot.getBotId());
+                        System.out.println("BOT MANAGER: Removed inactive bot - " + bot.getBotId());
+                    }
+                }
+            }
+            
+        } catch (Exception e) {
+            System.err.println("BOT MANAGEMENT ERROR: " + e.getMessage());
+        }
+    }
+
+    private void updateBotBehavior(TradingBot bot) {
+        try {
+            BotBehaviorEngine behaviorEngine = BotBehaviorEngine.getInstance(priceEngine);
+            BotBehaviorEngine.BotContext context = new BotBehaviorEngine.BotContext(
+                priceEngine.getCurrentPrice(),
+                priceEngine.getMarketTrend(),
+                priceEngine.getVolatility(),
+                UserManager.getInstance(null).getCurrentUser().getLevel(),
+                bot.getCapital()
+            );
+            
+            // في الإنتاج: اختيار السلوك حسب نوع البوت
+            String behaviorType = determineBotBehavior(bot);
+            behaviorEngine.applyBotBehaviorAsync(bot, behaviorType, context);
+            
+        } catch (Exception e) {
+            System.err.println("BOT BEHAVIOR UPDATE ERROR: " + e.getMessage());
+        }
+    }
+
+    private String determineBotBehavior(TradingBot bot) {
+        // في الإنتاج: تحديد السلوك حسب نوع البوت والأداء
+        if (bot instanceof LiquidityBot) {
+            return "aggressive";
+        } else if (bot instanceof MarketMakerBot) {
+            return "adaptive";
+        } else if (bot instanceof MarketStabilizerBot) {
+            return "stabilizer";
+        } else if (bot instanceof TeachingBot) {
+            return "teaching";
+        }
+        return "conservative"; // السلوك الافتراضي
     }
 
     /**
-     * الحصول على عدد البوتات النشطة
+     * إيقاف المدير (للاختبارات)
      */
-    public int getActiveBotCount() {
-        return (int) activeBots.values().stream().filter(TradingBot::isActive).count();
+    public void shutdown() {
+        botScheduler.shutdown();
+        stopAllBotsAsync();
+        System.out.println("BOT MANAGER: Shutdown completed");
     }
 
     /**
-     * إعادة تعيين المدير (للاختبارات)
+     * نتيجة إنشاء البوت
      */
-    public static void reset() {
-        if (instance != null) {
-            instance.stopAllBots();
-            instance.activeBots.clear();
-            instance = null;
+    public static final class BotCreationResult {
+        private final boolean success;
+        private final TradingBot bot;
+        private final String message;
+
+        private BotCreationResult(boolean success, TradingBot bot, String message) {
+            this.success = success;
+            this.bot = bot;
+            this.message = message;
+        }
+
+        public static BotCreationResult success(TradingBot bot, String message) {
+            return new BotCreationResult(true, bot, message);
+        }
+
+        public static BotCreationResult failure(String message) {
+            return new BotCreationResult(false, null, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public TradingBot getBot() { return bot; }
+        public String getMessage() { return message; }
+    }
+
+    /**
+     * نتيجة عملية البوت
+     */
+    public static final class BotOperationResult {
+        private final boolean success;
+        private final String message;
+
+        private BotOperationResult(boolean success, String message) {
+            this.success = success;
+            this.message = message;
+        }
+
+        public static BotOperationResult success(String message) {
+            return new BotOperationResult(true, message);
+        }
+
+        public static BotOperationResult failure(String message) {
+            return new BotOperationResult(false, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public String getMessage() { return message; }
+    }
+
+    // --- Getters ---
+    public int getActiveBotCount() { return activeBots.size(); }
+    public Map<String, TradingBot> getActiveBots() { return new ConcurrentHashMap<>(activeBots); }
+    public boolean hasActiveBots() { return !activeBots.isEmpty(); }
+    public TradingBot getBotById(String botId) { return activeBots.get(botId); }
+    
+    /**
+     * إزالة بوت (للاختبارات)
+     */
+    public void removeBot(String botId) {
+        TradingBot bot = activeBots.remove(botId);
+        if (bot != null) {
+            bot.stop();
+            System.out.println("BOT MANAGER: Removed bot " + botId);
         }
     }
 }
