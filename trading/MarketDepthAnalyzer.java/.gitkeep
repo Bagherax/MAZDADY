@@ -1,0 +1,96 @@
+package mazdady.trading;
+
+import java.util.Map;
+
+/**
+ * محلل عمق السوق مع دعم التحليل المتقدم
+ * يتبع نمط Strategy لفصل استراتيجيات التحليل
+ */
+public final class MarketDepthAnalyzer {
+    private final OrderBook orderBook;
+
+    public MarketDepthAnalyzer(OrderBook orderBook) {
+        this.orderBook = orderBook;
+    }
+
+    /**
+     * تحليل عمق السوق
+     */
+    public DepthAnalysis analyzeDepth() {
+        OrderBook.MarketDepth depth = orderBook.getMarketDepth();
+        
+        // تحليل أوامر الشراء
+        double totalBuyVolume = depth.getBuyOrders().values().stream()
+            .mapToDouble(OrderBook.Order::getQuantity)
+            .sum();
+            
+        double totalSellVolume = depth.getSellOrders().values().stream()
+            .mapToDouble(OrderBook.Order::getQuantity)
+            .sum();
+            
+        // تحديد السعر المتوازن
+        double buyPressure = calculateBuyPressure(depth.getBuyOrders());
+        double sellPressure = calculateSellPressure(depth.getSellOrders());
+        double marketSentiment = (buyPressure - sellPressure) / (buyPressure + sellPressure + 1);
+        
+        // تحديد الفجوة في السعر
+        Double bestBuyPrice = depth.getBuyOrders().isEmpty() ? null : depth.getBuyOrders().firstKey();
+        Double bestSellPrice = depth.getSellOrders().isEmpty() ? null : depth.getSellOrders().firstKey();
+        double priceSpread = (bestBuyPrice != null && bestSellPrice != null) ? 
+            bestSellPrice - bestBuyPrice : 0;
+            
+        return new DepthAnalysis(
+            totalBuyVolume,
+            totalSellVolume,
+            marketSentiment,
+            priceSpread,
+            buyPressure,
+            sellPressure
+        );
+    }
+
+    private double calculateBuyPressure(Map<Double, OrderBook.Order> buyOrders) {
+        return buyOrders.entrySet().stream()
+            .mapToDouble(entry -> entry.getValue().getQuantity() * entry.getKey())
+            .sum();
+    }
+
+    private double calculateSellPressure(Map<Double, OrderBook.Order> sellOrders) {
+        return sellOrders.entrySet().stream()
+            .mapToDouble(entry -> entry.getValue().getQuantity() * entry.getKey())
+            .sum();
+    }
+
+    /**
+     * تحليل عمق السوق
+     */
+    public static final class DepthAnalysis {
+        private final double totalBuyVolume;
+        private final double totalSellVolume;
+        private final double marketSentiment; // -1 ( bearish) إلى +1 (bullish)
+        private final double priceSpread;
+        private final double buyPressure;
+        private final double sellPressure;
+
+        public DepthAnalysis(double totalBuyVolume, double totalSellVolume, double marketSentiment, 
+                           double priceSpread, double buyPressure, double sellPressure) {
+            this.totalBuyVolume = totalBuyVolume;
+            this.totalSellVolume = totalSellVolume;
+            this.marketSentiment = marketSentiment;
+            this.priceSpread = priceSpread;
+            this.buyPressure = buyPressure;
+            this.sellPressure = sellPressure;
+        }
+
+        public double getTotalBuyVolume() { return totalBuyVolume; }
+        public double getTotalSellVolume() { return totalSellVolume; }
+        public double getMarketSentiment() { return marketSentiment; }
+        public double getPriceSpread() { return priceSpread; }
+        public double getBuyPressure() { return buyPressure; }
+        public double getSellPressure() { return sellPressure; }
+        
+        public boolean isBullish() { return marketSentiment > 0.1; }
+        public boolean isBearish() { return marketSentiment < -0.1; }
+        public boolean isNeutral() { return Math.abs(marketSentiment) <= 0.1; }
+    }
+}
