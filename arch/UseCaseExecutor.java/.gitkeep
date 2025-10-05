@@ -1,48 +1,157 @@
 package mazdady.arch;
 
-import java.util.concurrent.ExecutorService;
+import mazdady.user.UserManager;
+import mazdady.security.SecurityMonitor;
+import mazdady.wallet.WalletManager;
+import mazdady.trading.PriceEngine;
+import mazdady.bot.BotController;
+import mazdady.admin.AdminConfig;
+
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.function.Consumer;
 
 /**
- * منفذ حالات الاستخدام مع دعم الخيوط والأخطاء
- * يتبع نمط Observer لفصل التنفيذ عن النتائج
+ * منفذ حالات الاستخدام مع دعم التنفيذ المتقدم
+ * يتبع نمط Facade لتوفير واجهة موحدة
  */
 public final class UseCaseExecutor {
-    private final ExecutorService backgroundExecutor;
-    private final ExecutorService mainThreadExecutor;
+    private final UserManager userManager;
+    private final SecurityMonitor securityMonitor;
+    private final WalletManager walletManager;
+    private final PriceEngine priceEngine;
+    private final BotController botController;
+    private final AdminConfig adminConfig;
+    private final ScheduledExecutorService backgroundExecutor = Executors.newScheduledThreadPool(4);
+    private final ScheduledExecutorService mainThreadExecutor = Executors.newSingleThreadScheduledExecutor();
+    private static UseCaseExecutor instance;
 
-    private UseCaseExecutor() {
-        this.backgroundExecutor = Executors.newCachedThreadPool();
-        this.mainThreadExecutor = Executors.newSingleThreadExecutor();
+    private UseCaseExecutor(
+        UserManager userManager,
+        SecurityMonitor securityMonitor,
+        WalletManager walletManager,
+        PriceEngine priceEngine,
+        BotController botController,
+        AdminConfig adminConfig
+    ) {
+        this.userManager = userManager;
+        this.securityMonitor = securityMonitor;
+        this.walletManager = walletManager;
+        this.priceEngine = priceEngine;
+        this.botController = botController;
+        this.adminConfig = adminConfig;
     }
 
-    private static class Holder {
-        static final UseCaseExecutor INSTANCE = new UseCaseExecutor();
-    }
-
-    public static UseCaseExecutor getInstance() {
-        return Holder.INSTANCE;
+    public static synchronized UseCaseExecutor getInstance(
+        UserManager userManager,
+        SecurityMonitor securityMonitor,
+        WalletManager walletManager,
+        PriceEngine priceEngine,
+        BotController botController,
+        AdminConfig adminConfig
+    ) {
+        if (instance == null) {
+            instance = new UseCaseExecutor(userManager, securityMonitor, walletManager, priceEngine, botController, adminConfig);
+        }
+        return instance;
     }
 
     /**
-     * تنفيذ حالة استخدام في الخلفية مع معالجة النتائج في الواجهة
+     * تنفيذ حالة استخدام غير متزامنة
      */
-    public <T, E extends Exception> void execute(
+    public <T, E extends Exception> CompletableFuture<UseCaseResult<T>> executeAsync(
         UseCase<T, E> useCase,
         Consumer<T> onSuccess,
         Consumer<E> onError
     ) {
-        backgroundExecutor.execute(() -> {
+        return CompletableFuture.supplyAsync(() -> {
             try {
                 T result = useCase.execute();
                 postToMainThread(() -> onSuccess.accept(result));
+                return UseCaseResult.success(result, "Use case executed successfully");
             } catch (Exception e) {
                 @SuppressWarnings("unchecked")
                 E exception = (E) e;
                 postToMainThread(() -> onError.accept(exception));
+                return UseCaseResult.failure("Use case execution failed: " + e.getMessage());
             }
-        });
+        }, backgroundExecutor);
+    }
+
+    /**
+     * تنفيذ حالة استخدام مع دعم التحقق من العقد
+     */
+    public <T, E extends Exception> CompletableFuture<UseCaseResult<T>> executeWithContractValidationAsync(
+        UseCase<T, E> useCase,
+        String contractType,
+        Object contractData,
+        Consumer<T> onSuccess,
+        Consumer<E> onError
+    ) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                // التحقق من العقد أولاً
+                ContractValidator validator = ContractValidator.getInstance(securityMonitor);
+                ContractValidator.ValidationResult validationResult = 
+                    validator.validateContractAsync(contractType, userManager.getCurrentUser(), contractData).join();
+                
+                if (!validationResult.isSuccess()) {
+                    throw new IllegalStateException(validationResult.getMessage());
+                }
+                
+                // تنفيذ حالة الاستخدام
+                T result = useCase.execute();
+                postToMainThread(() -> onSuccess.accept(result));
+                return UseCaseResult.success(result, "Use case executed successfully with contract validation");
+                
+            } catch (Exception e) {
+                @SuppressWarnings("unchecked")
+                E exception = (E) e;
+                postToMainThread(() -> onError.accept(exception));
+                return UseCaseResult.failure("Use case execution failed: " + e.getMessage());
+            }
+        }, backgroundExecutor);
+    }
+
+    /**
+     * تنفيذ حالة استخدام مع دعم التفاعل مع الأعمال
+     */
+    public <T, E extends Exception> CompletableFuture<UseCaseResult<T>> executeWithBusinessInteractionAsync(
+        UseCase<T, E> useCase,
+        String businessCaseId,
+        Object inputData,
+        Consumer<T> onSuccess,
+        Consumer<E> onError
+    ) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                // التفاعل مع الأعمال أولاً
+                BusinessInteractor interactor = BusinessInteractor.getInstance(userManager, securityMonitor);
+                BusinessInteractor.BusinessResult<T> businessResult = 
+                    interactor.executeBusinessCaseAsync(businessCaseId, inputData, (user, input) -> {
+                        try {
+                            return useCase.execute();
+                        } catch (Exception e) {
+                            throw new RuntimeException(e);
+                        }
+                    }).join();
+                
+                if (!businessResult.isSuccess()) {
+                    throw new IllegalStateException(businessResult.getMessage());
+                }
+                
+                T result = businessResult.getResult();
+                postToMainThread(() -> onSuccess.accept(result));
+                return UseCaseResult.success(result, "Use case executed successfully with business interaction");
+                
+            } catch (Exception e) {
+                @SuppressWarnings("unchecked")
+                E exception = (E) e;
+                postToMainThread(() -> onError.accept(exception));
+                return UseCaseResult.failure("Use case execution failed: " + e.getMessage());
+            }
+        }, backgroundExecutor);
     }
 
     private void postToMainThread(Runnable runnable) {
@@ -50,10 +159,62 @@ public final class UseCaseExecutor {
     }
 
     /**
-     * واجهة عامة لحالات الاستخدام
+     * واجهة حالة الاستخدام
      */
     @FunctionalInterface
     public interface UseCase<T, E extends Exception> {
         T execute() throws E;
+    }
+
+    /**
+     * نتيجة حالة الاستخدام
+     */
+    public static final class UseCaseResult<T> {
+        private final boolean success;
+        private final T result;
+        private final String message;
+
+        private UseCaseResult(boolean success, T result, String message) {
+            this.success = success;
+            this.result = result;
+            this.message = message;
+        }
+
+        public static <T> UseCaseResult<T> success(T result, String message) {
+            return new UseCaseResult<>(true, result, message);
+        }
+
+        public static <T> UseCaseResult<T> failure(String message) {
+            return new UseCaseResult<>(false, null, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public T getResult() { return result; }
+        public String getMessage() { return message; }
+    }
+
+    /**
+     * إيقاف المنفذ (للاختبارات)
+     */
+    public void shutdown() {
+        backgroundExecutor.shutdown();
+        mainThreadExecutor.shutdown();
+        System.out.println("USE CASE EXECUTOR: Shutdown completed");
+    }
+
+    // --- Getters ---
+    public UserManager getUserManager() { return userManager; }
+    public SecurityMonitor getSecurityMonitor() { return securityMonitor; }
+    public WalletManager getWalletManager() { return walletManager; }
+    public PriceEngine getPriceEngine() { return priceEngine; }
+    public BotController getBotController() { return botController; }
+    public AdminConfig getAdminConfig() { return adminConfig; }
+    
+    /**
+     * إعادة تهيئة المنفذ (للاختبارات)
+     */
+    public void reset() {
+        shutdown();
+        System.out.println("USE CASE EXECUTOR: Reset completed");
     }
 }
