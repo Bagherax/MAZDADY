@@ -1,47 +1,215 @@
 package mazdady.withdrawal;
 
 import mazdady.user.User;
+import mazdady.user.UserManager;
 import mazdady.admin.AdminConfig;
+import mazdady.auth.KYCValidator;
 
-public class WithdrawalRulesEngine {
-    private AdminConfig config;
+import java.time.Instant;
+import java.util.concurrent.CompletableFuture;
 
-    public WithdrawalRulesEngine() {
-        this.config = AdminConfig.getInstance();
+/**
+ * محرك قواعد السحب مع دعم التحقق المتقدم
+ * يتبع نمط Strategy لفصل استراتيجيات التحقق
+ */
+public final class WithdrawalRulesEngine {
+    private final LevelBasedLimiter levelLimiter;
+    private final ScheduleManager scheduleManager;
+    private final TaxCalculator taxCalculator;
+    private final KYCValidator kycValidator;
+    private static WithdrawalRulesEngine instance;
+
+    private WithdrawalRulesEngine(
+        LevelBasedLimiter levelLimiter,
+        ScheduleManager scheduleManager,
+        TaxCalculator taxCalculator,
+        KYCValidator kycValidator
+    ) {
+        this.levelLimiter = levelLimiter;
+        this.scheduleManager = scheduleManager;
+        this.taxCalculator = taxCalculator;
+        this.kycValidator = kycValidator;
     }
 
-    public WithdrawalResult canWithdraw(User user, double amount) {
-        if (user.getLevel() < config.getMinWithdrawalLevel()) {
-            return new WithdrawalResult(false, "يجب أن تكون في المستوى " + config.getMinWithdrawalLevel() + " على الأقل.");
+    public static synchronized WithdrawalRulesEngine getInstance(
+        LevelBasedLimiter levelLimiter,
+        ScheduleManager scheduleManager,
+        TaxCalculator taxCalculator,
+        KYCValidator kycValidator
+    ) {
+        if (instance == null) {
+            instance = new WithdrawalRulesEngine(
+                levelLimiter, scheduleManager, taxCalculator, kycValidator
+            );
         }
-
-        double weeklyLimit = config.getWeeklyLimitForLevel(user.getLevel());
-        if (user.getWeeklyWithdrawn() + amount > weeklyLimit) {
-            double remaining = weeklyLimit - user.getWeeklyWithdrawn();
-            return new WithdrawalResult(false, "الحد الأسبوعي المتبقي: " + remaining + " MAZDADY");
-        }
-
-        if (!config.isTodayWithdrawalDay()) {
-            return new WithdrawalResult(false, "يوم السحب القادم: " + config.getNextWithdrawalDate());
-        }
-
-        if (!user.isKYCVerified()) {
-            return new WithdrawalResult(false, "يجب توثيق هويتك قبل السحب.");
-        }
-
-        return new WithdrawalResult(true, "يمكنك السحب.");
+        return instance;
     }
 
-    public static class WithdrawalResult {
+    /**
+     * التحقق من إمكانية السحب غير المتزامن
+     */
+    public CompletableFuture<WithdrawalValidationResult> canWithdrawAsync(
+        String userId,
+        double amount,
+        String method
+    ) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                User user = UserManager.getInstance(null).getCurrentUser();
+                if (user == null || !user.getUserId().equals(userId)) {
+                    return WithdrawalValidationResult.failure("Invalid user");
+                }
+
+                // 1. التحقق من KYC
+                if (!user.isKYCVerified()) {
+                    return WithdrawalValidationResult.failure(
+                        "KYC verification required before withdrawal"
+                    );
+                }
+
+                // 2. التحقق من مستوى المستخدم
+                LevelBasedLimiter.LimitResult levelResult = levelLimiter.canWithdraw(user, amount);
+                if (!levelResult.isAllowed()) {
+                    return WithdrawalValidationResult.failure(levelResult.getMessage());
+                }
+
+                // 3. التحقق من جدولة السحب
+                if (!scheduleManager.isWithdrawalAllowedNow()) {
+                    return WithdrawalValidationResult.failure(
+                        "Withdrawal not allowed today. Next withdrawal date: " + 
+                        scheduleManager.getNextWithdrawalDate()
+                    );
+                }
+
+                // 4. التحقق من طريقة السحب
+                if (!isMethodSupported(method)) {
+                    return WithdrawalValidationResult.failure(
+                        "Unsupported withdrawal method: " + method
+                    );
+                }
+
+                // 5. التحقق من الحد الأدنى للمبلغ
+                if (amount < getMinimumWithdrawalAmount(method)) {
+                    return WithdrawalValidationResult.failure(
+                        "Minimum withdrawal amount for " + method + " is " + 
+                        getMinimumWithdrawalAmount(method) + " MAZDADY"
+                    );
+                }
+
+                // 6. التحقق من الحد الأقصى للمبلغ
+                if (amount > getMaximumWithdrawalAmount(method)) {
+                    return WithdrawalValidationResult.failure(
+                        "Maximum withdrawal amount for " + method + " is " + 
+                        getMaximumWithdrawalAmount(method) + " MAZDADY"
+                    );
+                }
+
+                // 7. التحقق من الرصيد
+                if (user.getBalance() < amount) {
+                    return WithdrawalValidationResult.failure("Insufficient balance");
+                }
+
+                // 8. التحقق من حالة الحساب
+                if (user.isSuspended() || user.isBanned()) {
+                    return WithdrawalValidationResult.failure("Account is suspended or banned");
+                }
+
+                // 9. التحقق من آخر عملية سحب
+                if (isWithdrawalCooldownActive(user)) {
+                    return WithdrawalValidationResult.failure(
+                        "Withdrawal cooldown active. Please wait before next withdrawal."
+                    );
+                }
+
+                // 10. حساب الضريبة المتوقعة
+                TaxCalculator.TaxResult taxResult = taxCalculator.calculateTax(amount, method);
+                if (!taxResult.isSuccess()) {
+                    return WithdrawalValidationResult.failure(taxResult.getMessage());
+                }
+
+                System.out.println("RULES ENGINE: Withdrawal validation passed for user " + userId);
+                return WithdrawalValidationResult.success(
+                    amount,
+                    taxResult.getTaxAmount(),
+                    taxResult.getNetAmount(),
+                    "Withdrawal validation passed"
+                );
+
+            } catch (Exception e) {
+                return WithdrawalValidationResult.failure(
+                    "Withdrawal validation failed: " + e.getMessage()
+                );
+            }
+        });
+    }
+
+    private boolean isMethodSupported(String method) {
+        return "wallet_crypto".equals(method) ||
+               "bank_transfer".equals(method) ||
+               "internal_transfer".equals(method) ||
+               "mobile_wallet".equals(method);
+    }
+
+    private double getMinimumWithdrawalAmount(String method) {
+        switch (method) {
+            case "wallet_crypto": return 10.0;
+            case "bank_transfer": return 50.0;
+            case "internal_transfer": return 1.0;
+            case "mobile_wallet": return 5.0;
+            default: return 10.0;
+        }
+    }
+
+    private double getMaximumWithdrawalAmount(String method) {
+        switch (method) {
+            case "wallet_crypto": return 10000.0;
+            case "bank_transfer": return 50000.0;
+            case "internal_transfer": return 1000.0;
+            case "mobile_wallet": return 5000.0;
+            default: return 10000.0;
+        }
+    }
+
+    private boolean isWithdrawalCooldownActive(User user) {
+        Instant lastWithdrawal = user.getLastWithdrawalTime();
+        if (lastWithdrawal == null) return false;
+        
+        long cooldownPeriod = 24 * 60 * 60 * 1000; // 24 ساعة
+        return (System.currentTimeMillis() - lastWithdrawal.toEpochMilli()) < cooldownPeriod;
+    }
+
+    /**
+     * نتيجة التحقق من قواعد السحب
+     */
+    public static final class WithdrawalValidationResult {
         private final boolean allowed;
+        private final double amount;
+        private final double taxAmount;
+        private final double netAmount;
         private final String message;
 
-        public WithdrawalResult(boolean allowed, String message) {
+        private WithdrawalValidationResult(boolean allowed, double amount, double taxAmount, 
+                                         double netAmount, String message) {
             this.allowed = allowed;
+            this.amount = amount;
+            this.taxAmount = taxAmount;
+            this.netAmount = netAmount;
             this.message = message;
         }
 
+        public static WithdrawalValidationResult success(double amount, double taxAmount, 
+                                                      double netAmount, String message) {
+            return new WithdrawalValidationResult(true, amount, taxAmount, netAmount, message);
+        }
+
+        public static WithdrawalValidationResult failure(String message) {
+            return new WithdrawalValidationResult(false, 0, 0, 0, message);
+        }
+
         public boolean isAllowed() { return allowed; }
+        public double getAmount() { return amount; }
+        public double getTaxAmount() { return taxAmount; }
+        public double getNetAmount() { return netAmount; }
         public String getMessage() { return message; }
     }
 }
