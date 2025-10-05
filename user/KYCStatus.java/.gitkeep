@@ -1,24 +1,77 @@
 package mazdady.user;
 
-public class KYCStatus {
-    private boolean verified = false;
-    private String documentType; // "national_id", "passport", etc.
-    private String documentId;
-    private long verificationDate;
+import java.time.Instant;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
-    public boolean isVerified() {
-        return verified;
+/**
+ * حالة التحقق من الهوية مع دعم التحديثات الديناميكية
+ * يتبع نمط State لتمثيل حالات التحقق المختلفة
+ */
+public final class KYCStatus {
+    private final AtomicBoolean verified = new AtomicBoolean(false);
+    private final AtomicReference<String> documentType = new AtomicReference<>();
+    private final AtomicReference<String> documentId = new AtomicReference<>();
+    private final AtomicReference<Instant> verificationDate = new AtomicReference<>();
+    private final AtomicReference<String> verifierId = new AtomicReference<>();
+    private final AtomicReference<KYCLevel> level = new AtomicReference<>(KYCLevel.NONE);
+
+    /**
+     * تم التحقق من الهوية
+     */
+    public void markAsVerified(String docType, String docId) {
+        this.verified.set(true);
+        this.documentType.set(docType);
+        this.documentId.set(docId);
+        this.verificationDate.set(Instant.now());
+        this.level.set(KYCLevel.BASIC);
+        System.out.println("KYC STATUS: Verified with " + docType + " - " + docId);
     }
 
-    public void markAsVerified(String documentType, String documentId) {
-        this.verified = true;
-        this.documentType = documentType;
-        this.documentId = documentId;
-        this.verificationDate = System.currentTimeMillis();
+    /**
+     * تم التحقق المتقدم من الهوية
+     */
+    public void markAsAdvancedVerified(String verifierId) {
+        this.verifierId.set(verifierId);
+        this.level.set(KYCLevel.ADVANCED);
+        System.out.println("KYC STATUS: Advanced verification completed by " + verifierId);
     }
 
-    // Getters
-    public String getDocumentType() { return documentType; }
-    public String getDocumentId() { return documentId; }
-    public long getVerificationDate() { return verificationDate; }
+    /**
+     * إلغاء التحقق من الهوية
+     */
+    public void revokeVerification(String reason) {
+        this.verified.set(false);
+        this.documentType.set(null);
+        this.documentId.set(null);
+        this.verificationDate.set(null);
+        this.level.set(KYCLevel.NONE);
+        System.out.println("KYC STATUS: Verification revoked - Reason: " + reason);
+    }
+
+    /**
+     * تحديث مستوى KYC
+     */
+    public void updateLevel(KYCLevel newLevel) {
+        if (isVerified()) {
+            this.level.set(newLevel);
+            System.out.println("KYC STATUS: Level updated to " + newLevel);
+        }
+    }
+
+    // --- Getters ---
+    public boolean isVerified() { return verified.get(); }
+    public String getDocumentType() { return documentType.get(); }
+    public String getDocumentId() { return documentId.get(); }
+    public Instant getVerificationDate() { return verificationDate.get(); }
+    public String getVerifierId() { return verifierId.get(); }
+    public KYCLevel getLevel() { return level.get(); }
+    public boolean isAdvancedVerified() { return level.get() == KYCLevel.ADVANCED; }
+
+    /**
+     * مستويات KYC
+     */
+    public enum KYCLevel {
+        NONE, BASIC, ADVANCED, PREMIUM
+    }
 }
