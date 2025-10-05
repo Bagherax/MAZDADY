@@ -1,0 +1,110 @@
+package mazdady.offline;
+
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
+import android.net.ConnectivityManager;
+import android.net.Network;
+import android.net.NetworkCapabilities;
+import android.net.NetworkRequest;
+
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.Consumer;
+
+/**
+ * كاشف الاتصال مع دعم المراقبة الحية
+ * يتبع نمط Observer لإعلام المكونات بتغيرات الاتصال
+ */
+public final class Connectivity {
+    private final Context context;
+    private final CopyOnWriteArrayList<Consumer<ConnectivityEvent>> listeners = new CopyOnWriteArrayList<>();
+    private final NetworkCallback networkCallback;
+    private boolean isConnected = false;
+
+    private Connectivity(Context context) {
+        this.context = context.getApplicationContext();
+        this.networkCallback = new NetworkCallback();
+        registerNetworkCallback();
+    }
+
+    public static Connectivity create(Context context) {
+        return new Connectivity(context);
+    }
+
+    private void registerNetworkCallback() {
+        ConnectivityManager connectivityManager = 
+            (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
+        
+        if (connectivityManager != null) {
+            NetworkRequest request = new NetworkRequest.Builder()
+                .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                .build();
+            connectivityManager.registerNetworkCallback(request, networkCallback);
+        }
+    }
+
+    /**
+     * التحقق من حالة الاتصال الحالية
+     */
+    public boolean isConnected() {
+        return isConnected;
+    }
+
+    /**
+     * إضافة مستمع لتغيرات الاتصال
+     */
+    public void addConnectionListener(Consumer<ConnectivityEvent> listener) {
+        listeners.add(listener);
+    }
+
+    /**
+     * إزالة مستمع
+     */
+    public void removeConnectionListener(Consumer<ConnectivityEvent> listener) {
+        listeners.remove(listener);
+    }
+
+    private void notifyListeners(ConnectivityEvent event) {
+        listeners.forEach(listener -> {
+            try {
+                listener.accept(event);
+            } catch (Exception e) {
+                // تجاهل أخطاء المستمعين
+            }
+        });
+    }
+
+    /**
+     * حدث الاتصال
+     */
+    public static final class ConnectivityEvent {
+        private final boolean connected;
+        private final long timestamp;
+
+        public ConnectivityEvent(boolean connected) {
+            this.connected = connected;
+            this.timestamp = System.currentTimeMillis();
+        }
+
+        public boolean isConnected() { return connected; }
+        public long getTimestamp() { return timestamp; }
+    }
+
+    /**
+     * رد اتصال الشبكة
+     */
+    private final class NetworkCallback extends ConnectivityManager.NetworkCallback {
+        @Override
+        public void onAvailable(Network network) {
+            isConnected = true;
+            notifyListeners(new ConnectivityEvent(true));
+        }
+
+        @Override
+        public void onLost(Network network) {
+            isConnected = false;
+            notifyListeners(new ConnectivityEvent(false));
+        }
+    }
+}
