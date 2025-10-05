@@ -1,0 +1,92 @@
+package mazdady.error;
+
+import mazdady.security.SecureStorage;
+
+import java.io.PrintWriter;
+import java.io.StringWriter;
+import java.time.Instant;
+import java.util.Base64;
+import java.util.concurrent.CompletableFuture;
+
+/**
+ * مراسل الأعطال مع دعم التشفير والرفع الآمن
+ * يتبع نمط Singleton مع تهيئة آمنة
+ */
+public final class CrashReporter {
+    private final SecureStorage secureStorage;
+    private static CrashReporter instance;
+
+    private CrashReporter() {
+        this.secureStorage = new SecureStorage();
+    }
+
+    public static synchronized CrashReporter getInstance() {
+        if (instance == null) {
+            instance = new CrashReporter();
+        }
+        return instance;
+    }
+
+    /**
+     * حفظ تقرير العطل بشكل آمن
+     */
+    public void saveCrashReport(GlobalExceptionHandler.ErrorEvent event) {
+        try {
+            String report = generateCrashReport(event);
+            byte[] encryptedReport = secureStorage.encrypt(report);
+            
+            // في الإنتاج: حفظ في التخزين الآمن
+            String reportId = "CRASH_" + System.currentTimeMillis();
+            System.out.println("CRASH REPORT: Saved encrypted report " + reportId);
+            
+            // رفع التقرير إلى السيرفر (في الخلفية)
+            uploadCrashReportAsync(encryptedReport, reportId);
+            
+        } catch (Exception e) {
+            System.err.println("CRASH REPORT ERROR: " + e.getMessage());
+        }
+    }
+
+    /**
+     * رفع تقرير العطل غير المتزامن
+     */
+    private CompletableFuture<Void> uploadCrashReportAsync(byte[] encryptedReport, String reportId) {
+        return CompletableFuture.runAsync(() -> {
+            try {
+                // في الإنتاج: رفع إلى سيرفر آمن
+                String encodedReport = Base64.getEncoder().encodeToString(encryptedReport);
+                System.out.println("CRASH UPLOAD: Uploading report " + reportId + " (" + encodedReport.length() + " chars)");
+                
+                // محاكاة الرفع
+                Thread.sleep(1000);
+                System.out.println("CRASH UPLOAD: Report " + reportId + " uploaded successfully");
+                
+            } catch (Exception e) {
+                System.err.println("CRASH UPLOAD FAILED: " + e.getMessage());
+            }
+        });
+    }
+
+    private String generateCrashReport(GlobalExceptionHandler.ErrorEvent event) {
+        StringWriter sw = new StringWriter();
+        PrintWriter pw = new PrintWriter(sw);
+        
+        pw.println("MAZDADY CRASH REPORT");
+        pw.println("====================");
+        pw.println("Timestamp: " + event.getTimestamp());
+        pw.println("Device ID: " + getDeviceFingerprint());
+        pw.println("Activity: " + (event.getActivity() != null ? 
+            event.getActivity().getClass().getSimpleName() : "None"));
+        pw.println();
+        pw.println("STACK TRACE:");
+        event.getThrowable().printStackTrace(pw);
+        pw.flush();
+        
+        return sw.toString();
+    }
+
+    private String getDeviceFingerprint() {
+        // في الإنتاج: استخدام DeviceFingerprint من حزمة الأمان
+        return "device_fingerprint_placeholder";
+    }
+}
