@@ -1,0 +1,208 @@
+package mazdady.trading;
+
+import android.content.Context;
+import android.graphics.Canvas;
+import android.graphics.Color;
+import android.graphics.Paint;
+import android.util.AttributeSet;
+import android.view.View;
+import android.widget.ImageView;
+import android.widget.LinearLayout;
+
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.List;
+
+/**
+ * عرض خط التداول مع دعم الصور والمؤشرات الديناميكية
+ * يتبع نمط Observer لمراقبة تغيرات التداول
+ */
+public final class TradingLineView extends LinearLayout {
+    private final Paint linePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint profitPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final CopyOnWriteArrayList<TraderImage> traderImages = new CopyOnWriteArrayList<>();
+    private final CopyOnWriteArrayList<ProfitIndicator> profitIndicators = new CopyOnWriteArrayList<>();
+    private static TradingLineView instance;
+
+    public TradingLineView(Context context, AttributeSet attrs) {
+        super(context, attrs);
+        initializePaints();
+        setOrientation(HORIZONTAL);
+        setWillNotDraw(false);
+    }
+
+    private void initializePaints() {
+        linePaint.setColor(Color.parseColor("#4CAF50"));
+        linePaint.setStrokeWidth(6f);
+        linePaint.setStyle(Paint.Style.STROKE);
+        
+        profitPaint.setTextSize(14f);
+        profitPaint.setFakeBoldText(true);
+    }
+
+    /**
+     * إضافة صورة مستخدم إلى خط التداول
+     */
+    public void addTraderImage(String avatarUrl) {
+        post(() -> {
+            try {
+                ImageView imageView = new ImageView(getContext());
+                // في الإنتاج: تحميل الصورة من avatarUrl
+                imageView.setImageResource(android.R.drawable.ic_menu_gallery);
+                imageView.setScaleType(ImageView.ScaleType.CENTER_CROP);
+                
+                LayoutParams params = new LayoutParams(60, 60);
+                params.setMargins(5, 0, 5, 0);
+                imageView.setLayoutParams(params);
+                
+                addView(imageView);
+                traderImages.add(new TraderImage(imageView, avatarUrl));
+                
+                System.out.println("TRADING LINE: Added trader image - " + avatarUrl);
+                
+            } catch (Exception e) {
+                System.err.println("TRADING LINE ERROR: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * إضافة مؤشر ربح/خسارة
+     */
+    public void addProfitIndicator(String color, double profit) {
+        post(() -> {
+            try {
+                ProfitIndicator indicator = new ProfitIndicator(color, profit);
+                profitIndicators.add(indicator);
+                invalidate(); // إعادة رسم العرض
+                
+                System.out.println("TRADING LINE: Added profit indicator - " + color + " " + profit);
+                
+            } catch (Exception e) {
+                System.err.println("PROFIT INDICATOR ERROR: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * إزالة صورة مستخدم من خط التداول
+     */
+    public void removeTraderImage(String avatarUrl) {
+        post(() -> {
+            try {
+                TraderImage traderImage = traderImages.stream()
+                    .filter(img -> avatarUrl.equals(img.getAvatarUrl()))
+                    .findFirst()
+                    .orElse(null);
+                
+                if (traderImage != null) {
+                    removeView(traderImage.getImageView());
+                    traderImages.remove(traderImage);
+                    System.out.println("TRADING LINE: Removed trader image - " + avatarUrl);
+                }
+                
+            } catch (Exception e) {
+                System.err.println("REMOVE TRADER IMAGE ERROR: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * إزالة مؤشر الربح
+     */
+    public void removeProfitIndicator() {
+        post(() -> {
+            try {
+                profitIndicators.clear();
+                invalidate();
+                System.out.println("TRADING LINE: Removed profit indicators");
+            } catch (Exception e) {
+                System.err.println("REMOVE PROFIT INDICATOR ERROR: " + e.getMessage());
+            }
+        });
+    }
+
+    @Override
+    protected void onDraw(Canvas canvas) {
+        super.onDraw(canvas);
+        
+        try {
+            // رسم خط التداول
+            drawTradingLine(canvas);
+            
+            // رسم مؤشرات الربح/الخسارة
+            drawProfitIndicators(canvas);
+            
+        } catch (Exception e) {
+            System.err.println("TRADING LINE DRAW ERROR: " + e.getMessage());
+        }
+    }
+
+    private void drawTradingLine(Canvas canvas) {
+        int width = getWidth();
+        int height = getHeight();
+        
+        // رسم خط أفقي في منتصف العرض
+        canvas.drawLine(0, height / 2f, width, height / 2f, linePaint);
+    }
+
+    private void drawProfitIndicators(Canvas canvas) {
+        int yOffset = 20;
+        for (ProfitIndicator indicator : profitIndicators) {
+            profitPaint.setColor(Color.parseColor(indicator.getColor()));
+            String text = (indicator.getProfit() > 0 ? "🔺" : "🔻") + 
+                         String.format("%.2f", Math.abs(indicator.getProfit()));
+            canvas.drawText(text, 10, yOffset, profitPaint);
+            yOffset += 30;
+        }
+    }
+
+    /**
+     * صورة المتداول
+     */
+    private static final class TraderImage {
+        private final ImageView imageView;
+        private final String avatarUrl;
+
+        public TraderImage(ImageView imageView, String avatarUrl) {
+            this.imageView = imageView;
+            this.avatarUrl = avatarUrl;
+        }
+
+        public ImageView getImageView() { return imageView; }
+        public String getAvatarUrl() { return avatarUrl; }
+    }
+
+    /**
+     * مؤشر الربح
+     */
+    private static final class ProfitIndicator {
+        private final String color;
+        private final double profit;
+
+        public ProfitIndicator(String color, double profit) {
+            this.color = color;
+            this.profit = profit;
+        }
+
+        public String getColor() { return color; }
+        public double getProfit() { return profit; }
+    }
+
+    // --- Getters ---
+    public int getTraderCount() { return traderImages.size(); }
+    public int getProfitIndicatorCount() { return profitIndicators.size(); }
+    public List<TraderImage> getTraderImages() { return traderImages; }
+    public List<ProfitIndicator> getProfitIndicators() { return profitIndicators; }
+    
+    /**
+     * مسح جميع العناصر (للاختبارات)
+     */
+    public void clearAll() {
+        post(() -> {
+            removeAllViews();
+            traderImages.clear();
+            profitIndicators.clear();
+            System.out.println("TRADING LINE: Cleared all elements");
+        });
+    }
+}
