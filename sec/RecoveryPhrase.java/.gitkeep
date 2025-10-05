@@ -1,0 +1,77 @@
+package mazdady.sec;
+
+import java.security.SecureRandom;
+import java.util.Arrays;
+import java.util.List;
+
+/**
+ * عبارة الاسترداد مع دعم التوليد الآمن
+ * يتبع معايير BIP-39
+ */
+public final class RecoveryPhrase {
+    private static final List<String> WORD_LIST = Arrays.asList(
+        // قائمة كلمات BIP-39 الأساسية (2048 كلمة)
+        // هنا نستخدم عينة صغيرة لأغراض العرض
+        "abandon", "ability", "able", "about", "above", "absent", "absorb", "abstract", "absurd", "abuse",
+        "access", "accident", "account", "accuse", "achieve", "acid", "acoustic", "acquire", "across", "act",
+        "action", "actor", "actress", "actual", "adapt", "add", "addict", "address", "adjust", "admit",
+        "adult", "advance", "advice", "aerobic", "affair", "afford", "afraid", "again", "age", "agent"
+        // ... (يجب إكمال القائمة الكاملة في الإنتاج)
+    );
+    
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
+
+    private RecoveryPhrase() {}
+
+    /**
+     * توليد عبارة استرداد جديدة
+     */
+    public static String generateRecoveryPhrase(int wordCount) {
+        if (wordCount != 12 && wordCount != 18 && wordCount != 24) {
+            throw new IllegalArgumentException("Word count must be 12, 18, or 24");
+        }
+        
+        StringBuilder phrase = new StringBuilder();
+        for (int i = 0; i < wordCount; i++) {
+            if (i > 0) {
+                phrase.append(" ");
+            }
+            int index = SECURE_RANDOM.nextInt(WORD_LIST.size());
+            phrase.append(WORD_LIST.get(index));
+        }
+        
+        return phrase.toString();
+    }
+
+    /**
+     * التحقق من صحة عبارة الاسترداد
+     */
+    public static boolean isValidRecoveryPhrase(String phrase) {
+        if (phrase == null || phrase.trim().isEmpty()) {
+            return false;
+        }
+        
+        String[] words = phrase.trim().split("\\s+");
+        if (words.length != 12 && words.length != 18 && words.length != 24) {
+            return false;
+        }
+        
+        for (String word : words) {
+            if (!WORD_LIST.contains(word.toLowerCase())) {
+                return false;
+            }
+        }
+        
+        // في الإنتاج: التحقق من checksum BIP-39
+        return true;
+    }
+
+    /**
+     * تحويل عبارة الاسترداد إلى مفتاح خاص
+     */
+    public static byte[] deriveSeed(String recoveryPhrase, String passphrase) {
+        // في الإنتاج: استخدام مكتبة BIP-39 لاشتقاق البذور
+        // هنا نستخدم قيمة افتراضية لأغراض العرض
+        return ("seed_" + recoveryPhrase.hashCode() + "_" + passphrase.hashCode()).getBytes();
+    }
+}
