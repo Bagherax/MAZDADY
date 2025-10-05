@@ -1,79 +1,118 @@
 package mazdady.bot;
 
 import mazdady.trading.PriceEngine;
-import mazdady.trading.OrderBook;
+import mazdady.user.UserManager;
 
 import java.time.Instant;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.Consumer;
 
 /**
- * بوت تداول أساسي مع دعم السلوكيات الديناميكية
- * يتبع نمط Strategy لفصل سلوك التداول
+ * البوت التجاري الأساسي مع دعم التفاعل المتقدم
+ * يتبع نمط Strategy لفصل استراتيجيات التداول
  */
 public abstract class TradingBot {
     protected final String botId;
     protected final PriceEngine priceEngine;
-    protected final OrderBook orderBook;
+    protected final AtomicReference<Double> capital = new AtomicReference<>(0.0);
     protected final AtomicBoolean isActive = new AtomicBoolean(false);
-    protected final AtomicReference<BotBehavior> currentBehavior = new AtomicReference<>();
-    protected final Consumer<String> logger;
+    protected final Instant createdAt = Instant.now();
 
-    protected TradingBot(String botId, PriceEngine priceEngine, OrderBook orderBook) {
+    protected TradingBot(String botId, PriceEngine priceEngine) {
         this.botId = botId;
         this.priceEngine = priceEngine;
-        this.orderBook = orderBook;
-        this.logger = message -> System.out.println("[" + Instant.now() + "] BOT " + botId + ": " + message);
     }
 
     /**
      * بدء تشغيل البوت
      */
-    public void start() {
-        if (isActive.compareAndSet(false, true)) {
-            logger.accept("Started with behavior: " + getCurrentBehaviorName());
-            executeTradingStrategy();
-        }
-    }
+    public abstract void start();
 
     /**
      * إيقاف تشغيل البوت
      */
-    public void stop() {
-        if (isActive.compareAndSet(true, false)) {
-            logger.accept("Stopped");
+    public abstract void stop();
+
+    /**
+     * تنفيذ صفقة تجارية
+     */
+    public abstract void executeTrade(TradeType tradeType, double amount);
+
+    /**
+     * تعيين رأس المال
+     */
+    public void setCapital(double capital) {
+        this.capital.set(capital);
+        System.out.println("TRADING BOT: Capital set to " + capital + " MAZDADY for bot " + botId);
+    }
+
+    /**
+     * إضافة رأس مال
+     */
+    public void addCapital(double amount) {
+        if (amount > 0) {
+            this.capital.updateAndGet(current -> current + amount);
+            System.out.println("TRADING BOT: Added " + amount + " MAZDADY to bot " + botId);
         }
     }
 
     /**
-     * تنفيذ استراتيجية التداول (يتم تطبيقها في الفئات الفرعية)
+     * خصم رأس مال
      */
-    protected abstract void executeTradingStrategy();
+    public boolean deductCapital(double amount) {
+        if (amount <= 0) return false;
+        
+        return this.capital.getAndUpdate(current -> {
+            if (current >= amount) {
+                return current - amount;
+            }
+            return current;
+        }) >= amount;
+    }
+
+    // --- Getters ---
+    public String getBotId() { return botId; }
+    public double getCapital() { return capital.get(); }
+    public boolean isActive() { return isActive.get(); }
+    public Instant getCreatedAt() { return createdAt; }
+    public PriceEngine getPriceEngine() { return priceEngine; }
 
     /**
-     * تعيين سلوك جديد للبوت
+     * أنواع الصفقات
      */
-    public void setBehavior(BotBehavior behavior) {
-        this.currentBehavior.set(behavior);
-        logger.accept("Behavior changed to: " + behavior.getName());
-    }
-
-    protected String getCurrentBehaviorName() {
-        BotBehavior behavior = currentBehavior.get();
-        return behavior != null ? behavior.getName() : "DEFAULT";
-    }
-
-    protected boolean isActive() {
-        return isActive.get();
+    public enum TradeType {
+        BUY, SELL
     }
 
     /**
-     * واجهة سلوك البوت
+     * نتيجة البوت
      */
-    @FunctionalInterface
-    public interface BotBehavior {
-        String getName();
-        void execute(TradingBot bot);
+    public static final class BotResult {
+        private final boolean success;
+        private final String message;
+
+        private BotResult(boolean success, String message) {
+            this.success = success;
+            this.message = message;
+        }
+
+        public static BotResult success(String message) {
+            return new BotResult(true, message);
+        }
+
+        public static BotResult failure(String message) {
+            return new BotResult(false, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public String getMessage() { return message; }
+    }
+
+    /**
+     * إيقاف البوت (للاختبارات)
+     */
+    public void shutdown() {
+        stop();
+        System.out.println("TRADING BOT: Shutdown completed - ID: " + botId);
     }
 }
