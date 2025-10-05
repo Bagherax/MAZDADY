@@ -1,0 +1,211 @@
+package mazdady.ui;
+
+import android.content.Context;
+import android.graphics.Canvas;
+import android.graphics.Color;
+import android.graphics.Paint;
+import android.graphics.Rect;
+import android.util.AttributeSet;
+import android.view.GestureDetector;
+import android.view.MotionEvent;
+import android.view.View;
+import android.widget.PopupMenu;
+import android.widget.Toast;
+
+import java.util.concurrent.CompletableFuture;
+import java.util.function.Consumer;
+
+/**
+ * مدير بوتات التداول مع دعم التعديل المباشر
+ * يتبع نمط Strategy لفصل استراتيجيات البوتات
+ */
+public final class TradingLineBotManager extends View {
+    private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final GestureDetector gestureDetector;
+    private final PopupMenu popupMenu;
+    private final Consumer<TradingLineBotManager> onLongPressCallback;
+    private volatile boolean isBotModeActive = false;
+    private volatile BotType currentBotType = BotType.NONE;
+    private static TradingLineBotManager instance;
+
+    public TradingLineBotManager(Context context, AttributeSet attrs) {
+        super(context, attrs);
+        this.gestureDetector = new GestureDetector(context, new GestureListener());
+        this.popupMenu = new PopupMenu(context, this);
+        this.onLongPressCallback = null;
+        
+        initializePaint();
+        setupPopupMenu();
+    }
+
+    public TradingLineBotManager(Context context, AttributeSet attrs, Consumer<TradingLineBotManager> onLongPressCallback) {
+        super(context, attrs);
+        this.gestureDetector = new GestureDetector(context, new GestureListener());
+        this.popupMenu = new PopupMenu(context, this);
+        this.onLongPressCallback = onLongPressCallback;
+        
+        initializePaint();
+        setupPopupMenu();
+    }
+
+    private void initializePaint() {
+        paint.setColor(Color.WHITE);
+        paint.setTextSize(16f);
+        paint.setTextAlign(Paint.Align.CENTER);
+    }
+
+    private void setupPopupMenu() {
+        popupMenu.getMenu().add("تشغيل بوت الطوارئ").setOnMenuItemClickListener(item -> {
+            startEmergencyBot();
+            return true;
+        });
+        
+        popupMenu.getMenu().add("تشغيل بوت التحليل").setOnMenuItemClickListener(item -> {
+            startAnalysisBot();
+            return true;
+        });
+        
+        popupMenu.getMenu().add("تشغيل بوت الربح").setOnMenuItemClickListener(item -> {
+            startProfitBot();
+            return true;
+        });
+        
+        popupMenu.getMenu().add("إيقاف جميع البوتات").setOnMenuItemClickListener(item -> {
+            stopAllBots();
+            return true;
+        });
+        
+        popupMenu.getMenu().add("تعديل إعدادات البوت").setOnMenuItemClickListener(item -> {
+            editBotSettings();
+            return true;
+        });
+        
+        popupMenu.getMenu().add("عرض إحصائيات البوتات").setOnMenuItemClickListener(item -> {
+            showBotStatistics();
+            return true;
+        });
+    }
+
+    @Override
+    public boolean onTouchEvent(MotionEvent event) {
+        if (gestureDetector.onTouchEvent(event)) {
+            return true;
+        }
+        return super.onTouchEvent(event);
+    }
+
+    private class GestureListener extends GestureDetector.SimpleOnGestureListener {
+        @Override
+        public void onLongPress(MotionEvent e) {
+            showPopupMenu(e.getX(), e.getY());
+            
+            if (onLongPressCallback != null) {
+                onLongPressCallback.accept(TradingLineBotManager.this);
+            }
+        }
+    }
+
+    private void showPopupMenu(float x, float y) {
+        popupMenu.show();
+        System.out.println("BOT MANAGER: Long press detected - Showing bot menu");
+    }
+
+    private void startEmergencyBot() {
+        // في الإنتاج: تشغيل بوت الطوارئ
+        Toast.makeText(getContext(), "تم تشغيل بوت الطوارئ", Toast.LENGTH_SHORT).show();
+        isBotModeActive = true;
+        currentBotType = BotType.EMERGENCY;
+    }
+
+    private void startAnalysisBot() {
+        // في الإنتاج: تشغيل بوت التحليل
+        Toast.makeText(getContext(), "تم تشغيل بوت التحليل", Toast.LENGTH_SHORT).show();
+        isBotModeActive = true;
+        currentBotType = BotType.ANALYSIS;
+    }
+
+    private void startProfitBot() {
+        // في الإنتاج: تشغيل بوت الربح
+        Toast.makeText(getContext(), "تم تشغيل بوت الربح", Toast.LENGTH_SHORT).show();
+        isBotModeActive = true;
+        currentBotType = BotType.PROFIT;
+    }
+
+    private void stopAllBots() {
+        // في الإنتاج: إيقاف جميع البوتات
+        Toast.makeText(getContext(), "تم إيقاف جميع البوتات", Toast.LENGTH_SHORT).show();
+        isBotModeActive = false;
+        currentBotType = BotType.NONE;
+    }
+
+    private void editBotSettings() {
+        // في الإنتاج: عرض نافذة إعدادات البوت
+        Toast.makeText(getContext(), "يمكنك تعديل إعدادات البوت من هنا", Toast.LENGTH_SHORT).show();
+    }
+
+    private void showBotStatistics() {
+        // في الإنتاج: عرض إحصائيات البوتات
+        Toast.makeText(getContext(), "عرض إحصائيات البوتات", Toast.LENGTH_SHORT).show();
+    }
+
+    /**
+     * رسم حالة البوتات
+     */
+    @Override
+    protected void onDraw(Canvas canvas) {
+        super.onDraw(canvas);
+        
+        try {
+            // رسم إطار حول العنصر إذا كان البوت نشطًا
+            if (isBotModeActive) {
+                Rect rect = new Rect(0, 0, getWidth(), getHeight());
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setColor(Color.RED);
+                paint.setStrokeWidth(4f);
+                canvas.drawRect(rect, paint);
+                
+                // رسم أيقونة البوت النشط
+                paint.setStyle(Paint.Style.FILL);
+                paint.setColor(Color.WHITE);
+                canvas.drawText(currentBotType.getIcon(), getWidth() / 2f, getHeight() / 2f, paint);
+            }
+            
+        } catch (Exception e) {
+            System.err.println("BOT MANAGER DRAW ERROR: " + e.getMessage());
+        }
+    }
+
+    /**
+     * نوع البوت
+     */
+    public enum BotType {
+        NONE("", ""),
+        EMERGENCY("🚨", "بوت الطوارئ"),
+        ANALYSIS("📊", "بوت التحليل"),
+        PROFIT("📈", "بوت الربح");
+
+        private final String icon;
+        private final String name;
+
+        BotType(String icon, String name) {
+            this.icon = icon;
+            this.name = name;
+        }
+
+        public String getIcon() { return icon; }
+        public String getName() { return name; }
+    }
+
+    // --- Getters/Setters ---
+    public boolean isBotModeActive() { return isBotModeActive; }
+    public void setBotModeActive(boolean active) { this.isBotModeActive = active; }
+    public BotType getCurrentBotType() { return currentBotType; }
+    public void setCurrentBotType(BotType type) { this.currentBotType = type; }
+
+    /**
+     * إيقاف المدير (للاختبارات)
+     */
+    public void shutdown() {
+        System.out.println("BOT MANAGER: Shutdown completed");
+    }
+}
