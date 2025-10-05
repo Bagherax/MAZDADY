@@ -1,0 +1,121 @@
+package mazdady.svc;
+
+import mazdady.wallet.WalletManager;
+import mazdady.wallet.WalletConnector;
+import mazdady.user.UserManager;
+
+import java.util.concurrent.CompletableFuture;
+
+/**
+ * خدمة المحفظة مع دعم العمليات الآمنة
+ * يتبع نمط Facade لتوفير واجهة موحدة
+ */
+public final class WalletService {
+    private static WalletService instance;
+
+    private WalletService() {}
+
+    public static synchronized WalletService getInstance() {
+        if (instance == null) {
+            instance = new WalletService();
+        }
+        return instance;
+    }
+
+    /**
+     * ربط محفظة خارجية غير متزامن
+     */
+    public CompletableFuture<WalletResult> connectWalletAsync(String address, String network) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                WalletConnector connector = new WalletConnector();
+                connector.connectWallet(address, network);
+                
+                User user = UserManager.getInstance(null).getCurrentUser();
+                user.setWalletAddress(address);
+                
+                System.out.println("WALLET CONNECTED: " + address + " on " + network);
+                return WalletResult.success("Wallet connected successfully");
+                
+            } catch (Exception e) {
+                return WalletResult.failure("Failed to connect wallet: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * سحب الأرباح غير المتزامن
+     */
+    public CompletableFuture<WithdrawalResult> withdrawAsync(double amount) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                WalletManager wallet = new WalletManager();
+                boolean success = wallet.withdrawMAZDADY(amount);
+                
+                if (success) {
+                    System.out.println("WITHDRAWAL SUCCESSFUL: " + amount + " MAZDADY");
+                    return WithdrawalResult.success("Withdrawal completed successfully");
+                } else {
+                    return WithdrawalResult.failure("Insufficient balance or withdrawal failed");
+                }
+            } catch (Exception e) {
+                return WithdrawalResult.failure("Withdrawal error: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * الحصول على رصيد المحفظة
+     */
+    public double getBalance() {
+        return new WalletManager().getBalance();
+    }
+
+    /**
+     * نتيجة المحفظة
+     */
+    public static final class WalletResult {
+        private final boolean success;
+        private final String message;
+
+        private WalletResult(boolean success, String message) {
+            this.success = success;
+            this.message = message;
+        }
+
+        public static WalletResult success(String message) {
+            return new WalletResult(true, message);
+        }
+
+        public static WalletResult failure(String message) {
+            return new WalletResult(false, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public String getMessage() { return message; }
+    }
+
+    /**
+     * نتيجة السحب
+     */
+    public static final class WithdrawalResult {
+        private final boolean success;
+        private final String message;
+
+        private WithdrawalResult(boolean success, String message) {
+            this.success = success;
+            this.message = message;
+        }
+
+        public static WithdrawalResult success(String message) {
+            return new WithdrawalResult(true, message);
+        }
+
+        public static WithdrawalResult failure(String message) {
+            return new WithdrawalResult(false, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public String getMessage() { return message; }
+    }
+}
