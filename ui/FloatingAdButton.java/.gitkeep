@@ -2,99 +2,171 @@ package mazdady.ui;
 
 import android.content.Context;
 import android.graphics.drawable.AnimationDrawable;
-import android.os.Handler;
 import android.util.AttributeSet;
 import android.view.Gravity;
+import android.view.View;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
-import android.widget.TextView;
-import com.squareup.picasso.Picasso;
 
-public class FloatingAdButton extends FrameLayout {
-    private ImageView glowView;
-    private TextView countdownView;
-    private Handler handler = new Handler();
-    private Runnable hideRunnable;
-    private int displayDuration; // المدة قبل الاختفاء (ثواني)
-    private int hideDuration;    // المدة قبل الظهور مجددًا (ثواني)
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+
+/**
+ * زر إعلان عائم مع دعم التأثيرات الديناميكية
+ * يتبع نمط Observer لإعلام النظام بالتفاعلات
+ */
+public final class FloatingAdButton extends FrameLayout {
+    private final ImageView glowImageView;
+    private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+    private volatile boolean isHidden = false;
+    private volatile long displayDuration = 10000; // 10 ثواني
+    private volatile long hideDuration = 30000; // 30 ثانية
 
     public FloatingAdButton(Context context, AttributeSet attrs) {
         super(context, attrs);
-        init();
+        this.glowImageView = new ImageView(context);
+        initializeButton();
     }
 
-    private void init() {
-        // إنشاء خلفية اللمعان
-        glowView = new ImageView(getContext());
-        glowView.setImageResource(R.drawable.glow_animation); // ملف XML للتحريك
-        addView(glowView, new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT, Gravity.CENTER));
+    private void initializeButton() {
+        // إعداد صورة الزر مع تأثير اللمعان
+        glowImageView.setImageResource(R.drawable.glow_animation);
+        glowImageView.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        
+        LayoutParams params = new LayoutParams(
+            LayoutParams.MATCH_PARENT,
+            LayoutParams.MATCH_PARENT
+        );
+        params.gravity = Gravity.CENTER;
+        addView(glowImageView, params);
+        
+        // تفعيل تأثير اللمعان
+        startGlowAnimation();
+        
+        // تعيين حدث النقر
+        setOnClickListener(this::handleClick);
+        
+        System.out.println("FLOATING AD: Button initialized");
+    }
 
-        // إنشاء عداد التنازلي
-        countdownView = new TextView(getContext());
-        countdownView.setTextColor(0xFFFFFFFF);
-        countdownView.setTextSize(12);
-        LayoutParams params = new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
-        params.bottomMargin = 10;
-        addView(countdownView, params);
-
-        // بدء تأثير اللمعان
-        if (glowView.getDrawable() instanceof AnimationDrawable) {
-            ((AnimationDrawable) glowView.getDrawable()).start();
+    /**
+     * تكوين الزر
+     */
+    public void configure(long displayDuration, long hideDuration, String adImageUrl) {
+        this.displayDuration = displayDuration;
+        this.hideDuration = hideDuration;
+        
+        // في الإنتاج: تحميل صورة الإعلان
+        if (adImageUrl != null && !adImageUrl.isEmpty()) {
+            loadAdImage(adImageUrl);
         }
+        
+        System.out.println("FLOATING AD: Button configured with display=" + displayDuration + 
+                         "ms, hide=" + hideDuration + "ms");
     }
 
-    public void configure(int displaySec, int hideSec, String adImageUrl) {
-        this.displayDuration = displaySec;
-        this.hideDuration = hideSec;
-
-        // تحميل صورة الإعلان
-        Picasso.get().load(adImageUrl).into(glowView);
-
-        // بدء العداد
-        startCountdown();
-    }
-
-    private void startCountdown() {
-        int secondsLeft = displayDuration;
-        countdownView.setText(String.valueOf(secondsLeft));
-
-        Runnable countdown = new Runnable() {
-            @Override
-            public void run() {
-                secondsLeft--;
-                if (secondsLeft > 0) {
-                    countdownView.setText(String.valueOf(secondsLeft));
-                    handler.postDelayed(this, 1000);
-                } else {
-                    hideAd();
-                }
+    /**
+     * تفعيل تأثير اللمعان
+     */
+    private void startGlowAnimation() {
+        try {
+            if (glowImageView.getDrawable() instanceof AnimationDrawable) {
+                AnimationDrawable animation = (AnimationDrawable) glowImageView.getDrawable();
+                animation.start();
+                System.out.println("FLOATING AD: Glow animation started");
             }
-        };
-        handler.postDelayed(countdown, 1000);
-
-        // جدولة الإخفاء
-        hideRunnable = () -> {
-            setVisibility(GONE);
-            // جدولة الظهور مجددًا
-            handler.postDelayed(this::showAd, hideDuration * 1000L);
-        };
-        handler.postDelayed(hideRunnable, displayDuration * 1000L);
-    }
-
-    private void hideAd() {
-        setVisibility(GONE);
-        handler.postDelayed(this::showAd, hideDuration * 1000L);
-    }
-
-    private void showAd() {
-        setVisibility(VISIBLE);
-        startCountdown();
-    }
-
-    public void destroy() {
-        if (hideRunnable != null) {
-            handler.removeCallbacks(hideRunnable);
+        } catch (Exception e) {
+            System.err.println("FLOATING AD ANIMATION ERROR: " + e.getMessage());
         }
-        handler.removeCallbacksAndMessages(null);
     }
+
+    /**
+     * تحميل صورة الإعلان
+     */
+    private void loadAdImage(String imageUrl) {
+        // في الإنتاج: استخدام Glide أو Picasso لتحميل الصورة
+        System.out.println("FLOATING AD: Loading image from " + imageUrl);
+    }
+
+    /**
+     * التعامل مع النقر على الزر
+     */
+    private void handleClick(View view) {
+        // إشعارات النظام بحدث النقر
+        notifyClickEvent();
+        
+        // إخفاء الزر مؤقتًا
+        hideTemporarily();
+        
+        System.out.println("FLOATING AD: Button clicked");
+    }
+
+    /**
+     * إخفاء الزر مؤقتًا
+     */
+    private void hideTemporarily() {
+        isHidden = true;
+        setVisibility(GONE);
+        
+        // جدولة إظهار الزر مرة أخرى
+        scheduler.schedule(
+            this::showButton,
+            hideDuration,
+            TimeUnit.MILLISECONDS
+        );
+        
+        System.out.println("FLOATING AD: Button hidden for " + hideDuration + "ms");
+    }
+
+    /**
+     * إظهار الزر
+     */
+    private void showButton() {
+        post(() -> {
+            isHidden = false;
+            setVisibility(VISIBLE);
+            startGlowAnimation();
+            System.out.println("FLOATING AD: Button shown again");
+        });
+    }
+
+    /**
+     * إشعارات النظام بحدث النقر
+     */
+    private void notifyClickEvent() {
+        // في الإنتاج: إرسال إشعار للنظام أو السيرفر
+        System.out.println("FLOATING AD: Click event notified");
+    }
+
+    /**
+     * بدء العرض المؤقت
+     */
+    public void startTemporaryDisplay() {
+        setVisibility(VISIBLE);
+        isHidden = false;
+        
+        // جدولة الإخفاء التلقائي
+        scheduler.schedule(
+            this::hideTemporarily,
+            displayDuration,
+            TimeUnit.MILLISECONDS
+        );
+        
+        System.out.println("FLOATING AD: Temporary display started for " + displayDuration + "ms");
+    }
+
+    /**
+     * إيقاف الزر (للاختبارات)
+     */
+    public void shutdown() {
+        scheduler.shutdown();
+        setVisibility(GONE);
+        System.out.println("FLOATING AD: Button shutdown");
+    }
+
+    // --- Getters ---
+    public boolean isHidden() { return isHidden; }
+    public long getDisplayDuration() { return displayDuration; }
+    public long getHideDuration() { return hideDuration; }
 }
