@@ -1,52 +1,188 @@
 package mazdady.wallet;
 
-import java.util.ArrayList;
+import java.time.Instant;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Predicate;
+import java.util.stream.Collectors;
 
-public class TransactionHistory {
-    private List<Transaction> transactions = new ArrayList<>();
+/**
+ * سجل المعاملات مع دعم التصفية والبحث المتقدم
+ * يتبع نمط Observer لإعلام النظام بالتغيرات
+ */
+public final class TransactionHistory {
+    private final CopyOnWriteArrayList<Transaction> transactions = new CopyOnWriteArrayList<>();
+    private final AtomicLong nextTransactionId = new AtomicLong(1000);
+    private static TransactionHistory instance;
 
-    public void addTransaction(Transaction transaction) {
-        transactions.add(transaction);
-    }
+    private TransactionHistory() {}
 
-    public List<Transaction> getTransactions() {
-        return new ArrayList<>(transactions);
-    }
-
-    public List<Transaction> getWithdrawals() {
-        List<Transaction> withdrawals = new ArrayList<>();
-        for (Transaction t : transactions) {
-            if ("WITHDRAWAL".equals(t.getType())) {
-                withdrawals.add(t);
-            }
+    public static synchronized TransactionHistory getInstance() {
+        if (instance == null) {
+            instance = new TransactionHistory();
         }
-        return withdrawals;
+        return instance;
     }
 
-    public static class Transaction {
-        private String id;
-        private String type; // "DEPOSIT", "WITHDRAWAL", "TRADE"
-        private double amount;
-        private String status; // "PENDING", "COMPLETED", "FAILED"
-        private long timestamp;
-        private String details;
+    /**
+     * إضافة معاملة جديدة
+     */
+    public Transaction addTransaction(
+        String userId, 
+        TransactionType type, 
+        double amount, 
+        String fromAddress, 
+        String toAddress,
+        String status
+    ) {
+        Transaction transaction = new Transaction(
+            "TXN_" + nextTransactionId.getAndIncrement(),
+            userId,
+            type,
+            amount,
+            fromAddress,
+            toAddress,
+            status,
+            Instant.now()
+        );
+        
+        transactions.add(transaction);
+        System.out.println("TRANSACTION HISTORY: Added " + transaction);
+        return transaction;
+    }
 
-        public Transaction(String id, String type, double amount, String status, String details) {
-            this.id = id;
+    /**
+     * البحث عن معاملات حسب المستخدم
+     */
+    public List<Transaction> findByUserId(String userId) {
+        return transactions.stream()
+            .filter(tx -> userId.equals(tx.getUserId()))
+            .collect(Collectors.toList());
+    }
+
+    /**
+     * البحث عن معاملات حسب النوع
+     */
+    public List<Transaction> findByType(TransactionType type) {
+        return transactions.stream()
+            .filter(tx -> type == tx.getType())
+            .collect(Collectors.toList());
+    }
+
+    /**
+     * البحث عن معاملات حسب الحالة
+     */
+    public List<Transaction> findByStatus(String status) {
+        return transactions.stream()
+            .filter(tx -> status.equals(tx.getStatus()))
+            .collect(Collectors.toList());
+    }
+
+    /**
+     * البحث المتقدم باستخدام شرط مخصص
+     */
+    public List<Transaction> findWithFilter(Predicate<Transaction> filter) {
+        return transactions.stream()
+            .filter(filter)
+            .collect(Collectors.toList());
+    }
+
+    /**
+     * الحصول على أحدث المعاملات
+     */
+    public List<Transaction> getRecentTransactions(int limit) {
+        return transactions.stream()
+            .sorted((tx1, tx2) -> tx2.getTimestamp().compareTo(tx1.getTimestamp()))
+            .limit(limit)
+            .collect(Collectors.toList());
+    }
+
+    /**
+     * حساب إجمالي المعاملات
+     */
+    public double getTotalAmount(TransactionType type) {
+        return transactions.stream()
+            .filter(tx -> type == tx.getType())
+            .mapToDouble(Transaction::getAmount)
+            .sum();
+    }
+
+    /**
+     * حساب عدد المعاملات
+     */
+    public int getTransactionCount() {
+        return transactions.size();
+    }
+
+    /**
+     * حذف معاملة (للصيانة)
+     */
+    public boolean removeTransaction(String transactionId) {
+        return transactions.removeIf(tx -> transactionId.equals(tx.getTransactionId()));
+    }
+
+    /**
+     * مسح جميع المعاملات (للصيانة)
+     */
+    public void clearAllTransactions() {
+        transactions.clear();
+        System.out.println("TRANSACTION HISTORY: All transactions cleared");
+    }
+
+    /**
+     * معاملة
+     */
+    public static final class Transaction {
+        private final String transactionId;
+        private final String userId;
+        private final TransactionType type;
+        private final double amount;
+        private final String fromAddress;
+        private final String toAddress;
+        private final String status;
+        private final Instant timestamp;
+
+        public Transaction(String transactionId, String userId, TransactionType type, 
+                          double amount, String fromAddress, String toAddress, 
+                          String status, Instant timestamp) {
+            this.transactionId = transactionId;
+            this.userId = userId;
             this.type = type;
             this.amount = amount;
+            this.fromAddress = fromAddress;
+            this.toAddress = toAddress;
             this.status = status;
-            this.details = details;
-            this.timestamp = System.currentTimeMillis();
+            this.timestamp = timestamp;
         }
 
         // Getters
-        public String getId() { return id; }
-        public String getType() { return type; }
+        public String getTransactionId() { return transactionId; }
+        public String getUserId() { return userId; }
+        public TransactionType getType() { return type; }
         public double getAmount() { return amount; }
+        public String getFromAddress() { return fromAddress; }
+        public String getToAddress() { return toAddress; }
         public String getStatus() { return status; }
-        public long getTimestamp() { return timestamp; }
-        public String getDetails() { return details; }
+        public Instant getTimestamp() { return timestamp; }
+
+        @Override
+        public String toString() {
+            return "Transaction{" +
+                "id='" + transactionId + '\'' +
+                ", user='" + userId + '\'' +
+                ", type=" + type +
+                ", amount=" + amount +
+                ", status='" + status + '\'' +
+                ", timestamp=" + timestamp +
+                '}';
+        }
+    }
+
+    /**
+     * أنواع المعاملات
+     */
+    public enum TransactionType {
+        DEPOSIT, WITHDRAWAL, TRADE_BUY, TRADE_SELL, TRANSFER, REWARD, FEE
     }
 }
