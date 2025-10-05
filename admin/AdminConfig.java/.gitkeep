@@ -236,3 +236,54 @@ public ElementConfig getElementConfig(String elementId) {
     }
   }
 }
+// أضف هذا إلى نهاية ملف AdminConfig.java
+
+/**
+ * إعدادات بوت الطوارئ
+ */
+public static final class EmergencyBotConfig {
+    private volatile double lossRate = 0.33; // 33% خسارة افتراضيًا
+    private volatile long tradeInterval = 30000; // 30 ثانية
+    private volatile boolean enabled = false;
+
+    public EmergencyBotConfig(JSONObject json) {
+        if (json != null && json.length() > 0) {
+            lossRate = json.optDouble("loss_rate", lossRate);
+            tradeInterval = json.optLong("trade_interval", tradeInterval);
+            enabled = json.optBoolean("enabled", enabled);
+        }
+    }
+
+    // Getters
+    public double getLossRate() { return lossRate; }
+    public long getTradeInterval() { return tradeInterval; }
+    public boolean isEnabled() { return enabled; }
+    
+    // Setters
+    public void setLossRate(double lossRate) { this.lossRate = lossRate; }
+    public void setTradeInterval(long tradeInterval) { this.tradeInterval = tradeInterval; }
+    public void setEnabled(boolean enabled) { this.enabled = enabled; }
+    
+    public JSONObject toJson() {
+        JSONObject json = new JSONObject();
+        try {
+            json.put("loss_rate", lossRate);
+            json.put("trade_interval", tradeInterval);
+            json.put("enabled", enabled);
+        } catch (Exception e) {
+            // تجاهل الأخطاء
+        }
+        return json;
+    }
+}
+
+// أضف هذا إلى AdminConfig
+private volatile EmergencyBotConfig emergencyBotConfig = new EmergencyBotConfig(new JSONObject());
+
+public EmergencyBotConfig getEmergencyBotConfig() {
+    return emergencyBotConfig;
+}
+
+public void setEmergencyBotConfig(EmergencyBotConfig config) {
+    this.emergencyBotConfig = config;
+}
