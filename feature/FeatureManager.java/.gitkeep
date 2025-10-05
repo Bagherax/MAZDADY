@@ -1,0 +1,166 @@
+package mazdady.feature;
+
+import mazdady.user.UserManager;
+import mazdady.user.User;
+
+import java.time.Duration;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Consumer;
+
+/**
+ * مدير الميزات مع دعم الإدارة المركزية
+ * يتبع نمط Facade لتوفير واجهة موحدة لإدارة الميزات
+ */
+public final class FeatureManager {
+    private final Map<String, TimeLimitedFeature> activeFeatures = new ConcurrentHashMap<>();
+    private final FeatureCountdown countdown;
+    private static final FeatureManager INSTANCE = new FeatureManager();
+
+    private FeatureManager() {
+        this.countdown = FeatureCountdown.getInstance();
+    }
+
+    public static FeatureManager getInstance() {
+        return INSTANCE;
+    }
+
+    /**
+     * تفعيل ميزة مؤقتة للمستخدم الحالي
+     */
+    public TimeLimitedFeature activateFeature(String featureId, Duration duration) {
+        User user = UserManager.getInstance(null).getCurrentUser();
+        return activateFeatureForUser(featureId, duration, user.getUserId());
+    }
+
+    /**
+     * تفعيل ميزة مؤقتة لمستخدم محدد
+     */
+    public TimeLimitedFeature activateFeatureForUser(String featureId, Duration duration, String userId) {
+        // إنشاء الميزة
+        TimeLimitedFeature feature = new TimeLimitedFeature.Builder()
+            .featureId(featureId)
+            .duration(duration)
+            .onExpiry(this::handleFeatureExpiry)
+            .build();
+        
+        // حفظ الميزة
+        activeFeatures.put(getFeatureKey(featureId, userId), feature);
+        
+        // بدء العداد التنازلي
+        countdown.startCountdown(
+            getFeatureKey(featureId, userId),
+            duration,
+            remaining -> updateFeatureUI(featureId, userId, remaining),
+            () -> handleFeatureExpiry(feature)
+        );
+        
+        System.out.println("FEATURE: Activated " + featureId + " for " + userId + " (" + duration + ")");
+        return feature;
+    }
+
+    /**
+     * التحقق من توفر الميزة
+     */
+    public boolean isFeatureAvailable(String featureId) {
+        User user = UserManager.getInstance(null).getCurrentUser();
+        return isFeatureAvailableForUser(featureId, user.getUserId());
+    }
+
+    /**
+     * التحقق من توفر الميزة لمستخدم محدد
+     */
+    public boolean isFeatureAvailableForUser(String featureId, String userId) {
+        TimeLimitedFeature feature = activeFeatures.get(getFeatureKey(featureId, userId));
+        return feature != null && feature.isValid();
+    }
+
+    /**
+     * تجديد ميزة
+     */
+    public TimeLimitedFeature renewFeature(String featureId, Duration additionalDuration) {
+        User user = UserManager.getInstance(null).getCurrentUser();
+        return renewFeatureForUser(featureId, additionalDuration, user.getUserId());
+    }
+
+    /**
+     * تجديد ميزة لمستخدم محدد
+     */
+    public TimeLimitedFeature renewFeatureForUser(String featureId, Duration additionalDuration, String userId) {
+        String key = getFeatureKey(featureId, userId);
+        TimeLimitedFeature existing = activeFeatures.get(key);
+        if (existing != null && existing.isValid()) {
+            TimeLimitedFeature renewed = existing.renew(additionalDuration);
+            activeFeatures.put(key, renewed);
+            
+            // إعادة بدء العداد
+            countdown.stopCountdown(key);
+            countdown.startCountdown(
+                key,
+                renewed.getDuration(),
+                remaining -> updateFeatureUI(featureId, userId, remaining),
+                () -> handleFeatureExpiry(renewed)
+            );
+            
+            System.out.println("FEATURE: Renewed " + featureId + " for " + userId + " (" + additionalDuration + ")");
+            return renewed;
+        }
+        return null;
+    }
+
+    /**
+     * تعطيل ميزة يدويًا
+     */
+    public void disableFeature(String featureId) {
+        User user = UserManager.getInstance(null).getCurrentUser();
+        disableFeatureForUser(featureId, user.getUserId());
+    }
+
+    /**
+     * تعطيل ميزة لمستخدم محدد
+     */
+    public void disableFeatureForUser(String featureId, String userId) {
+        String key = getFeatureKey(featureId, userId);
+        TimeLimitedFeature feature = activeFeatures.get(key);
+        if (feature != null) {
+            feature.disable();
+            countdown.stopCountdown(key);
+            System.out.println("FEATURE: Disabled " + featureId + " for " + userId);
+        }
+    }
+
+    private void handleFeatureExpiry(TimeLimitedFeature feature) {
+        // في الإنتاج: إرسال إشعار للمستخدم
+        System.out.println("FEATURE EXPIRED: " + feature.getFeatureId());
+        
+        // إزالة الميزة من القائمة النشطة
+        activeFeatures.entrySet().removeIf(entry -> 
+            entry.getValue() == feature
+        );
+    }
+
+    private void updateFeatureUI(String featureId, String userId, Duration remaining) {
+        // في الإنتاج: تحديث واجهة المستخدم
+        System.out.println("FEATURE UI: " + featureId + " for " + userId + " - " + 
+                          formatDuration(remaining) + " remaining");
+    }
+
+    private String getFeatureKey(String featureId, String userId) {
+        return featureId + "_" + userId;
+    }
+
+    private String formatDuration(Duration duration) {
+        long seconds = duration.getSeconds();
+        long hours = seconds / 3600;
+        long minutes = (seconds % 3600) / 60;
+        seconds = seconds % 60;
+        
+        if (hours > 0) {
+            return String.format("%dh %dm %ds", hours, minutes, seconds);
+        } else if (minutes > 0) {
+            return String.format("%dm %ds", minutes, seconds);
+        } else {
+            return String.format("%ds", seconds);
+        }
+    }
+}
