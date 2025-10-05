@@ -1,65 +1,173 @@
 package mazdady.wallet;
 
 import mazdady.user.UserManager;
-import mazdady.withdrawal.WithdrawalRulesEngine;
+import mazdady.security.SecureStorage;
 
-public class WalletManager {
-    private final WalletConnector connector;
-    private double mazdadyBalance;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicReference;
 
-    public WalletManager() {
-        this.connector = new WalletConnector();
-        this.mazdadyBalance = UserManager.getInstance(null).getCurrentUser().getBalance();
+/**
+ * مدير المحفظة مع دعم العمليات الآمنة
+ * يتبع نمط Facade لتوفير واجهة موحدة
+ */
+public final class WalletManager {
+    private final SecureStorage secureStorage;
+    private final WalletConnector walletConnector;
+    private final TransactionHistory transactionHistory;
+    private final AtomicReference<Double> balance = new AtomicReference<>(0.0);
+    private static WalletManager instance;
+
+    private WalletManager(SecureStorage secureStorage) {
+        this.secureStorage = secureStorage;
+        this.walletConnector = WalletConnector.getInstance(secureStorage);
+        this.transactionHistory = TransactionHistory.getInstance();
+        loadBalance();
     }
 
-    public void depositMAZDADY(double amount) {
-        if (amount > 0) {
-            this.mazdadyBalance += amount;
-            updateBalanceInUser();
+    public static synchronized WalletManager getInstance(SecureStorage secureStorage) {
+        if (instance == null) {
+            instance = new WalletManager(secureStorage);
+        }
+        return instance;
+    }
+
+    private void loadBalance() {
+        try {
+            String balanceStr = secureStorage.getString("wallet_balance", "0.0");
+            double loadedBalance = Double.parseDouble(balanceStr);
+            balance.set(loadedBalance);
+            System.out.println("WALLET MANAGER: Balance loaded - " + loadedBalance + " MAZDADY");
+        } catch (Exception e) {
+            balance.set(0.0);
+            System.err.println("WALLET MANAGER: Failed to load balance - " + e.getMessage());
         }
     }
 
-    public boolean withdrawMAZDADY(double amount) {
-        WithdrawalRulesEngine rulesEngine = new WithdrawalRulesEngine();
-        var result = rulesEngine.canWithdraw(
-            UserManager.getInstance(null).getCurrentUser(), 
-            amount
+    /**
+     * سحب MAZDADY غير متزامن
+     */
+    public CompletableFuture<WithdrawalResult> withdrawMAZDADYAsync(double amount) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                if (amount <= 0) {
+                    return WithdrawalResult.failure("Invalid withdrawal amount");
+                }
+                
+                if (balance.get() < amount) {
+                    return WithdrawalResult.failure("Insufficient balance");
+                }
+                
+                // التحقق من ربط المحفظة
+                if (!walletConnector.isConnected()) {
+                    return WithdrawalResult.failure("Wallet not connected");
+                }
+                
+                // تنفيذ السحب
+                boolean success = executeWithdrawal(amount);
+                
+                if (success) {
+                    // خصم المبلغ من الرصيد
+                    balance.updateAndGet(current -> current - amount);
+                    saveBalance();
+                    
+                    // تسجيل المعاملة
+                    String userId = UserManager.getInstance(null).getCurrentUser().getUserId();
+                    transactionHistory.addTransaction(
+                        userId,
+                        TransactionHistory.TransactionType.WITHDRAWAL,
+                        amount,
+                        "MAZDADY_WALLET",
+                        walletConnector.getCurrentWalletAddress(),
+                        "COMPLETED"
+                    );
+                    
+                    System.out.println("WALLET MANAGER: Withdrew " + amount + " MAZDADY");
+                    return WithdrawalResult.success("Withdrawal completed successfully");
+                } else {
+                    return WithdrawalResult.failure("Withdrawal execution failed");
+                }
+                
+            } catch (Exception e) {
+                return WithdrawalResult.failure("Withdrawal failed: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * إيداع MAZDADY
+     */
+    public void depositMAZDADY(double amount) {
+        if (amount <= 0) return;
+        
+        balance.updateAndGet(current -> current + amount);
+        saveBalance();
+        
+        // تسجيل المعاملة
+        String userId = UserManager.getInstance(null).getCurrentUser().getUserId();
+        transactionHistory.addTransaction(
+            userId,
+            TransactionHistory.TransactionType.DEPOSIT,
+            amount,
+            "EXTERNAL_SOURCE",
+            "MAZDADY_WALLET",
+            "COMPLETED"
         );
         
-        if (result.isAllowed()) {
-            // خصم الضريبة
-            double netAmount = applyTax(amount);
-            this.mazdadyBalance -= amount;
-            updateBalanceInUser();
-            
-            // إرسال إلى المحفظة الخارجية
-            sendToExternalWallet(netAmount);
-            return true;
-        }
-        return false;
+        System.out.println("WALLET MANAGER: Deposited " + amount + " MAZDADY");
     }
 
-    private double applyTax(double grossAmount) {
-        // في الإنتاج: استخدام TaxCalculator
-        return grossAmount * 0.95; // 5% ضريبة افتراضية
+    private boolean executeWithdrawal(double amount) {
+        // في الإنتاج: تنفيذ السحب عبر البلوك تشين
+        System.out.println("WALLET MANAGER: Executing withdrawal of " + amount + " MAZDADY");
+        return true; // محاكاة النجاح
     }
 
-    private void sendToExternalWallet(double amount) {
-        if (connector.isConnected()) {
-            // في الإنتاج: إرسال عبر Web3
-            System.out.println("تم إرسال " + amount + " MAZDADY إلى " + connector.getWalletAddress());
+    private void saveBalance() {
+        try {
+            secureStorage.putString("wallet_balance", String.valueOf(balance.get()));
+        } catch (Exception e) {
+            System.err.println("WALLET MANAGER: Failed to save balance - " + e.getMessage());
         }
     }
 
-    private void updateBalanceInUser() {
-        UserManager.getInstance(null).updateBalance(mazdadyBalance);
+    /**
+     * نتيجة السحب
+     */
+    public static final class WithdrawalResult {
+        private final boolean success;
+        private final String message;
+
+        private WithdrawalResult(boolean success, String message) {
+            this.success = success;
+            this.message = message;
+        }
+
+        public static WithdrawalResult success(String message) {
+            return new WithdrawalResult(true, message);
+        }
+
+        public static WithdrawalResult failure(String message) {
+            return new WithdrawalResult(false, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public String getMessage() { return message; }
     }
 
-    public double getBalance() {
-        return mazdadyBalance;
-    }
-
-    public WalletConnector getConnector() {
-        return connector;
+    // --- Getters ---
+    public double getBalance() { return balance.get(); }
+    public WalletConnector getConnector() { return walletConnector; }
+    public TransactionHistory getTransactionHistory() { return transactionHistory; }
+    public boolean isConnected() { return walletConnector.isConnected(); }
+    public String getWalletAddress() { return walletConnector.getCurrentWalletAddress(); }
+    public WalletConnector.BlockchainNetwork getNetwork() { return walletConnector.getCurrentNetwork(); }
+    
+    /**
+     * تحديث الرصيد يدويًا (للصيانة)
+     */
+    public void setBalance(double newBalance) {
+        balance.set(newBalance);
+        saveBalance();
+        System.out.println("WALLET MANAGER: Balance manually updated to " + newBalance);
     }
 }
