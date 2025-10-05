@@ -1,8 +1,11 @@
 package mazdady.dev;
 
+import mazdady.admin.AdminConfig;
+import mazdady.security.SecurityMonitor;
+
 import java.io.File;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Predicate;
 
 /**
@@ -10,22 +13,35 @@ import java.util.function.Predicate;
  * يتبع نمط Strategy لفصل قواعد التحليل
  */
 public final class CodeAnalyzer {
-    private final CopyOnWriteArrayList<AnalysisRule> rules = new CopyOnWriteArrayList<>();
-    private static final CodeAnalyzer INSTANCE = new CodeAnalyzer();
+    private final ConcurrentHashMap<String, AnalysisRule> rules = new ConcurrentHashMap<>();
+    private final SecurityMonitor securityMonitor;
+    private static CodeAnalyzer instance;
 
-    private CodeAnalyzer() {
+    private CodeAnalyzer(SecurityMonitor securityMonitor) {
+        this.securityMonitor = securityMonitor;
         initializeRules();
     }
 
-    public static CodeAnalyzer getInstance() {
-        return INSTANCE;
+    public static synchronized CodeAnalyzer getInstance(SecurityMonitor securityMonitor) {
+        if (instance == null) {
+            instance = new CodeAnalyzer(securityMonitor);
+        }
+        return instance;
     }
 
     private void initializeRules() {
-        rules.add(new NullCheckRule());
-        rules.add(new SecurityRule());
-        rules.add(new PerformanceRule());
-        rules.add(new NamingConventionRule());
+        rules.put("NULL_CHECK", new NullCheckRule());
+        rules.put("SECURITY_RULE", new SecurityRule());
+        rules.put("PERFORMANCE_RULE", new PerformanceRule());
+        rules.put("NAMING_CONVENTION", new NamingConventionRule());
+        rules.put("THREAD_SAFETY", new ThreadSafetyRule());
+        rules.put("MEMORY_LEAK", new MemoryLeakRule());
+        rules.put("RESOURCE_MANAGEMENT", new ResourceManagementRule());
+        rules.put("ERROR_HANDLING", new ErrorHandlingRule());
+        rules.put("CODE_DUPLICATION", new CodeDuplicationRule());
+        rules.put("DEPRECATED_USAGE", new DeprecatedUsageRule());
+        
+        System.out.println("CODE ANALYZER: Initialized with " + rules.size() + " analysis rules");
     }
 
     /**
@@ -33,10 +49,24 @@ public final class CodeAnalyzer {
      */
     public CompletableFuture<AnalysisReport> analyzeProjectAsync(String projectPath) {
         return CompletableFuture.supplyAsync(() -> {
-            AnalysisReport report = new AnalysisReport();
-            File projectDir = new File(projectPath);
-            analyzeDirectory(projectDir, report);
-            return report;
+            try {
+                AnalysisReport report = new AnalysisReport();
+                File projectDir = new File(projectPath);
+                
+                if (!projectDir.exists() || !projectDir.isDirectory()) {
+                    return AnalysisReport.failure("Invalid project path: " + projectPath);
+                }
+                
+                analyzeDirectory(projectDir, report);
+                
+                System.out.println("CODE ANALYZER: Project analysis completed - " + 
+                                 report.getIssues().size() + " issues found");
+                
+                return report;
+                
+            } catch (Exception e) {
+                return AnalysisReport.failure("Project analysis failed: " + e.getMessage());
+            }
         });
     }
 
@@ -56,17 +86,30 @@ public final class CodeAnalyzer {
     private void analyzeFile(File file, AnalysisReport report) {
         try {
             String content = readFileContent(file);
-            for (AnalysisRule rule : rules) {
-                rule.analyze(content, file.getPath(), report);
+            String filePath = file.getAbsolutePath();
+            
+            for (AnalysisRule rule : rules.values()) {
+                rule.analyze(content, filePath, report);
             }
+            
         } catch (Exception e) {
-            report.addIssue("FileReadError", file.getPath(), e.getMessage());
+            report.addIssue("FILE_READ_ERROR", file.getPath(), "Failed to read file: " + e.getMessage());
         }
     }
 
     private String readFileContent(File file) throws Exception {
         // في الإنتاج: قراءة محتوى الملف
-        return "// Mock file content";
+        return "// Mock file content for " + file.getName();
+    }
+
+    /**
+     * تحديث قواعد التحليل من الإعدادات الإدارية
+     */
+    public void updateRulesFromConfig(AdminConfig.CodeAnalysisConfig config) {
+        if (config == null) return;
+        
+        // في الإنتاج: تحديث القواعد حسب الإعدادات الإدارية
+        System.out.println("CODE ANALYZER: Rules updated from admin config");
     }
 
     /**
@@ -77,53 +120,12 @@ public final class CodeAnalyzer {
         void analyze(String content, String filePath, AnalysisReport report);
     }
 
-    /**
-     * تقرير التحليل
-     */
-    public static final class AnalysisReport {
-        private final CopyOnWriteArrayList<Issue> issues = new CopyOnWriteArrayList<>();
-
-        public void addIssue(String ruleName, String filePath, String description) {
-            issues.add(new Issue(ruleName, filePath, description));
-        }
-
-        public String getSummary() {
-            return String.format(
-                "🔍 CODE ANALYSIS: %d issues found\n%s",
-                issues.size(),
-                issues.isEmpty() ? "" : issues.stream()
-                    .map(Issue::toString)
-                    .collect(java.util.stream.Collectors.joining("\n"))
-            );
-        }
-    }
-
-    /**
-     * مشكلة في الكود
-     */
-    public static final class Issue {
-        private final String ruleName;
-        private final String filePath;
-        private final String description;
-
-        public Issue(String ruleName, String filePath, String description) {
-            this.ruleName = ruleName;
-            this.filePath = filePath;
-            this.description = description;
-        }
-
-        @Override
-        public String toString() {
-            return String.format("[%s] %s: %s", ruleName, filePath, description);
-        }
-    }
-
-    // --- قواعد تحليل مخصصة ---
+    // --- قواعد التحليل ---
     private static final class NullCheckRule implements AnalysisRule {
         @Override
         public void analyze(String content, String filePath, AnalysisReport report) {
             if (content.contains("== null") || content.contains("!= null")) {
-                report.addIssue("NullCheckRule", filePath, "Direct null checks found - use Optional");
+                report.addIssue("NULL_CHECK", filePath, "Direct null checks found - consider using Optional");
             }
         }
     }
@@ -132,7 +134,7 @@ public final class CodeAnalyzer {
         @Override
         public void analyze(String content, String filePath, AnalysisReport report) {
             if (content.contains("System.out.println") && !filePath.contains("dev/")) {
-                report.addIssue("SecurityRule", filePath, "System.out.println found in production code");
+                report.addIssue("SECURITY_RULE", filePath, "System.out.println found in production code");
             }
         }
     }
@@ -141,7 +143,7 @@ public final class CodeAnalyzer {
         @Override
         public void analyze(String content, String filePath, AnalysisReport report) {
             if (content.contains("new Thread(")) {
-                report.addIssue("PerformanceRule", filePath, "Direct Thread creation - use ExecutorService");
+                report.addIssue("PERFORMANCE_RULE", filePath, "Direct Thread creation - use ExecutorService");
             }
         }
     }
@@ -149,10 +151,125 @@ public final class CodeAnalyzer {
     private static final class NamingConventionRule implements AnalysisRule {
         @Override
         public void analyze(String content, String filePath, AnalysisReport report) {
-            // في الإنتاج: التحقق من اتفاقيات التسمية
             if (filePath.contains(" ")) {
-                report.addIssue("NamingConventionRule", filePath, "File path contains spaces");
+                report.addIssue("NAMING_CONVENTION", filePath, "File path contains spaces");
             }
+        }
+    }
+
+    private static final class ThreadSafetyRule implements AnalysisRule {
+        @Override
+        public void analyze(String content, String filePath, AnalysisReport report) {
+            if (content.contains("ArrayList<") && content.contains("Runnable")) {
+                report.addIssue("THREAD_SAFETY", filePath, "ArrayList used in multi-threaded context - consider CopyOnWriteArrayList");
+            }
+        }
+    }
+
+    private static final class MemoryLeakRule implements AnalysisRule {
+        @Override
+        public void analyze(String content, String filePath, AnalysisReport report) {
+            if (content.contains("Context") && content.contains("static")) {
+                report.addIssue("MEMORY_LEAK", filePath, "Static Context reference may cause memory leak");
+            }
+        }
+    }
+
+    private static final class ResourceManagementRule implements AnalysisRule {
+        @Override
+        public void analyze(String content, String filePath, AnalysisReport report) {
+            if (content.contains("FileInputStream") && !content.contains("try-with-resources")) {
+                report.addIssue("RESOURCE_MANAGEMENT", filePath, "Resource not managed properly - use try-with-resources");
+            }
+        }
+    }
+
+    private static final class ErrorHandlingRule implements AnalysisRule {
+        @Override
+        public void analyze(String content, String filePath, AnalysisReport report) {
+            if (content.contains("catch (Exception e)") && !content.contains("e.printStackTrace()")) {
+                report.addIssue("ERROR_HANDLING", filePath, "Generic exception handling without logging");
+            }
+        }
+    }
+
+    private static final class CodeDuplicationRule implements AnalysisRule {
+        @Override
+        public void analyze(String content, String filePath, AnalysisReport report) {
+            // في الإنتاج: استخدام خوارزمية للكشف عن التكرار
+            if (content.lines().count() > 500) {
+                report.addIssue("CODE_DUPLICATION", filePath, "Large file may contain duplicated code");
+            }
+        }
+    }
+
+    private static final class DeprecatedUsageRule implements AnalysisRule {
+        @Override
+        public void analyze(String content, String filePath, AnalysisReport report) {
+            if (content.contains("@Deprecated")) {
+                report.addIssue("DEPRECATED_USAGE", filePath, "Deprecated code usage detected");
+            }
+        }
+    }
+
+    /**
+     * تقرير التحليل
+     */
+    public static final class AnalysisReport {
+        private final ConcurrentHashMap<String, Issue> issues = new ConcurrentHashMap<>();
+        private volatile boolean success = true;
+        private volatile String message = "Analysis completed";
+
+        public static AnalysisReport failure(String message) {
+            AnalysisReport report = new AnalysisReport();
+            report.success = false;
+            report.message = message;
+            return report;
+        }
+
+        public void addIssue(String ruleName, String filePath, String description) {
+            String issueId = ruleName + "_" + filePath.hashCode();
+            issues.put(issueId, new Issue(ruleName, filePath, description));
+        }
+
+        public ConcurrentHashMap<String, Issue> getIssues() {
+            return new ConcurrentHashMap<>(issues);
+        }
+
+        public boolean isSuccess() { return success; }
+        public String getMessage() { return message; }
+        public int getIssueCount() { return issues.size(); }
+        
+        public String getSummary() {
+            return "CODE ANALYSIS: " + issues.size() + " issues found\n" +
+                   issues.values().stream()
+                       .map(Issue::toString)
+                       .reduce("", (a, b) -> a + "\n" + b);
+        }
+
+        /**
+         * مشكلة في الكود
+         */
+        public static final class Issue {
+            private final String ruleName;
+            private final String filePath;
+            private final String description;
+
+            public Issue(String ruleName, String filePath, String description) {
+                this.ruleName = ruleName;
+                this.filePath = filePath;
+                this.description = description;
+            }
+
+            @Override
+            public String toString() {
+                return "[" + ruleName + "] " + filePath + ": " + description;
+            }
+
+            // Getters
+            public String getRuleName() { return ruleName; }
+            public String getFilePath() { return filePath; }
+            public String getDescription() { return description; }
         }
     }
 }
