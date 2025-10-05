@@ -1,19 +1,136 @@
 package mazdady.team;
 
-import mazdady.admin.AdminConfig;
 import mazdady.user.User;
-import java.util.List;
+import mazdady.admin.AdminConfig;
 
-public class TeamMatchmaker {
+import java.util.List;
+import java.util.concurrent.CompletableFuture;
+
+/**
+ * مطابق الفرق مع دعم المباريات الذكية
+ * يتبع نمط Observer لإعلام النظام بالمباريات
+ */
+public final class TeamMatchmaker {
+    private final TeamManager teamManager;
+    private static TeamMatchmaker instance;
+
+    private TeamMatchmaker(TeamManager teamManager) {
+        this.teamManager = teamManager;
+    }
+
+    public static TeamMatchmaker create(TeamManager teamManager) {
+        return new TeamMatchmaker(teamManager);
+    }
+
+    /**
+     * بدء مباراة فرق غير متزامنة
+     */
+    public CompletableFuture<MatchResult> startMatchAsync(List<User> activeUsers) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                if (shouldActivateTeams(activeUsers)) {
+                    teamManager.executeTeamTrades(activeUsers);
+                    return MatchResult.success("Team match executed successfully");
+                } else {
+                    return MatchResult.noMatch("Not enough active users for team match");
+                }
+            } catch (Exception e) {
+                return MatchResult.failure("Team match failed: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * التحقق من شروط تفعيل الفرق
+     */
     public boolean shouldActivateTeams(List<User> activeUsers) {
+        if (activeUsers == null || activeUsers.isEmpty()) {
+            return false;
+        }
+        
         int minUsers = AdminConfig.getInstance().getTeamsMinUsers();
         return activeUsers.size() >= minUsers;
     }
 
-    public void startMatchIfReady(List<User> activeUsers) {
-        if (shouldActivateTeams(activeUsers)) {
-            TeamManager teamManager = new TeamManager(/* priceEngine */);
-            teamManager.executeMatch(activeUsers);
+    /**
+     * التحقق من توازن الفرق
+     */
+    public TeamBalanceResult checkTeamBalance() {
+        double buyTeamCapital = teamManager.getBuyingTeam().getCapital();
+        double sellTeamHoldings = teamManager.getSellingTeam().getHoldings();
+        
+        double balanceRatio = Math.abs(buyTeamCapital - sellTeamHoldings) / 
+                             Math.max(buyTeamCapital, sellTeamHoldings);
+        
+        if (balanceRatio > 0.5) {
+            return TeamBalanceResult.imbalanced(
+                "Teams are imbalanced", 
+                buyTeamCapital, 
+                sellTeamHoldings
+            );
         }
+        
+        return TeamBalanceResult.balanced("Teams are well balanced");
+    }
+
+    /**
+     * نتيجة المباراة
+     */
+    public static final class MatchResult {
+        private final boolean success;
+        private final boolean hasMatch;
+        private final String message;
+
+        private MatchResult(boolean success, boolean hasMatch, String message) {
+            this.success = success;
+            this.hasMatch = hasMatch;
+            this.message = message;
+        }
+
+        public static MatchResult success(String message) {
+            return new MatchResult(true, true, message);
+        }
+
+        public static MatchResult noMatch(String message) {
+            return new MatchResult(true, false, message);
+        }
+
+        public static MatchResult failure(String message) {
+            return new MatchResult(false, false, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public boolean hasMatch() { return hasMatch; }
+        public String getMessage() { return message; }
+    }
+
+    /**
+     * نتيجة توازن الفرق
+     */
+    public static final class TeamBalanceResult {
+        private final boolean balanced;
+        private final String message;
+        private final double buyTeamCapital;
+        private final double sellTeamHoldings;
+
+        private TeamBalanceResult(boolean balanced, String message, double buyTeamCapital, double sellTeamHoldings) {
+            this.balanced = balanced;
+            this.message = message;
+            this.buyTeamCapital = buyTeamCapital;
+            this.sellTeamHoldings = sellTeamHoldings;
+        }
+
+        public static TeamBalanceResult balanced(String message) {
+            return new TeamBalanceResult(true, message, 0, 0);
+        }
+
+        public static TeamBalanceResult imbalanced(String message, double buyTeamCapital, double sellTeamHoldings) {
+            return new TeamBalanceResult(false, message, buyTeamCapital, sellTeamHoldings);
+        }
+
+        public boolean isBalanced() { return balanced; }
+        public String getMessage() { return message; }
+        public double getBuyTeamCapital() { return buyTeamCapital; }
+        public double getSellTeamHoldings() { return sellTeamHoldings; }
     }
 }
