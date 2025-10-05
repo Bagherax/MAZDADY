@@ -1,0 +1,123 @@
+package mazdady.withdrawal;
+
+import mazdady.admin.AdminConfig;
+
+import java.time.DayOfWeek;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.temporal.TemporalAdjusters;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+
+/**
+ * مدير جدولة السحب مع دعم التوقيت المتقدم
+ * يتبع نمط Observer لإعلام النظام بالجدولة
+ */
+public final class ScheduleManager {
+    private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
+    private final AdminConfig.WithdrawalConfig config;
+    private static ScheduleManager instance;
+
+    private ScheduleManager(AdminConfig.WithdrawalConfig config) {
+        this.config = config;
+        startScheduleMonitoring();
+    }
+
+    public static synchronized ScheduleManager getInstance(AdminConfig.WithdrawalConfig config) {
+        if (instance == null) {
+            instance = new ScheduleManager(config);
+        }
+        return instance;
+    }
+
+    private void startScheduleMonitoring() {
+        scheduler.scheduleAtFixedRate(
+            this::checkWithdrawalSchedule,
+            0,
+            1,
+            TimeUnit.HOURS
+        );
+        
+        System.out.println("SCHEDULE MANAGER: Started monitoring withdrawal schedule");
+    }
+
+    /**
+     * التحقق من جدولة السحب
+     */
+    private void checkWithdrawalSchedule() {
+        LocalDateTime now = LocalDateTime.now();
+        String schedule = config.getWithdrawalSchedule();
+        
+        boolean isWithdrawalDay = isTodayWithdrawalDay(schedule);
+        if (isWithdrawalDay) {
+            System.out.println("SCHEDULE MANAGER: Today is a withdrawal day (" + schedule + ")");
+            notifyWithdrawalDay();
+        }
+    }
+
+    private boolean isTodayWithdrawalDay(String schedule) {
+        LocalDateTime now = LocalDateTime.now();
+        
+        switch (schedule.toLowerCase()) {
+            case "daily":
+                return true;
+            case "weekly":
+                DayOfWeek withdrawalDay = DayOfWeek.SUNDAY; // في الإنتاج: من الإعدادات
+                return now.getDayOfWeek() == withdrawalDay;
+            case "monthly":
+                return now.getDayOfMonth() == 1; // أول يوم من الشهر
+            case "biweekly":
+                return now.getDayOfMonth() == 1 || now.getDayOfMonth() == 15;
+            default:
+                return true; // السماح بالسحب في جميع الأيام كاحتياطي
+        }
+    }
+
+    private void notifyWithdrawalDay() {
+        // في الإنتاج: إرسال إشعار للمستخدمين
+        System.out.println("SCHEDULE MANAGER: Notifying users about withdrawal day");
+    }
+
+    /**
+     * الحصول على التاريخ التالي لسحب الأرباح
+     */
+    public LocalDateTime getNextWithdrawalDate() {
+        LocalDateTime now = LocalDateTime.now();
+        String schedule = config.getWithdrawalSchedule();
+        
+        switch (schedule.toLowerCase()) {
+            case "daily":
+                return now.plusDays(1).withHour(0).withMinute(0);
+            case "weekly":
+                return now.with(TemporalAdjusters.next(DayOfWeek.SUNDAY)).withHour(0).withMinute(0);
+            case "monthly":
+                return now.plusMonths(1).withDayOfMonth(1).withHour(0).withMinute(0);
+            case "biweekly":
+                int nextDay = now.getDayOfMonth() < 15 ? 15 : 1;
+                if (nextDay == 1) {
+                    return now.plusMonths(1).withDayOfMonth(1).withHour(0).withMinute(0);
+                } else {
+                    return now.withDayOfMonth(15).withHour(0).withMinute(0);
+                }
+            default:
+                return now.plusDays(1).withHour(0).withMinute(0);
+        }
+    }
+
+    /**
+     * التحقق من إمكانية السحب الآن
+     */
+    public boolean isWithdrawalAllowedNow() {
+        return isTodayWithdrawalDay(config.getWithdrawalSchedule());
+    }
+
+    /**
+     * إيقاف الجدولة (للاختبارات)
+     */
+    public void shutdown() {
+        scheduler.shutdown();
+        System.out.println("SCHEDULE MANAGER: Shutdown completed");
+    }
+}
