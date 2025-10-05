@@ -1,46 +1,112 @@
 package mazdady.withdrawal;
 
 import mazdady.admin.AdminConfig;
-import mazdady.security.SecureStorage;
-import org.json.JSONObject;
-import java.util.Base64;
+import mazdady.user.User;
 
-public class TaxCalculator {
-    private final AdminConfig config;
-    private final SecureStorage secureStorage;
+import java.util.concurrent.ConcurrentHashMap;
 
-    public TaxCalculator() {
-        this.config = AdminConfig.getInstance();
-        this.secureStorage = new SecureStorage();
+/**
+ * حاسبة الضرائب مع دعم الحسابات الديناميكية
+ * يتبع نمط Strategy لفصل استراتيجيات الحساب
+ */
+public final class TaxCalculator {
+    private final ConcurrentHashMap<String, Double> taxRates = new ConcurrentHashMap<>();
+    private static TaxCalculator instance;
+
+    private TaxCalculator() {
+        initializeTaxRates();
     }
 
-    public WithdrawalResult calculate(double grossAmount, String method) {
-        try {
-            String encryptedRates = config.getEncryptedTaxRates();
-            String decryptedRates = secureStorage.decrypt(Base64.getDecoder().decode(encryptedRates));
-            JSONObject rates = new JSONObject(decryptedRates);
-
-            double taxRate = rates.getDouble(method);
-            double taxAmount = grossAmount * (taxRate / 100);
-            double netAmount = grossAmount - taxAmount;
-
-            return new WithdrawalResult(netAmount, taxAmount, taxRate);
-        } catch (Exception e) {
-            double fallbackRate = 5.0;
-            double taxAmount = grossAmount * (fallbackRate / 100);
-            return new WithdrawalResult(grossAmount - taxAmount, taxAmount, fallbackRate);
+    public static synchronized TaxCalculator getInstance() {
+        if (instance == null) {
+            instance = new TaxCalculator();
         }
+        return instance;
     }
 
-    public static class WithdrawalResult {
-        public final double netAmount;
-        public final double taxAmount;
-        public final double taxRate;
+    private void initializeTaxRates() {
+        AdminConfig.WithdrawalConfig config = AdminConfig.getInstance().getWithdrawalConfig();
+        AdminConfig.WithdrawalConfig.TaxRates rates = config.getTaxRates();
+        
+        taxRates.put("wallet_crypto", rates.getWalletCrypto());
+        taxRates.put("bank_transfer", rates.getBankTransfer());
+        taxRates.put("internal_transfer", rates.getInternalTransfer());
+        taxRates.put("mobile_wallet", rates.getMobileWallet());
+        
+        System.out.println("TAX CALCULATOR: Initialized with " + taxRates.size() + " tax rates");
+    }
 
-        public WithdrawalResult(double netAmount, double taxAmount, double taxRate) {
-            this.netAmount = netAmount;
+    /**
+     * حساب الضريبة على السحب
+     */
+    public TaxResult calculateTax(double grossAmount, String withdrawalMethod) {
+        if (grossAmount <= 0) {
+            return TaxResult.failure("Invalid gross amount");
+        }
+        
+        Double taxRate = taxRates.get(withdrawalMethod);
+        if (taxRate == null) {
+            return TaxResult.failure("Unsupported withdrawal method: " + withdrawalMethod);
+        }
+        
+        double taxAmount = grossAmount * (taxRate / 100);
+        double netAmount = grossAmount - taxAmount;
+        
+        System.out.println("TAX CALCULATOR: Gross: " + grossAmount + 
+                         " - Tax (" + taxRate + "%): " + taxAmount + 
+                         " - Net: " + netAmount);
+        
+        return TaxResult.success(grossAmount, taxAmount, netAmount, taxRate);
+    }
+
+    /**
+     * تحديث معدلات الضرائب من الإعدادات الإدارية
+     */
+    public void updateTaxRates(AdminConfig.WithdrawalConfig.TaxRates newRates) {
+        taxRates.put("wallet_crypto", newRates.getWalletCrypto());
+        taxRates.put("bank_transfer", newRates.getBankTransfer());
+        taxRates.put("internal_transfer", newRates.getInternalTransfer());
+        taxRates.put("mobile_wallet", newRates.getMobileWallet());
+        
+        System.out.println("TAX CALCULATOR: Tax rates updated from admin config");
+    }
+
+    /**
+     * نتيجة الحساب الضريبي
+     */
+    public static final class TaxResult {
+        private final boolean success;
+        private final double grossAmount;
+        private final double taxAmount;
+        private final double netAmount;
+        private final double taxRate;
+        private final String message;
+
+        private TaxResult(boolean success, double grossAmount, double taxAmount, 
+                         double netAmount, double taxRate, String message) {
+            this.success = success;
+            this.grossAmount = grossAmount;
             this.taxAmount = taxAmount;
+            this.netAmount = netAmount;
             this.taxRate = taxRate;
+            this.message = message;
         }
+
+        public static TaxResult success(double grossAmount, double taxAmount, 
+                                      double netAmount, double taxRate) {
+            return new TaxResult(true, grossAmount, taxAmount, netAmount, taxRate, 
+                               "Tax calculated successfully");
+        }
+
+        public static TaxResult failure(String message) {
+            return new TaxResult(false, 0, 0, 0, 0, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public double getGrossAmount() { return grossAmount; }
+        public double getTaxAmount() { return taxAmount; }
+        public double getNetAmount() { return netAmount; }
+        public double getTaxRate() { return taxRate; }
+        public String getMessage() { return message; }
     }
 }
