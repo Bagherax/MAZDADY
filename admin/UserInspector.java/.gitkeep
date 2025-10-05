@@ -2,35 +2,368 @@ package mazdady.admin;
 
 import mazdady.user.User;
 import mazdady.user.UserManager;
+import mazdady.security.SecurityMonitor;
+import mazdady.trading.TradingHistory;
 
-import java.util.List;
+import java.time.Instant;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CopyOnWriteArrayList;
 
-public class UserInspector {
-    public void setUserLevel(String userId, int level) {
-        // في الإنتاج: تحميل المستخدم من قاعدة البيانات
-        User user = findUserById(userId);
-        if (user != null) {
-            user.setLevel(level);
-            // حفظ التغييرات
-            System.out.println("تم تغيير مستوى المستخدم " + userId + " إلى " + level);
+/**
+ * مفتش المستخدمين مع دعم التفتيش المتقدم وتحليل السلوك
+ * يتبع نمط Observer لإعلام النظام بالأنشطة المشبوهة
+ */
+public final class UserInspector {
+    private final UserManager userManager;
+    private final SecurityMonitor securityMonitor;
+    private final TradingHistory tradingHistory;
+    private final CopyOnWriteArrayList<Consumer<InspectionEvent>> inspectionListeners = new CopyOnWriteArrayList<>();
+    private static UserInspector instance;
+
+    private UserInspector(UserManager userManager, SecurityMonitor securityMonitor, TradingHistory tradingHistory) {
+        this.userManager = userManager;
+        this.securityMonitor = securityMonitor;
+        this.tradingHistory = tradingHistory;
+    }
+
+    public static synchronized UserInspector getInstance(
+        UserManager userManager, 
+        SecurityMonitor securityMonitor, 
+        TradingHistory tradingHistory
+    ) {
+        if (instance == null) {
+            instance = new UserInspector(userManager, securityMonitor, tradingHistory);
+        }
+        return instance;
+    }
+
+    /**
+     * تفتيش مستخدم متقدم غير متزامن
+     */
+    public CompletableFuture<InspectionResult> inspectUserAdvancedAsync(String userId) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                User user = userManager.getUserById(userId);
+                if (user == null) {
+                    return InspectionResult.failure("User not found: " + userId);
+                }
+                
+                // 1. تحليل النشاط التجاري
+                TradingAnalysis tradingAnalysis = analyzeTradingActivity(user);
+                
+                // 2. تحليل السلوك الاجتماعي
+                SocialAnalysis socialAnalysis = analyzeSocialActivity(user);
+                
+                // 3. تحليل الأمان
+                SecurityAnalysis securityAnalysis = analyzeSecurityStatus(user);
+                
+                // 4. تحليل المحفظة
+                WalletAnalysis walletAnalysis = analyzeWalletActivity(user);
+                
+                // 5. توليد تقرير التفتيش
+                InspectionReport report = new InspectionReport(
+                    userId,
+                    tradingAnalysis,
+                    socialAnalysis,
+                    securityAnalysis,
+                    walletAnalysis,
+                    Instant.now()
+                );
+                
+                // 6. إشعار المستمعين
+                notifyInspectionCompleted(report);
+                
+                System.out.println("USER INSPECTOR: Advanced inspection completed for " + userId);
+                
+                return InspectionResult.success(report, "User inspection completed successfully");
+                
+            } catch (Exception e) {
+                return InspectionResult.failure("User inspection failed: " + e.getMessage());
+            }
+        });
+    }
+
+    private TradingAnalysis analyzeTradingActivity(User user) {
+        try {
+            // في الإنتاج: تحليل نشاط التداول الحقيقي
+            int tradeCount = tradingHistory.getUserTrades(user.getUserId()).size();
+            double totalProfit = user.getBalance() * 0.1; // محاكاة الأرباح
+            double totalLoss = user.getBalance() * 0.05; // محاكاة الخسائر
+            double winRate = tradeCount > 0 ? 75.0 : 0.0; // محاكاة معدل الفوز
+            
+            return new TradingAnalysis(tradeCount, totalProfit, totalLoss, winRate);
+            
+        } catch (Exception e) {
+            return new TradingAnalysis(0, 0, 0, 0);
         }
     }
 
-    public void freezeUserAccount(String userId) {
-        User user = findUserById(userId);
-        if (user != null) {
-            // في الإنتاج: تعيين حالة الحساب إلى "مجمد"
-            System.out.println("تم تجميد حساب المستخدم " + userId);
+    private SocialAnalysis analyzeSocialActivity(User user) {
+        try {
+            // في الإنتاج: تحليل النشاط الاجتماعي الحقيقي
+            int referralCount = user.getReferralCount();
+            int communityPoints = user.getCommunityPoints();
+            int socialPosts = 10; // محاكاة المشاركات الاجتماعية
+            boolean isSocialActive = referralCount > 0 || communityPoints > 100;
+            
+            return new SocialAnalysis(referralCount, communityPoints, socialPosts, isSocialActive);
+            
+        } catch (Exception e) {
+            return new SocialAnalysis(0, 0, 0, false);
         }
     }
 
-    public int getActiveUsersCount() {
-        // في الإنتاج: عد المستخدمين النشطين خلال 24 ساعة
-        return 1250; // قيمة افتراضية
+    private SecurityAnalysis analyzeSecurityStatus(User user) {
+        try {
+            // في الإنتاج: تحليل حالة الأمان الحقيقية
+            boolean isKYCVerified = user.isKYCVerified();
+            boolean hasActiveSubscription = user.hasActiveSubscription();
+            int warningPoints = user.getWarningPoints();
+            boolean isSuspended = user.isSuspended();
+            boolean isBanned = user.isBanned();
+            
+            return new SecurityAnalysis(
+                isKYCVerified, 
+                hasActiveSubscription, 
+                warningPoints, 
+                isSuspended, 
+                isBanned
+            );
+            
+        } catch (Exception e) {
+            return new SecurityAnalysis(false, false, 0, false, false);
+        }
     }
 
-    private User findUserById(String userId) {
-        // في الإنتاج: البحث في قاعدة البيانات
-        return UserManager.getInstance(null).getCurrentUser();
+    private WalletAnalysis analyzeWalletActivity(User user) {
+        try {
+            // في الإنتاج: تحليل نشاط المحفظة الحقيقي
+            double walletBalance = user.getBalance();
+            int withdrawalCount = 5; // محاكاة عدد السحوبات
+            double totalWithdrawn = walletBalance * 0.2; // محاكاة المبالغ المسحوبة
+            boolean hasConnectedWallet = user.getWalletAddress() != null;
+            
+            return new WalletAnalysis(walletBalance, withdrawalCount, totalWithdrawn, hasConnectedWallet);
+            
+        } catch (Exception e) {
+            return new WalletAnalysis(0, 0, 0, false);
+        }
+    }
+
+    private void notifyInspectionCompleted(InspectionReport report) {
+        InspectionEvent event = new InspectionEvent(
+            InspectionEvent.EventType.USER_INSPECTED,
+            report.getUserId(),
+            report,
+            "User inspection completed at " + Instant.now()
+        );
+        
+        inspectionListeners.forEach(listener -> {
+            try {
+                listener.accept(event);
+            } catch (Exception e) {
+                // تجاهل أخطاء المستمعين
+            }
+        });
+    }
+
+    /**
+     * إضافة مستمع لفعاليات التفتيش
+     */
+    public void addInspectionListener(Consumer<InspectionEvent> listener) {
+        inspectionListeners.add(listener);
+    }
+
+    /**
+     * إزالة مستمع لفعاليات التفتيش
+     */
+    public void removeInspectionListener(Consumer<InspectionEvent> listener) {
+        inspectionListeners.remove(listener);
+    }
+
+    /**
+     * نتيجة التفتيش
+     */
+    public static final class InspectionResult {
+        private final boolean success;
+        private final InspectionReport report;
+        private final String message;
+
+        private InspectionResult(boolean success, InspectionReport report, String message) {
+            this.success = success;
+            this.report = report;
+            this.message = message;
+        }
+
+        public static InspectionResult success(InspectionReport report, String message) {
+            return new InspectionResult(true, report, message);
+        }
+
+        public static InspectionResult failure(String message) {
+            return new InspectionResult(false, null, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public InspectionReport getReport() { return report; }
+        public String getMessage() { return message; }
+    }
+
+    /**
+     * تقرير التفتيش
+     */
+    public static final class InspectionReport {
+        private final String userId;
+        private final TradingAnalysis tradingAnalysis;
+        private final SocialAnalysis socialAnalysis;
+        private final SecurityAnalysis securityAnalysis;
+        private final WalletAnalysis walletAnalysis;
+        private final Instant inspectionTime;
+
+        public InspectionReport(String userId, TradingAnalysis tradingAnalysis, 
+                              SocialAnalysis socialAnalysis, SecurityAnalysis securityAnalysis,
+                              WalletAnalysis walletAnalysis, Instant inspectionTime) {
+            this.userId = userId;
+            this.tradingAnalysis = tradingAnalysis;
+            this.socialAnalysis = socialAnalysis;
+            this.securityAnalysis = securityAnalysis;
+            this.walletAnalysis = walletAnalysis;
+            this.inspectionTime = inspectionTime;
+        }
+
+        // Getters
+        public String getUserId() { return userId; }
+        public TradingAnalysis getTradingAnalysis() { return tradingAnalysis; }
+        public SocialAnalysis getSocialAnalysis() { return socialAnalysis; }
+        public SecurityAnalysis getSecurityAnalysis() { return securityAnalysis; }
+        public WalletAnalysis getWalletAnalysis() { return walletAnalysis; }
+        public Instant getInspectionTime() { return inspectionTime; }
+        
+        public String getFormattedInspectionTime() {
+            return inspectionTime.toString().substring(0, 19).replace("T", " ");
+        }
+    }
+
+    /**
+     * تحليل التداول
+     */
+    public static final class TradingAnalysis {
+        private final int tradeCount;
+        private final double totalProfit;
+        private final double totalLoss;
+        private final double winRate;
+
+        public TradingAnalysis(int tradeCount, double totalProfit, double totalLoss, double winRate) {
+            this.tradeCount = tradeCount;
+            this.totalProfit = totalProfit;
+            this.totalLoss = totalLoss;
+            this.winRate = winRate;
+        }
+
+        // Getters
+        public int getTradeCount() { return tradeCount; }
+        public double getTotalProfit() { return totalProfit; }
+        public double getTotalLoss() { return totalLoss; }
+        public double getWinRate() { return winRate; }
+        public double getNetProfit() { return totalProfit - totalLoss; }
+    }
+
+    /**
+     * تحليل النشاط الاجتماعي
+     */
+    public static final class SocialAnalysis {
+        private final int referralCount;
+        private final int communityPoints;
+        private final int socialPosts;
+        private final boolean isSocialActive;
+
+        public SocialAnalysis(int referralCount, int communityPoints, int socialPosts, boolean isSocialActive) {
+            this.referralCount = referralCount;
+            this.communityPoints = communityPoints;
+            this.socialPosts = socialPosts;
+            this.isSocialActive = isSocialActive;
+        }
+
+        // Getters
+        public int getReferralCount() { return referralCount; }
+        public int getCommunityPoints() { return communityPoints; }
+        public int getSocialPosts() { return socialPosts; }
+        public boolean isSocialActive() { return isSocialActive; }
+    }
+
+    /**
+     * تحليل الأمان
+     */
+    public static final class SecurityAnalysis {
+        private final boolean isKYCVerified;
+        private final boolean hasActiveSubscription;
+        private final int warningPoints;
+        private final boolean isSuspended;
+        private final boolean isBanned;
+
+        public SecurityAnalysis(boolean isKYCVerified, boolean hasActiveSubscription, 
+                              int warningPoints, boolean isSuspended, boolean isBanned) {
+            this.isKYCVerified = isKYCVerified;
+            this.hasActiveSubscription = hasActiveSubscription;
+            this.warningPoints = warningPoints;
+            this.isSuspended = isSuspended;
+            this.isBanned = isBanned;
+        }
+
+        // Getters
+        public boolean isKYCVerified() { return isKYCVerified; }
+        public boolean hasActiveSubscription() { return hasActiveSubscription; }
+        public int getWarningPoints() { return warningPoints; }
+        public boolean isSuspended() { return isSuspended; }
+        public boolean isBanned() { return isBanned; }
+    }
+
+    /**
+     * تحليل المحفظة
+     */
+    public static final class WalletAnalysis {
+        private final double walletBalance;
+        private final int withdrawalCount;
+        private final double totalWithdrawn;
+        private final boolean hasConnectedWallet;
+
+        public WalletAnalysis(double walletBalance, int withdrawalCount, double totalWithdrawn, boolean hasConnectedWallet) {
+            this.walletBalance = walletBalance;
+            this.withdrawalCount = withdrawalCount;
+            this.totalWithdrawn = totalWithdrawn;
+            this.hasConnectedWallet = hasConnectedWallet;
+        }
+
+        // Getters
+        public double getWalletBalance() { return walletBalance; }
+        public int getWithdrawalCount() { return withdrawalCount; }
+        public double getTotalWithdrawn() { return totalWithdrawn; }
+        public boolean hasConnectedWallet() { return hasConnectedWallet; }
+    }
+
+    /**
+     * حدث التفتيش
+     */
+    public static final class InspectionEvent {
+        private final EventType type;
+        private final String userId;
+        private final InspectionReport report;
+        private final String description;
+
+        public InspectionEvent(EventType type, String userId, InspectionReport report, String description) {
+            this.type = type;
+            this.userId = userId;
+            this.report = report;
+            this.description = description;
+        }
+
+        public enum EventType {
+            USER_INSPECTED, USER_FLAGGED, USER_SUSPENDED, USER_BANNED
+        }
+
+        // Getters
+        public EventType getType() { return type; }
+        public String getUserId() { return userId; }
+        public InspectionReport getReport() { return report; }
+        public String getDescription() { return description; }
     }
 }
