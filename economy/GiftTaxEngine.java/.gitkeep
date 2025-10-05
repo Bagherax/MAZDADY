@@ -1,24 +1,51 @@
 package mazdady.economy;
 
-import mazdady.user.User;
+import mazdady.user.UserManager;
 import mazdady.trading.PriceEngine;
 
-public class GiftTaxEngine {
-    private static final double GIFT_TAX_RATE = 0.3;
+/**
+ * محرك ضريبة الهدايا مع دعم التوزيع التلقائي
+ * يتبع نمط Strategy لفصل استراتيجيات التوزيع
+ */
+public final class GiftTaxEngine {
+    private static final double GIFT_TAX_RATE = 0.3; // 30%
     private final PriceEngine priceEngine;
+    private static final GiftTaxEngine INSTANCE = new GiftTaxEngine();
 
-    public GiftTaxEngine(PriceEngine priceEngine) {
-        this.priceEngine = priceEngine;
+    private GiftTaxEngine() {
+        this.priceEngine = new PriceEngine();
     }
 
-    public double applyGiftTax(User user, double profit) {
+    public static GiftTaxEngine getInstance() {
+        return INSTANCE;
+    }
+
+    /**
+     * تطبيق ضريبة الهدايا على الربح
+     */
+    public double applyGiftTax(double profit) {
         double giftAmount = profit * GIFT_TAX_RATE;
         double netProfit = profit - giftAmount;
 
+        // تحويل "الهدية" إلى خزينة النظام
         priceEngine.addToSystemTreasury(giftAmount);
-        user.addCommunityPoints((int) giftAmount);
-        user.showGiftEffect(giftAmount);
 
+        // منح المستخدم نقاط مجتمعية
+        UserManager.getInstance(null).getCurrentUser().addCommunityPoints((int) giftAmount);
+
+        // عرض تأثير بصري
+        showGiftEffect(giftAmount);
+
+        System.out.println("GIFT TAX: " + giftAmount + " MAZDADY allocated to community");
         return netProfit;
+    }
+
+    private void showGiftEffect(double amount) {
+        // في الإنتاج: عرض تأثير بصري للمستخدم
+        System.out.println("✨ GIFT EFFECT: +" + amount + " MAZDADY community contribution");
+    }
+
+    public double getGiftTaxRate() {
+        return GIFT_TAX_RATE;
     }
 }
