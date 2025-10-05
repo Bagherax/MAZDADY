@@ -1,0 +1,85 @@
+package mazdady.trading;
+
+import android.content.Context;
+import android.widget.NumberPicker;
+import android.widget.LinearLayout;
+
+/**
+ * منتقي مدة الصفقة مع دعم الاختيار الحر
+ * يتبع نمط Builder لبناء الواجهة بسهولة
+ */
+public final class TradeDurationSelector extends LinearLayout {
+    private final NumberPicker durationPicker;
+    private final OnDurationSelectedListener listener;
+    private static final int MIN_DURATION = 5;
+    private static final int MAX_DURATION = 24;
+
+    public TradeDurationSelector(Context context, OnDurationSelectedListener listener) {
+        super(context);
+        this.listener = listener;
+        this.durationPicker = new NumberPicker(context);
+        initializePicker();
+    }
+
+    private void initializePicker() {
+        setOrientation(HORIZONTAL);
+        
+        // إعداد منتقي الأرقام
+        durationPicker.setMinValue(MIN_DURATION);
+        durationPicker.setMaxValue(MAX_DURATION);
+        durationPicker.setValue(10); // القيمة الافتراضية
+        
+        // إضافة مستمع لتغيير القيمة
+        durationPicker.setOnValueChangedListener((picker, oldVal, newVal) -> {
+            if (listener != null) {
+                listener.onDurationSelected(newVal);
+            }
+        });
+        
+        // إضافة إلى التخطيط
+        addView(durationPicker);
+        
+        System.out.println("TRADE DURATION SELECTOR: Initialized with range " + 
+                         MIN_DURATION + " to " + MAX_DURATION + " seconds");
+    }
+
+    /**
+     * تعيين القيمة الحالية
+     */
+    public void setCurrentDuration(int seconds) {
+        if (seconds >= MIN_DURATION && seconds <= MAX_DURATION) {
+            durationPicker.setValue(seconds);
+        }
+    }
+
+    /**
+     * الحصول على المدة الحالية
+     */
+    public int getCurrentDuration() {
+        return durationPicker.getValue();
+    }
+
+    /**
+     * مستمع اختيار المدة
+     */
+    @FunctionalInterface
+    public interface OnDurationSelectedListener {
+        void onDurationSelected(int seconds);
+    }
+
+    // --- Getters ---
+    public NumberPicker getDurationPicker() { return durationPicker; }
+    public int getMinDuration() { return MIN_DURATION; }
+    public int getMaxDuration() { return MAX_DURATION; }
+    
+    /**
+     * تحديث النطاق (من لوحة التحكم الإدارية)
+     */
+    public void updateDurationRange(int min, int max) {
+        if (min >= 1 && max <= 60 && min < max) {
+            durationPicker.setMinValue(min);
+            durationPicker.setMaxValue(max);
+            System.out.println("TRADE DURATION SELECTOR: Range updated to " + min + " - " + max + " seconds");
+        }
+    }
+}
