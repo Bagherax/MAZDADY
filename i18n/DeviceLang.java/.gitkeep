@@ -1,0 +1,80 @@
+package mazdady.i18n;
+
+import android.content.Context;
+import android.content.res.Configuration;
+import android.os.Build;
+
+import java.util.Locale;
+
+/**
+ * كاشف لغة الجهاز مع دعم الكشف التلقائي
+ * يتبع نمط Singleton مع تهيئة آمنة
+ */
+public final class DeviceLang {
+    private final Context context;
+    private static DeviceLang instance;
+
+    private DeviceLang(Context context) {
+        this.context = context.getApplicationContext();
+    }
+
+    public static synchronized DeviceLang getInstance(Context context) {
+        if (instance == null) {
+            instance = new DeviceLang(context);
+        }
+        return instance;
+    }
+
+    /**
+     * الحصول على لغة الجهاز الحالية
+     */
+    public String getCurrentLanguage() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            return context.getResources().getConfiguration().getLocales().get(0).getLanguage();
+        } else {
+            return context.getResources().getConfiguration().locale.getLanguage();
+        }
+    }
+
+    /**
+     * التحقق مما إذا كانت اللغة عربية
+     */
+    public boolean isArabic() {
+        return "ar".equals(getCurrentLanguage());
+    }
+
+    /**
+     * تعيين لغة الجهاز
+     */
+    public void setLanguage(String languageCode) {
+        Locale locale = new Locale(languageCode);
+        Locale.setDefault(locale);
+        
+        Configuration config = context.getResources().getConfiguration();
+        config.setLocale(locale);
+        
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            context.createConfigurationContext(config);
+        } else {
+            context.getResources().updateConfiguration(config, 
+                context.getResources().getDisplayMetrics());
+        }
+        
+        // تفعيل دعم RTL للعربية
+        if ("ar".equals(languageCode)) {
+            RTLController.setRTL(context);
+        }
+    }
+
+    /**
+     * الحصول على رمز اللغة مع المنطقة
+     */
+    public String getLanguageTag() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            return context.getResources().getConfiguration().getLocales().get(0).toLanguageTag();
+        } else {
+            Locale locale = context.getResources().getConfiguration().locale;
+            return locale.getLanguage() + "-" + locale.getCountry();
+        }
+    }
+}
