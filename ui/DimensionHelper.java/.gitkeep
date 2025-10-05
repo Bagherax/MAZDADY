@@ -1,28 +1,122 @@
 package mazdady.ui;
 
-import android.app.AlertDialog;
 import android.content.Context;
+import android.view.View;
+import android.view.ViewGroup;
+import android.widget.Button;
+import android.widget.LinearLayout;
 
-public class DimensionHelper {
-    public static void showDimensionsFor(Context context, String elementName) {
-        String dimensions = getDimensions(elementName);
-        new AlertDialog.Builder(context)
-            .setTitle("أبعاد " + elementName)
-            .setMessage(dimensions)
-            .setPositiveButton("فهمت", null)
-            .show();
+import mazdady.admin.AdminConfig;
+
+/**
+ * مساعد الأبعاد مع دعم التخصيص الديناميكي
+ * يتبع نمط Strategy لفصل استراتيجيات تحديد الأبعاد
+ */
+public final class DimensionHelper {
+    private final Context context;
+
+    public DimensionHelper(Context context) {
+        this.context = context.getApplicationContext();
     }
 
-    private static String getDimensions(String element) {
-        switch (element) {
-            case "main_background":
-                return "العرض: 100% من الشاشة\nالارتفاع: 100% من الشاشة\nالحجم الموصى به: 1080x1920 بكسل";
-            case "buy_button_background":
-                return "العرض: 160dp\nالارتفاع: 50dp\nالحجم الموصى به: 480x150 بكسل";
-            case "popup_background":
-                return "العرض: 95% من الشاشة\nالارتفاع: 80% من الشاشة\nالحجم الموصى به: 1026x1536 بكسل";
-            default:
-                return "الأبعاد غير متوفرة";
+    /**
+     * تطبيق الأبعاد الديناميكية على العرض
+     */
+    public void applyDimensionsToView(View view, AdminConfig.UIConfig uiConfig) {
+        if (view == null) return;
+        
+        try {
+            // الحصول على إعدادات الأبعاد من الإدارة
+            AdminConfig.UIConfig.ElementDimensions dimensions = 
+                uiConfig.getElementDimensions(view.getId());
+            
+            if (dimensions != null) {
+                ViewGroup.LayoutParams params = view.getLayoutParams();
+                if (params != null) {
+                    // تطبيق العرض
+                    if (dimensions.getWidth() > 0) {
+                        params.width = dpToPx(dimensions.getWidth());
+                    }
+                    
+                    // تطبيق الارتفاع
+                    if (dimensions.getHeight() > 0) {
+                        params.height = dpToPx(dimensions.getHeight());
+                    }
+                    
+                    view.setLayoutParams(params);
+                }
+                
+                // تطبيق الهوامش
+                if (view instanceof ViewGroup.MarginLayoutParams) {
+                    ViewGroup.MarginLayoutParams marginParams = 
+                        (ViewGroup.MarginLayoutParams) view.getLayoutParams();
+                    
+                    if (dimensions.getMarginLeft() > 0) {
+                        marginParams.leftMargin = dpToPx(dimensions.getMarginLeft());
+                    }
+                    if (dimensions.getMarginTop() > 0) {
+                        marginParams.topMargin = dpToPx(dimensions.getMarginTop());
+                    }
+                    if (dimensions.getMarginRight() > 0) {
+                        marginParams.rightMargin = dpToPx(dimensions.getMarginRight());
+                    }
+                    if (dimensions.getMarginBottom() > 0) {
+                        marginParams.bottomMargin = dpToPx(dimensions.getMarginBottom());
+                    }
+                    
+                    view.setLayoutParams(marginParams);
+                }
+                
+                System.out.println("DIMENSION HELPER: Dimensions applied to " + view.getId());
+            }
+        } catch (Exception e) {
+            System.err.println("DIMENSION HELPER ERROR: " + e.getMessage());
+        }
+    }
+
+    /**
+     * تحويل DP إلى بكسل
+     */
+    private int dpToPx(float dp) {
+        return Math.round(dp * context.getResources().getDisplayMetrics().density);
+    }
+
+    /**
+     * تحويل بكسل إلى DP
+     */
+    private float pxToDp(int px) {
+        return px / context.getResources().getDisplayMetrics().density;
+    }
+
+    /**
+     * تحديث الأبعاد ديناميكيًا
+     */
+    public void updateDimensions(View view, float widthDp, float heightDp) {
+        if (view != null) {
+            ViewGroup.LayoutParams params = view.getLayoutParams();
+            if (params != null) {
+                params.width = dpToPx(widthDp);
+                params.height = dpToPx(heightDp);
+                view.setLayoutParams(params);
+                System.out.println("DIMENSION HELPER: Dimensions updated to " + widthDp + "x" + heightDp + "dp");
+            }
+        }
+    }
+
+    /**
+     * تطبيق نسبة العرض إلى الارتفاع
+     */
+    public void applyAspectRatio(View view, float aspectRatio) {
+        if (view != null) {
+            ViewGroup.LayoutParams params = view.getLayoutParams();
+            if (params != null) {
+                int width = params.width;
+                if (width > 0) {
+                    params.height = Math.round(width / aspectRatio);
+                    view.setLayoutParams(params);
+                    System.out.println("DIMENSION HELPER: Aspect ratio " + aspectRatio + " applied");
+                }
+            }
         }
     }
 }
