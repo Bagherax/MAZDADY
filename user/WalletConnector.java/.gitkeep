@@ -1,0 +1,129 @@
+package mazdady.user;
+
+import mazdady.wallet.WalletManager;
+
+import java.util.concurrent.CompletableFuture;
+import java.util.function.Consumer;
+
+/**
+ * رابط المحفظة الخارجية مع دعم الشبكات المتعددة
+ * يتبع نمط Strategy لفصل استراتيجيات الربط
+ */
+public final class WalletConnector {
+    private final WalletManager walletManager;
+    private static WalletConnector instance;
+
+    private WalletConnector(WalletManager walletManager) {
+        this.walletManager = walletManager;
+    }
+
+    public static synchronized WalletConnector getInstance(WalletManager walletManager) {
+        if (instance == null) {
+            instance = new WalletConnector(walletManager);
+        }
+        return instance;
+    }
+
+    /**
+     * ربط محفظة خارجية غير متزامن
+     */
+    public CompletableFuture<ConnectionResult> connectWalletAsync(
+        String address, 
+        BlockchainNetwork network
+    ) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                // التحقق من صحة العنوان
+                if (!isValidAddress(address, network)) {
+                    return ConnectionResult.failure("Invalid wallet address for " + network);
+                }
+                
+                // ربط المحفظة
+                boolean connected = walletManager.connectWallet(address, network.name());
+                
+                if (connected) {
+                    User user = UserManager.getInstance(null).getCurrentUser();
+                    user.setWalletAddress(address);
+                    
+                    System.out.println("WALLET CONNECTOR: Wallet connected - " + address + 
+                                     " on " + network);
+                    return ConnectionResult.success("Wallet connected successfully");
+                } else {
+                    return ConnectionResult.failure("Failed to connect wallet");
+                }
+                
+            } catch (Exception e) {
+                return ConnectionResult.failure("Wallet connection error: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * فصل المحفظة
+     */
+    public void disconnectWallet() {
+        User user = UserManager.getInstance(null).getCurrentUser();
+        if (user.getWalletAddress() != null) {
+            walletManager.disconnectWallet();
+            user.setWalletAddress(null);
+            System.out.println("WALLET CONNECTOR: Wallet disconnected");
+        }
+    }
+
+    /**
+     * التحقق من حالة الربط
+     */
+    public boolean isConnected() {
+        User user = UserManager.getInstance(null).getCurrentUser();
+        return user.getWalletAddress() != null && walletManager.isConnected();
+    }
+
+    private boolean isValidAddress(String address, BlockchainNetwork network) {
+        if (address == null || address.isEmpty()) return false;
+        
+        switch (network) {
+            case ETHEREUM:
+            case BINANCE_SMART_CHAIN:
+                return address.matches("^0x[a-fA-F0-9]{40}$");
+            case SOLANA:
+                return address.length() == 44;
+            case BITCOIN:
+                return address.matches("^(1|3|bc1)[a-zA-Z0-9]{25,42}$");
+            case POLKADOT:
+                return address.length() == 48;
+            default:
+                return false;
+        }
+    }
+
+    /**
+     * شبكة البلوك تشين
+     */
+    public enum BlockchainNetwork {
+        ETHEREUM, BINANCE_SMART_CHAIN, SOLANA, BITCOIN, POLKADOT
+    }
+
+    /**
+     * نتيجة الربط
+     */
+    public static final class ConnectionResult {
+        private final boolean success;
+        private final String message;
+
+        private ConnectionResult(boolean success, String message) {
+            this.success = success;
+            this.message = message;
+        }
+
+        public static ConnectionResult success(String message) {
+            return new ConnectionResult(true, message);
+        }
+
+        public static ConnectionResult failure(String message) {
+            return new ConnectionResult(false, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public String getMessage() { return message; }
+    }
+}
