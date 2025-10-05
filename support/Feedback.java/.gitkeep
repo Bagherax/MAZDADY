@@ -1,0 +1,42 @@
+package mazdady.support;
+
+import android.content.Context;
+
+/**
+ * واجهة التغذية الراجعة مع دعم التقييم النجمي
+ * يتبع نمط Facade لتوفير واجهة مبسطة
+ */
+public final class Feedback {
+    private final Context context;
+
+    private Feedback(Context context) {
+        this.context = context.getApplicationContext();
+    }
+
+    public static Feedback create(Context context) {
+        return new Feedback(context);
+    }
+
+    /**
+     * عرض نموذج التغذية الراجعة
+     */
+    public void showFeedbackForm() {
+        // في الإنتاج: عرض PopUp لتقييم النجوم وإدخال التعليقات
+        System.out.println("FEEDBACK FORM: Displayed feedback form");
+    }
+
+    /**
+     * إرسال التغذية الراجعة
+     */
+    public void submitFeedback(int rating, String comments) {
+        InAppFeedbackCollector.getInstance()
+            .submitFeedbackAsync(rating, comments)
+            .thenAccept(result -> {
+                if (result.isSuccess()) {
+                    System.out.println("FEEDBACK: " + result.getMessage());
+                } else {
+                    System.err.println("FEEDBACK ERROR: " + result.getMessage());
+                }
+            });
+    }
+}
