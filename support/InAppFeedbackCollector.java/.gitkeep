@@ -1,19 +1,79 @@
 package mazdady.support;
 
-public class InAppFeedbackCollector {
-    public void showFeedbackForm() {
-        // في الإنتاج: عرض نموذج PopUp لجمع التغذية الراجعة
-        System.out.println("تم عرض نموذج التغذية الراجعة");
+import mazdady.user.User;
+import mazdady.user.UserManager;
+
+import java.time.Instant;
+import java.util.concurrent.CompletableFuture;
+
+/**
+ * جامع التغذية الراجعة داخل التطبيق مع دعم المكافآت
+ * يتبع نمط Observer لإعلام النظام بالتغذية الراجعة
+ */
+public final class InAppFeedbackCollector {
+    private static InAppFeedbackCollector instance;
+
+    private InAppFeedbackCollector() {}
+
+    public static synchronized InAppFeedbackCollector getInstance() {
+        if (instance == null) {
+            instance = new InAppFeedbackCollector();
+        }
+        return instance;
     }
 
-    public void submitFeedback(String userId, int rating, String comments) {
-        // في الإنتاج: إرسال التغذية الراجعة إلى السيرفر
-        System.out.println("تم إرسال التغذية الراجعة من المستخدم " + userId + 
-                          " (التقييم: " + rating + ")");
-        
-        // مكافأة المستخدم (في الإنتاج)
-        if (rating >= 4) {
-            System.out.println("شكرًا لتقييمك! لقد حصلت على 10 MAZDADY كهدية.");
+    /**
+     * إرسال التغذية الراجعة غير المتزامنة
+     */
+    public CompletableFuture<FeedbackResult> submitFeedbackAsync(int rating, String comments) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                User user = UserManager.getInstance(null).getCurrentUser();
+                
+                // حفظ التغذية الراجعة
+                saveFeedback(user.getUserId(), rating, comments);
+                
+                // منح مكافأة إذا كان التقييم جيدًا
+                if (rating >= 4) {
+                    double reward = 10.0; // 10 MAZDADY
+                    user.setBalance(user.getBalance() + reward);
+                    System.out.println("FEEDBACK REWARD: " + reward + " MAZDADY granted for rating " + rating);
+                }
+                
+                return FeedbackResult.success("Thank you for your feedback!");
+                
+            } catch (Exception e) {
+                return FeedbackResult.failure("Failed to submit feedback: " + e.getMessage());
+            }
+        });
+    }
+
+    private void saveFeedback(String userId, int rating, String comments) {
+        // في الإنتاج: حفظ في قاعدة البيانات أو السيرفر
+        System.out.println("FEEDBACK SUBMITTED: User " + userId + " rated " + rating + " - " + comments);
+    }
+
+    /**
+     * نتيجة التغذية الراجعة
+     */
+    public static final class FeedbackResult {
+        private final boolean success;
+        private final String message;
+
+        private FeedbackResult(boolean success, String message) {
+            this.success = success;
+            this.message = message;
         }
+
+        public static FeedbackResult success(String message) {
+            return new FeedbackResult(true, message);
+        }
+
+        public static FeedbackResult failure(String message) {
+            return new FeedbackResult(false, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public String getMessage() { return message; }
     }
 }
