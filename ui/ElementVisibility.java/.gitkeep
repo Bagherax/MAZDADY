@@ -1,0 +1,189 @@
+package mazdady.ui;
+
+import android.view.View;
+import android.view.ViewGroup;
+
+import mazdady.admin.AdminConfig;
+import mazdady.user.UserManager;
+
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+
+/**
+ * إدارة رؤية العناصر مع دعم التحكم الإداري
+ * يتبع نمط Strategy لفصل استراتيجيات الرؤية
+ */
+public final class ElementVisibility {
+    private final Map<String, VisibilityStrategy> strategies = new ConcurrentHashMap<>();
+
+    public ElementVisibility() {
+        initializeStrategies();
+    }
+
+    private void initializeStrategies() {
+        strategies.put("level_based", new LevelBasedVisibilityStrategy());
+        strategies.put("subscription_based", new SubscriptionBasedVisibilityStrategy());
+        strategies.put("feature_flag_based", new FeatureFlagBasedVisibilityStrategy());
+        strategies.put("time_based", new TimeBasedVisibilityStrategy());
+    }
+
+    /**
+     * تطبيق الرؤية الديناميكية على العرض
+     */
+    public void applyVisibilityToView(ViewGroup rootView, AdminConfig.UIConfig uiConfig) {
+        if (rootView == null || uiConfig == null) return;
+        
+        try {
+            // تطبيق إعدادات الرؤية من الإدارة
+            Map<String, AdminConfig.UIConfig.ElementVisibility> visibilityConfig = 
+                uiConfig.getElementVisibilities();
+            
+            for (Map.Entry<String, AdminConfig.UIConfig.ElementVisibility> entry : visibilityConfig.entrySet()) {
+                String elementId = entry.getKey();
+                AdminConfig.UIConfig.ElementVisibility visibility = entry.getValue();
+                
+                // العثور على العنصر في التخطيط
+                View element = findViewByTag(rootView, elementId);
+                if (element != null) {
+                    applyElementVisibility(element, visibility);
+                }
+            }
+            
+            System.out.println("ELEMENT VISIBILITY: Applied to " + visibilityConfig.size() + " elements");
+        } catch (Exception e) {
+            System.err.println("VISIBILITY ERROR: " + e.getMessage());
+        }
+    }
+
+    /**
+     * تطبيق رؤية عنصر محدد
+     */
+    private void applyElementVisibility(View element, AdminConfig.UIConfig.ElementVisibility visibility) {
+        if (element == null || visibility == null) return;
+        
+        try {
+            // التحقق من الاستراتيجية
+            VisibilityStrategy strategy = strategies.get(visibility.getStrategy());
+            if (strategy != null) {
+                boolean shouldBeVisible = strategy.shouldBeVisible(visibility.getConditions());
+                element.setVisibility(shouldBeVisible ? View.VISIBLE : View.GONE);
+                System.out.println("ELEMENT VISIBILITY: " + element.getId() + " visibility set to " + 
+                                 (shouldBeVisible ? "VISIBLE" : "GONE"));
+            }
+        } catch (Exception e) {
+            System.err.println("ELEMENT VISIBILITY ERROR: " + e.getMessage());
+        }
+    }
+
+    /**
+     * العثور على العرض حسب العلامة
+     */
+    private View findViewByTag(ViewGroup parent, String tag) {
+        if (parent == null || tag == null) return null;
+        
+        // البحث في العناصر الفرعية
+        for (int i = 0; i < parent.getChildCount(); i++) {
+            View child = parent.getChildAt(i);
+            if (tag.equals(child.getTag())) {
+                return child;
+            }
+            
+            // البحث العودي في مجموعات العناصر
+            if (child instanceof ViewGroup) {
+                View found = findViewByTag((ViewGroup) child, tag);
+                if (found != null) {
+                    return found;
+                }
+            }
+        }
+        
+        return null;
+    }
+
+    /**
+     * تحديث رؤية عنصر
+     */
+    public void updateElementVisibility(String elementId, boolean visible) {
+        // في الإنتاج: تحديث إعدادات الإدارة
+        System.out.println("ELEMENT VISIBILITY: " + elementId + " visibility updated to " + visible);
+    }
+
+    // --- استراتيجيات الرؤية ---
+    
+    /**
+     * استراتيجية الرؤية بناءً على المستوى
+     */
+    private static final class LevelBasedVisibilityStrategy implements VisibilityStrategy {
+        @Override
+        public boolean shouldBeVisible(Map<String, Object> conditions) {
+            try {
+                int requiredLevel = (Integer) conditions.getOrDefault("required_level", 1);
+                int userLevel = UserManager.getInstance(null).getCurrentUser().getLevel();
+                return userLevel >= requiredLevel;
+            } catch (Exception e) {
+                return false;
+            }
+        }
+    }
+
+    /**
+     * استراتيجية الرؤية بناءً على الاشتراك
+     */
+    private static final class SubscriptionBasedVisibilityStrategy implements VisibilityStrategy {
+        @Override
+        public boolean shouldBeVisible(Map<String, Object> conditions) {
+            try {
+                boolean requiredSubscription = (Boolean) conditions.getOrDefault("required_subscription", false);
+                return !requiredSubscription || 
+                       UserManager.getInstance(null).getCurrentUser().hasActiveSubscription();
+            } catch (Exception e) {
+                return false;
+            }
+        }
+    }
+
+    /**
+     * استراتيجية الرؤية بناءً على علامات الميزات
+     */
+    private static final class FeatureFlagBasedVisibilityStrategy implements VisibilityStrategy {
+        @Override
+        public boolean shouldBeVisible(Map<String, Object> conditions) {
+            try {
+                String featureFlag = (String) conditions.get("feature_flag");
+                return featureFlag == null || 
+                       mazdady.admin.FeatureToggleManager.getInstance().isFeatureEnabled(featureFlag);
+            } catch (Exception e) {
+                return false;
+            }
+        }
+    }
+
+    /**
+     * استراتيجية الرؤية بناءً على الوقت
+     */
+    private static final class TimeBasedVisibilityStrategy implements VisibilityStrategy {
+        @Override
+        public boolean shouldBeVisible(Map<String, Object> conditions) {
+            try {
+                Long startTime = (Long) conditions.get("start_time");
+                Long endTime = (Long) conditions.get("end_time");
+                long currentTime = System.currentTimeMillis();
+                
+                boolean afterStart = startTime == null || currentTime >= startTime;
+                boolean beforeEnd = endTime == null || currentTime <= endTime;
+                
+                return afterStart && beforeEnd;
+            } catch (Exception e) {
+                return true; // افتراضيًا مرئي
+            }
+        }
+    }
+
+    /**
+     * واجهة استراتيجية الرؤية
+     */
+    @FunctionalInterface
+    private interface VisibilityStrategy {
+        boolean shouldBeVisible(Map<String, Object> conditions);
+    }
+}
