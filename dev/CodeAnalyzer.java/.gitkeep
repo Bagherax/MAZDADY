@@ -1,0 +1,158 @@
+package mazdady.dev;
+
+import java.io.File;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.Predicate;
+
+/**
+ * محلل الكود مع دعم التحليل الثابت المتقدم
+ * يتبع نمط Strategy لفصل قواعد التحليل
+ */
+public final class CodeAnalyzer {
+    private final CopyOnWriteArrayList<AnalysisRule> rules = new CopyOnWriteArrayList<>();
+    private static final CodeAnalyzer INSTANCE = new CodeAnalyzer();
+
+    private CodeAnalyzer() {
+        initializeRules();
+    }
+
+    public static CodeAnalyzer getInstance() {
+        return INSTANCE;
+    }
+
+    private void initializeRules() {
+        rules.add(new NullCheckRule());
+        rules.add(new SecurityRule());
+        rules.add(new PerformanceRule());
+        rules.add(new NamingConventionRule());
+    }
+
+    /**
+     * تحليل مشروع كامل غير متزامن
+     */
+    public CompletableFuture<AnalysisReport> analyzeProjectAsync(String projectPath) {
+        return CompletableFuture.supplyAsync(() -> {
+            AnalysisReport report = new AnalysisReport();
+            File projectDir = new File(projectPath);
+            analyzeDirectory(projectDir, report);
+            return report;
+        });
+    }
+
+    private void analyzeDirectory(File directory, AnalysisReport report) {
+        File[] files = directory.listFiles();
+        if (files != null) {
+            for (File file : files) {
+                if (file.isDirectory()) {
+                    analyzeDirectory(file, report);
+                } else if (file.getName().endsWith(".java")) {
+                    analyzeFile(file, report);
+                }
+            }
+        }
+    }
+
+    private void analyzeFile(File file, AnalysisReport report) {
+        try {
+            String content = readFileContent(file);
+            for (AnalysisRule rule : rules) {
+                rule.analyze(content, file.getPath(), report);
+            }
+        } catch (Exception e) {
+            report.addIssue("FileReadError", file.getPath(), e.getMessage());
+        }
+    }
+
+    private String readFileContent(File file) throws Exception {
+        // في الإنتاج: قراءة محتوى الملف
+        return "// Mock file content";
+    }
+
+    /**
+     * قاعدة تحليل
+     */
+    @FunctionalInterface
+    public interface AnalysisRule {
+        void analyze(String content, String filePath, AnalysisReport report);
+    }
+
+    /**
+     * تقرير التحليل
+     */
+    public static final class AnalysisReport {
+        private final CopyOnWriteArrayList<Issue> issues = new CopyOnWriteArrayList<>();
+
+        public void addIssue(String ruleName, String filePath, String description) {
+            issues.add(new Issue(ruleName, filePath, description));
+        }
+
+        public String getSummary() {
+            return String.format(
+                "🔍 CODE ANALYSIS: %d issues found\n%s",
+                issues.size(),
+                issues.isEmpty() ? "" : issues.stream()
+                    .map(Issue::toString)
+                    .collect(java.util.stream.Collectors.joining("\n"))
+            );
+        }
+    }
+
+    /**
+     * مشكلة في الكود
+     */
+    public static final class Issue {
+        private final String ruleName;
+        private final String filePath;
+        private final String description;
+
+        public Issue(String ruleName, String filePath, String description) {
+            this.ruleName = ruleName;
+            this.filePath = filePath;
+            this.description = description;
+        }
+
+        @Override
+        public String toString() {
+            return String.format("[%s] %s: %s", ruleName, filePath, description);
+        }
+    }
+
+    // --- قواعد تحليل مخصصة ---
+    private static final class NullCheckRule implements AnalysisRule {
+        @Override
+        public void analyze(String content, String filePath, AnalysisReport report) {
+            if (content.contains("== null") || content.contains("!= null")) {
+                report.addIssue("NullCheckRule", filePath, "Direct null checks found - use Optional");
+            }
+        }
+    }
+
+    private static final class SecurityRule implements AnalysisRule {
+        @Override
+        public void analyze(String content, String filePath, AnalysisReport report) {
+            if (content.contains("System.out.println") && !filePath.contains("dev/")) {
+                report.addIssue("SecurityRule", filePath, "System.out.println found in production code");
+            }
+        }
+    }
+
+    private static final class PerformanceRule implements AnalysisRule {
+        @Override
+        public void analyze(String content, String filePath, AnalysisReport report) {
+            if (content.contains("new Thread(")) {
+                report.addIssue("PerformanceRule", filePath, "Direct Thread creation - use ExecutorService");
+            }
+        }
+    }
+
+    private static final class NamingConventionRule implements AnalysisRule {
+        @Override
+        public void analyze(String content, String filePath, AnalysisReport report) {
+            // في الإنتاج: التحقق من اتفاقيات التسمية
+            if (filePath.contains(" ")) {
+                report.addIssue("NamingConventionRule", filePath, "File path contains spaces");
+            }
+        }
+    }
+}
