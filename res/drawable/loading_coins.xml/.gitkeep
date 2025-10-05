@@ -1,20 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- الخلفية -->
+    <!-- خلفية التقدم -->
     <item android:id="@android:id/background">
         <shape android:shape="rectangle">
-            <solid android:color="#222222" />
+            <solid android:color="#1a1a2e" />
             <corners android:radius="4dp" />
         </shape>
     </item>
     
-    <!-- التقدم (العملات) -->
+    <!-- شريط التقدم مع تكرار العملة -->
     <item android:id="@android:id/progress">
         <clip>
             <bitmap
                 android:src="@drawable/coin_pattern"
                 android:tileMode="repeat"
-                android:gravity="left" />
+                android:gravity="left|center_vertical"
+                android:antialias="true"
+                android:filter="true" />
         </clip>
     </item>
 </layer-list>
