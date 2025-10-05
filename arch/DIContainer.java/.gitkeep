@@ -1,29 +1,82 @@
 package mazdady.arch;
 
+import mazdady.user.UserManager;
+import mazdady.security.SecurityMonitor;
+import mazdady.wallet.WalletManager;
+import mazdady.trading.PriceEngine;
+import mazdady.bot.BotController;
+import mazdady.admin.AdminConfig;
+
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
 
 /**
- * حاوية حقن التبعيات متعددة النطاقات
- * تدعم Singleton, PerRequest, وتهيئة ديناميكية
+ * حاوية حقن التبعيات مع دعم النطاقات المتقدمة
+ * يتبع نمط Singleton مع تهيئة آمنة
  */
 public final class DIContainer {
-    private final Map<Class<?>, Supplier<Object>> bindings;
-    private final Map<Class<?>, Object> singletons;
+    private final Map<Class<?>, Supplier<Object>> bindings = new ConcurrentHashMap<>();
+    private final Map<Class<?>, Object> singletons = new ConcurrentHashMap<>();
+    private static DIContainer instance;
 
-    private DIContainer() {
-        this.bindings = new ConcurrentHashMap<>();
-        this.singletons = new ConcurrentHashMap<>();
-        configureBindings();
+    private DIContainer(
+        UserManager userManager,
+        SecurityMonitor securityMonitor,
+        WalletManager walletManager,
+        PriceEngine priceEngine,
+        BotController botController,
+        AdminConfig adminConfig
+    ) {
+        initializeBindings(userManager, securityMonitor, walletManager, priceEngine, botController, adminConfig);
     }
 
-    private static class Holder {
-        static final DIContainer INSTANCE = new DIContainer();
+    public static synchronized DIContainer getInstance(
+        UserManager userManager,
+        SecurityMonitor securityMonitor,
+        WalletManager walletManager,
+        PriceEngine priceEngine,
+        BotController botController,
+        AdminConfig adminConfig
+    ) {
+        if (instance == null) {
+            instance = new DIContainer(userManager, securityMonitor, walletManager, priceEngine, botController, adminConfig);
+        }
+        return instance;
     }
 
-    public static DIContainer getInstance() {
-        return Holder.INSTANCE;
+    private void initializeBindings(
+        UserManager userManager,
+        SecurityMonitor securityMonitor,
+        WalletManager walletManager,
+        PriceEngine priceEngine,
+        BotController botController,
+        AdminConfig adminConfig
+    ) {
+        // ربط المكونات الأساسية كـ Singletons
+        bindSingleton(UserManager.class, () -> userManager);
+        bindSingleton(SecurityMonitor.class, () -> securityMonitor);
+        bindSingleton(WalletManager.class, () -> walletManager);
+        bindSingleton(PriceEngine.class, () -> priceEngine);
+        bindSingleton(BotController.class, () -> botController);
+        bindSingleton(AdminConfig.class, () -> adminConfig);
+        
+        // ربط المكونات المتقدمة
+        bindSingleton(BusinessInteractor.class, () -> 
+            BusinessInteractor.getInstance(userManager, securityMonitor)
+        );
+        
+        bindSingleton(ContractValidator.class, () -> 
+            ContractValidator.getInstance(securityMonitor)
+        );
+        
+        bindSingleton(DependencyResolver.class, () -> 
+            DependencyResolver.getInstance()
+        );
+        
+        bindSingleton(UseCaseExecutor.class, () -> 
+            UseCaseExecutor.getInstance(userManager, securityMonitor, walletManager, priceEngine, botController, adminConfig)
+        );
     }
 
     /**
@@ -53,20 +106,35 @@ public final class DIContainer {
     }
 
     /**
-     * تهيئة الروابط الأساسية
+     * تحديث رابط في الحاوية
      */
-    private void configureBindings() {
-        // روابط افتراضية
-        bindSingleton(UserManager.class, () -> UserManager.getInstance(null));
-        bindSingleton(ContractValidator.class, ContractValidator::new);
+    public <T> void updateBinding(Class<T> interfaceType, Supplier<T> newImplementation) {
+        bindings.put(interfaceType, () -> newImplementation.get());
+        singletons.remove(interfaceType); // إزالة Singleton القديم إذا وُجد
+        System.out.println("DI CONTAINER: Updated binding for " + interfaceType.getName());
     }
 
+    /**
+     * إزالة رابط من الحاوية
+     */
+    public <T> void removeBinding(Class<T> interfaceType) {
+        bindings.remove(interfaceType);
+        singletons.remove(interfaceType);
+        System.out.println("DI CONTAINER: Removed binding for " + interfaceType.getName());
+    }
+
+    // --- Getters ---
+    public int getBindingCount() { return bindings.size(); }
+    public int getSingletonCount() { return singletons.size(); }
+    public boolean hasBinding(Class<?> type) { return bindings.containsKey(type); }
+    public boolean hasSingleton(Class<?> type) { return singletons.containsKey(type); }
+    
     /**
      * إعادة تهيئة الحاوية (للاختبارات)
      */
     public void reset() {
         bindings.clear();
         singletons.clear();
-        configureBindings();
+        System.out.println("DI CONTAINER: Reset completed");
     }
 }
