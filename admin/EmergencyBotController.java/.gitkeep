@@ -1,0 +1,77 @@
+package mazdady.admin;
+
+import mazdady.bot.EmergencyBot;
+import mazdady.trading.PriceEngine;
+import mazdady.trading.TradingLineView;
+
+/**
+ * وحدة تحكم بوت الطوارئ
+ * يتبع نمط Facade لتوفير واجهة موحدة
+ */
+public final class EmergencyBotController {
+    private final EmergencyBot emergencyBot;
+    private static EmergencyBotController instance;
+
+    private EmergencyBotController(EmergencyBot emergencyBot) {
+        this.emergencyBot = emergencyBot;
+    }
+
+    public static synchronized EmergencyBotController getInstance(
+        PriceEngine priceEngine, 
+        TradingLineView tradingLineView
+    ) {
+        if (instance == null) {
+            EmergencyBot bot = EmergencyBot.getInstance(priceEngine, tradingLineView);
+            instance = new EmergencyBotController(bot);
+        }
+        return instance;
+    }
+
+    /**
+     * تفعيل بوت الطوارئ
+     */
+    public void activateEmergencyBot() {
+        emergencyBot.activateEmergencyBot();
+        System.out.println("EMERGENCY BOT CONTROLLER: Emergency bot activated");
+    }
+
+    /**
+     * تعطيل بوت الطوارئ
+     */
+    public void deactivateEmergencyBot() {
+        emergencyBot.deactivateEmergencyBot();
+        System.out.println("EMERGENCY BOT CONTROLLER: Emergency bot deactivated");
+    }
+
+    /**
+     * تحديث نسبة الخسائر
+     */
+    public void updateLossRate(double lossRate) {
+        emergencyBot.updateLossRate(lossRate);
+        System.out.println("EMERGENCY BOT CONTROLLER: Loss rate updated to " + 
+                         String.format("%.2f", lossRate * 100) + "%");
+    }
+
+    /**
+     * تحديث فترة الصفقات
+     */
+    public void updateTradeInterval(long intervalMs) {
+        emergencyBot.updateTradeInterval(intervalMs);
+        System.out.println("EMERGENCY BOT CONTROLLER: Trade interval updated to " + intervalMs + "ms");
+    }
+
+    /**
+     * الحصول على حالة بوت الطوارئ
+     */
+    public EmergencyBot.EmergencyBotStatus getStatus() {
+        return emergencyBot.getStatus();
+    }
+
+    /**
+     * إيقاف بوت الطوارئ (للاختبارات)
+     */
+    public void shutdown() {
+        emergencyBot.shutdown();
+        System.out.println("EMERGENCY BOT CONTROLLER: Shutdown completed");
+    }
+}
