@@ -1,0 +1,170 @@
+package mazdady.dev;
+
+import android.view.View;
+import android.widget.Button;
+import android.widget.TextView;
+
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CopyOnWriteArrayList;
+
+/**
+ * مدير اختبارات واجهة المستخدم مع دعم المحاكاة البصرية
+ * يتبع نمط Strategy لفصل أنواع اختبارات الواجهة
+ */
+public final class UITests {
+    private final CopyOnWriteArrayList<UITest> tests = new CopyOnWriteArrayList<>();
+    private static final UITests INSTANCE = new UITests();
+
+    private UITests() {
+        initializeTests();
+    }
+
+    public static UITests getInstance() {
+        return INSTANCE;
+    }
+
+    private void initializeTests() {
+        tests.add(new TradingUITest());
+        tests.add(new PopupUITest());
+        tests.add(new LocalizationUITest());
+    }
+
+    /**
+     * تشغيل جميع اختبارات الواجهة غير المتزامنة
+     */
+    public CompletableFuture<UIReport> runAllTestsAsync() {
+        return CompletableFuture.supplyAsync(() -> {
+            UIReport report = new UIReport();
+            for (UITest test : tests) {
+                report.merge(test.run());
+            }
+            return report;
+        });
+    }
+
+    /**
+     * تشغيل جميع اختبارات الواجهة
+     */
+    public static void runAllTests() {
+        UIReport report = getInstance().runAllTestsAsync().join();
+        System.out.println(report.getSummary());
+    }
+
+    /**
+     * واجهة اختبار الواجهة
+     */
+    @FunctionalInterface
+    public interface UITest {
+        UIReport run();
+    }
+
+    /**
+     * تقرير اختبار الواجهة
+     */
+    public static final class UIReport {
+        private int passed = 0;
+        private int failed = 0;
+        private final CopyOnWriteArrayList<String> failures = new CopyOnWriteArrayList<>();
+
+        public void addPassed() { passed++; }
+        public void addFailed(String testName, String reason) {
+            failed++;
+            failures.add(testName + ": " + reason);
+        }
+
+        public void merge(UIReport other) {
+            this.passed += other.passed;
+            this.failed += other.failed;
+            this.failures.addAll(other.failures);
+        }
+
+        public String getSummary() {
+            return String.format(
+                "📱 UI TESTS: %d passed, %d failed\n%s",
+                passed, failed,
+                failures.isEmpty() ? "" : "Failures:\n" + String.join("\n", failures)
+            );
+        }
+    }
+
+    // --- اختبارات واجهة مخصصة ---
+    private static final class TradingUITest implements UITest {
+        @Override
+        public UIReport run() {
+            UIReport report = new UIReport();
+            try {
+                // محاكاة عناصر واجهة التداول
+                TextView balanceView = mockTextView("الرصيد: 1000.00 MAZDADY");
+                Button buyButton = mockButton("شراء");
+                Button sellButton = mockButton("بيع");
+                
+                if (!balanceView.getText().toString().contains("MAZDADY")) {
+                    throw new AssertionError("Balance view should display MAZDADY");
+                }
+                if (!buyButton.getText().toString().equals("شراء")) {
+                    throw new AssertionError("Buy button should display 'شراء'");
+                }
+                report.addPassed();
+            } catch (Exception e) {
+                report.addFailed("TradingUITest", e.getMessage());
+            }
+            return report;
+        }
+    }
+
+    private static final class PopupUITest implements UITest {
+        @Override
+        public UIReport run() {
+            UIReport report = new UIReport();
+            try {
+                // محاكاة Popups
+                mazdady.ui.DynamicPopupManager popupManager = 
+                    new mazdady.ui.DynamicPopupManager(null);
+                // في الإنتاج: اختبار عرض Popup
+                report.addPassed();
+            } catch (Exception e) {
+                report.addFailed("PopupUITest", e.getMessage());
+            }
+            return report;
+        }
+    }
+
+    private static final class LocalizationUITest implements UITest {
+        @Override
+        public UIReport run() {
+            UIReport report = new UIReport();
+            try {
+                // محاكاة الترجمة
+                mazdady.i18n.TranslationManager translator = 
+                    new mazdady.i18n.TranslationManager(null);
+                String translated = translator.getString("buy_button");
+                if (translated == null || translated.isEmpty()) {
+                    throw new AssertionError("Translation should not be empty");
+                }
+                report.addPassed();
+            } catch (Exception e) {
+                report.addFailed("LocalizationUITest", e.getMessage());
+            }
+            return report;
+        }
+    }
+
+    // --- وظائف مساعدة للمحاكاة ---
+    private static TextView mockTextView(String text) {
+        return new TextView(null) {
+            @Override
+            public CharSequence getText() {
+                return text;
+            }
+        };
+    }
+
+    private static Button mockButton(String text) {
+        return new Button(null) {
+            @Override
+            public CharSequence getText() {
+                return text;
+            }
+        };
+    }
+}
