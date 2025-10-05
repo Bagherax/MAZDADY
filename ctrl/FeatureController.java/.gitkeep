@@ -1,55 +1,194 @@
 package mazdady.ctrl;
 
-import mazdady.admin.FeatureToggleManager;
+import mazdady.admin.AdminConfig;
+import mazdady.user.User;
 import mazdady.user.UserManager;
+
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Predicate;
 
 /**
  * وحدة تحكم الميزات مع دعم التفعيل الديناميكي
- * يتبع نمط Strategy لفصل منطق التفعيل
+ * يتبع نمط Strategy لفصل استراتيجيات التفعيل
  */
 public final class FeatureController {
-    private final FeatureToggleManager featureToggleManager;
-    private static final FeatureController INSTANCE = new FeatureController();
+    private final AdminConfig adminConfig;
+    private final UserManager userManager;
+    private final ConcurrentHashMap<String, Predicate<User>> featureConditions = new ConcurrentHashMap<>();
+    private static FeatureController instance;
 
-    private FeatureController() {
-        this.featureToggleManager = new FeatureToggleManager();
+    private FeatureController(AdminConfig adminConfig, UserManager userManager) {
+        this.adminConfig = adminConfig;
+        this.userManager = userManager;
+        initializeFeatureConditions();
     }
 
-    public static FeatureController getInstance() {
-        return INSTANCE;
+    public static synchronized FeatureController getInstance(AdminConfig adminConfig, UserManager userManager) {
+        if (instance == null) {
+            instance = new FeatureController(adminConfig, userManager);
+        }
+        return instance;
     }
 
-    /**
-     * تفعيل ميزة للمستخدم الحالي
-     */
-    public boolean enableFeatureForCurrentUser(String featureId) {
-        String userId = UserManager.getInstance(null).getCurrentUser().getUserId();
-        return enableFeatureForUser(featureId, userId);
-    }
-
-    /**
-     * تفعيل ميزة لمستخدم محدد
-     */
-    public boolean enableFeatureForUser(String featureId, String userId) {
-        // في الإنتاج: التحقق من صلاحيات الادمن
-        featureToggleManager.toggleFeature(featureId, true);
-        System.out.println("FEATURE: " + featureId + " enabled for user " + userId);
-        return true;
-    }
-
-    /**
-     * تعطيل ميزة
-     */
-    public boolean disableFeature(String featureId) {
-        featureToggleManager.toggleFeature(featureId, false);
-        System.out.println("FEATURE: " + featureId + " disabled");
-        return true;
+    private void initializeFeatureConditions() {
+        featureConditions.put("payment_tools", user -> user.getLevel() >= 3);
+        featureConditions.put("advanced_analytics", user -> user.hasActiveSubscription());
+        featureConditions.put("floating_ad", user -> true);
+        featureConditions.put("team_trading", user -> user.getLevel() >= 5);
+        featureConditions.put("magic_update", user -> user.isAdmin());
+        featureConditions.put("emergency_bot", user -> user.isAdmin());
+        featureConditions.put("admin_panel", user -> user.isAdmin());
+        featureConditions.put("kyc_verification", user -> user.getLevel() >= 2);
+        featureConditions.put("withdrawal_system", user -> user.getLevel() >= 1 && user.isKYCVerified());
+        featureConditions.put("trading_line", user -> user.getLevel() >= 1);
+        
+        System.out.println("FEATURE CONTROLLER: Initialized " + featureConditions.size() + " feature conditions");
     }
 
     /**
-     * التحقق من توفر الميزة
+     * التحقق من توفر ميزة للمستخدم غير متزامن
      */
-    public boolean isFeatureAvailable(String featureId) {
-        return featureToggleManager.isFeatureEnabled(featureId);
+    public CompletableFuture<FeatureResult> isFeatureAvailableAsync(String userId, String featureId) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                User user = userManager.getUserById(userId);
+                if (user == null) {
+                    return FeatureResult.failure("User not found");
+                }
+                
+                // التحقق من حالة التفعيل الإداري
+                if (!adminConfig.getFeatureToggleManager().isFeatureEnabled(featureId)) {
+                    return FeatureResult.unavailable("Feature disabled by admin");
+                }
+                
+                // التحقق من شروط المستخدم
+                Predicate<User> condition = featureConditions.get(featureId);
+                if (condition != null && !condition.test(user)) {
+                    return FeatureResult.unavailable("User does not meet feature requirements");
+                }
+                
+                System.out.println("FEATURE CONTROLLER: Feature " + featureId + " available for user " + userId);
+                return FeatureResult.available(featureId, "Feature available");
+                
+            } catch (Exception e) {
+                return FeatureResult.failure("Feature availability check failed: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * تفعيل ميزة للمستخدم غير متزامن
+     */
+    public CompletableFuture<FeatureResult> enableFeatureForUserAsync(String userId, String featureId) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                User user = userManager.getUserById(userId);
+                if (user == null) {
+                    return FeatureResult.failure("User not found");
+                }
+                
+                // التحقق من صلاحيات الادمن
+                if (!user.isAdmin()) {
+                    return FeatureResult.failure("Only admins can enable features for users");
+                }
+                
+                // تفعيل الميزة
+                adminConfig.getFeatureToggleManager().toggleFeature(featureId, true);
+                
+                System.out.println("FEATURE CONTROLLER: Feature " + featureId + " enabled for user " + userId);
+                return FeatureResult.enabled(featureId, "Feature enabled successfully");
+                
+            } catch (Exception e) {
+                return FeatureResult.failure("Feature enable failed: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * تعطيل ميزة للمستخدم غير متزامن
+     */
+    public CompletableFuture<FeatureResult> disableFeatureForUserAsync(String userId, String featureId) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                User user = userManager.getUserById(userId);
+                if (user == null) {
+                    return FeatureResult.failure("User not found");
+                }
+                
+                // التحقق من صلاحيات الادمن
+                if (!user.isAdmin()) {
+                    return FeatureResult.failure("Only admins can disable features for users");
+                }
+                
+                // تعطيل الميزة
+                adminConfig.getFeatureToggleManager().toggleFeature(featureId, false);
+                
+                System.out.println("FEATURE CONTROLLER: Feature " + featureId + " disabled for user " + userId);
+                return FeatureResult.disabled(featureId, "Feature disabled successfully");
+                
+            } catch (Exception e) {
+                return FeatureResult.failure("Feature disable failed: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * تحديث شروط الميزة
+     */
+    public void updateFeatureCondition(String featureId, Predicate<User> condition) {
+        if (featureId != null && condition != null) {
+            featureConditions.put(featureId, condition);
+            System.out.println("FEATURE CONTROLLER: Updated condition for feature " + featureId);
+        }
+    }
+
+    /**
+     * نتيجة الميزة
+     */
+    public static final class FeatureResult {
+        private final boolean success;
+        private final boolean available;
+        private final boolean enabled;
+        private final boolean disabled;
+        private final String featureId;
+        private final String message;
+
+        private FeatureResult(boolean success, boolean available, boolean enabled, boolean disabled, 
+                            String featureId, String message) {
+            this.success = success;
+            this.available = available;
+            this.enabled = enabled;
+            this.disabled = disabled;
+            this.featureId = featureId;
+            this.message = message;
+        }
+
+        public static FeatureResult available(String featureId, String message) {
+            return new FeatureResult(true, true, false, false, featureId, message);
+        }
+
+        public static FeatureResult unavailable(String message) {
+            return new FeatureResult(true, false, false, false, null, message);
+        }
+
+        public static FeatureResult enabled(String featureId, String message) {
+            return new FeatureResult(true, true, true, false, featureId, message);
+        }
+
+        public static FeatureResult disabled(String featureId, String message) {
+            return new FeatureResult(true, true, false, true, featureId, message);
+        }
+
+        public static FeatureResult failure(String message) {
+            return new FeatureResult(false, false, false, false, null, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public boolean isAvailable() { return available; }
+        public boolean isEnabled() { return enabled; }
+        public boolean isDisabled() { return disabled; }
+        public String getFeatureId() { return featureId; }
+        public String getMessage() { return message; }
     }
 }
