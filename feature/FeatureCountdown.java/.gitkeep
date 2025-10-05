@@ -1,0 +1,132 @@
+package mazdady.feature;
+
+import java.time.Duration;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
+
+/**
+ * عداد تنازلي للميزات مع دعم التحديثات الحية
+ * يتبع نمط Observer لإعلام المستمعين بالتغيرات
+ */
+public final class FeatureCountdown {
+    private final Map<String, CountdownTimer> activeCountdowns = new ConcurrentHashMap<>();
+    private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(2);
+    private static final FeatureCountdown INSTANCE = new FeatureCountdown();
+
+    private FeatureCountdown() {}
+
+    public static FeatureCountdown getInstance() {
+        return INSTANCE;
+    }
+
+    /**
+     * بدء عداد تنازلي لميزة
+     */
+    public void startCountdown(String featureId, Duration duration, Consumer<Duration> onTick, Runnable onExpiry) {
+        CountdownTimer timer = new CountdownTimer(duration, onTick, onExpiry);
+        activeCountdowns.put(featureId, timer);
+        timer.start();
+    }
+
+    /**
+     * إيقاف عداد تنازلي
+     */
+    public void stopCountdown(String featureId) {
+        CountdownTimer timer = activeCountdowns.remove(featureId);
+        if (timer != null) {
+            timer.stop();
+        }
+    }
+
+    /**
+     * الحصول على الوقت المتبقي لميزة
+     */
+    public Duration getRemainingTime(String featureId) {
+        CountdownTimer timer = activeCountdowns.get(featureId);
+        return timer != null ? timer.getRemainingTime() : Duration.ZERO;
+    }
+
+    /**
+     * التحقق من انتهاء الميزة
+     */
+    public boolean isExpired(String featureId) {
+        Duration remaining = getRemainingTime(featureId);
+        return remaining.isZero() || remaining.isNegative();
+    }
+
+    /**
+     * مؤقت العداد التنازلي
+     */
+    private final class CountdownTimer {
+        private final Duration totalDuration;
+        private final Consumer<Duration> onTick;
+        private final Runnable onExpiry;
+        private volatile long startTime;
+        private volatile boolean running = true;
+
+        public CountdownTimer(Duration duration, Consumer<Duration> onTick, Runnable onExpiry) {
+            this.totalDuration = duration;
+            this.onTick = onTick;
+            this.onExpiry = onExpiry;
+        }
+
+        public void start() {
+            this.startTime = System.currentTimeMillis();
+            
+            // جدولة التحديثات كل ثانية
+            scheduler.scheduleAtFixedRate(
+                this::tick,
+                0,
+                1,
+                TimeUnit.SECONDS
+            );
+            
+            // جدولة انتهاء الصلاحية
+            scheduler.schedule(
+                this::expire,
+                totalDuration.getSeconds(),
+                TimeUnit.SECONDS
+            );
+        }
+
+        public void stop() {
+            this.running = false;
+        }
+
+        private void tick() {
+            if (!running) return;
+            
+            Duration remaining = getRemainingTime();
+            if (!remaining.isNegative() && !remaining.isZero()) {
+                onTick.accept(remaining);
+            }
+        }
+
+        private void expire() {
+            if (!running) return;
+            
+            running = false;
+            onExpiry.run();
+        }
+
+        public Duration getRemainingTime() {
+            if (!running) return Duration.ZERO;
+            
+            long elapsedMs = System.currentTimeMillis() - startTime;
+            long remainingMs = totalDuration.toMillis() - elapsedMs;
+            return remainingMs > 0 ? Duration.ofMillis(remainingMs) : Duration.ZERO;
+        }
+    }
+
+    /**
+     * إيقاف جميع العدادات (للاختبارات)
+     */
+    public void shutdown() {
+        scheduler.shutdown();
+        activeCountdowns.clear();
+    }
+}
