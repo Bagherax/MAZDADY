@@ -1,0 +1,82 @@
+package mazdady.svc;
+
+import mazdady.ad.AdCampaign;
+import mazdady.ad.AdManager;
+import mazdady.user.UserManager;
+
+import java.util.concurrent.CompletableFuture;
+
+/**
+ * خدمة الترويج مع دعم الحملات المتقدمة
+ * يتبع نمط Facade لتوفير واجهة موحدة
+ */
+public final class PromotionService {
+    private final AdManager adManager;
+    private static PromotionService instance;
+
+    private PromotionService() {
+        this.adManager = AdManager.getInstance();
+    }
+
+    public static synchronized PromotionService getInstance() {
+        if (instance == null) {
+            instance = new PromotionService();
+        }
+        return instance;
+    }
+
+    /**
+     * إنشاء حملة إعلانية غير متزامنة
+     */
+    public CompletableFuture<PromotionResult> createCampaignAsync(
+        AdCampaign.Platform platform,
+        String contentUrl,
+        AdCampaign.Goal goal,
+        int targetCount,
+        double budget
+    ) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                String userId = UserManager.getInstance(null).getCurrentUser().getUserId();
+                
+                AdCampaign campaign = adManager.createCampaign(
+                    platform, contentUrl, goal, targetCount, budget, userId
+                );
+                
+                System.out.println("CAMPAIGN CREATED: " + campaign.getCampaignId() + 
+                                 " for user " + userId);
+                return PromotionResult.success(campaign);
+                
+            } catch (Exception e) {
+                return PromotionResult.failure("Campaign creation failed: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * نتيجة الحملة
+     */
+    public static final class PromotionResult {
+        private final boolean success;
+        private final AdCampaign campaign;
+        private final String message;
+
+        private PromotionResult(boolean success, AdCampaign campaign, String message) {
+            this.success = success;
+            this.campaign = campaign;
+            this.message = message;
+        }
+
+        public static PromotionResult success(AdCampaign campaign) {
+            return new PromotionResult(true, campaign, "Campaign created successfully");
+        }
+
+        public static PromotionResult failure(String message) {
+            return new PromotionResult(false, null, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public AdCampaign getCampaign() { return campaign; }
+        public String getMessage() { return message; }
+    }
+}
