@@ -1,0 +1,108 @@
+package mazdady.withdrawal;
+
+import mazdady.user.User;
+import mazdady.user.UserManager;
+import mazdady.admin.AdminConfig;
+
+import java.util.concurrent.ConcurrentHashMap;
+
+/**
+ * محدد السحب حسب المستوى مع دعم الحدود الديناميكية
+ * يتبع نمط Strategy لفصل استراتيجيات التقييد
+ */
+public final class LevelBasedLimiter {
+    private final ConcurrentHashMap<Integer, Double> levelLimits = new ConcurrentHashMap<>();
+    private static LevelBasedLimiter instance;
+
+    private LevelBasedLimiter() {
+        initializeLevelLimits();
+    }
+
+    public static synchronized LevelBasedLimiter getInstance() {
+        if (instance == null) {
+            instance = new LevelBasedLimiter();
+        }
+        return instance;
+    }
+
+    private void initializeLevelLimits() {
+        // تحميل الحدود من الإعدادات الإدارية
+        AdminConfig.WithdrawalConfig config = AdminConfig.getInstance().getWithdrawalConfig();
+        int[] levels = config.getLevels();
+        double[] limits = config.getWeeklyLimits();
+        
+        for (int i = 0; i < Math.min(levels.length, limits.length); i++) {
+            levelLimits.put(levels[i], limits[i]);
+        }
+        
+        System.out.println("LEVEL LIMITER: Initialized with " + levelLimits.size() + " level limits");
+    }
+
+    /**
+     * التحقق من إمكانية السحب حسب المستوى
+     */
+    public LimitResult canWithdraw(User user, double amount) {
+        if (user == null) {
+            return LimitResult.denied("User not found");
+        }
+        
+        int userLevel = user.getLevel();
+        double levelLimit = getWeeklyLimitForLevel(userLevel);
+        double weeklyWithdrawn = user.getWeeklyWithdrawn();
+        
+        if (weeklyWithdrawn + amount > levelLimit) {
+            double remaining = levelLimit - weeklyWithdrawn;
+            return LimitResult.denied("Weekly limit exceeded. Remaining: " + 
+                                   String.format("%.2f", remaining) + " MAZDADY");
+        }
+        
+        return LimitResult.allowed("Withdrawal allowed. Remaining limit: " + 
+                                 String.format("%.2f", levelLimit - weeklyWithdrawn - amount) + " MAZDADY");
+    }
+
+    /**
+     * الحصول على الحد الأسبوعي للمستوى
+     */
+    public double getWeeklyLimitForLevel(int level) {
+        return levelLimits.getOrDefault(level, 0.0);
+    }
+
+    /**
+     * تحديث الحدود من الإعدادات الإدارية
+     */
+    public void updateLimitsFromConfig(AdminConfig.WithdrawalConfig config) {
+        levelLimits.clear();
+        int[] levels = config.getLevels();
+        double[] limits = config.getWeeklyLimits();
+        
+        for (int i = 0; i < Math.min(levels.length, limits.length); i++) {
+            levelLimits.put(levels[i], limits[i]);
+        }
+        
+        System.out.println("LEVEL LIMITER: Limits updated from admin config");
+    }
+
+    /**
+     * نتيجة التقييد
+     */
+    public static final class LimitResult {
+        private final boolean allowed;
+        private final String message;
+
+        private LimitResult(boolean allowed, String message) {
+            this.allowed = allowed;
+            this.message = message;
+        }
+
+        public static LimitResult allowed(String message) {
+            return new LimitResult(true, message);
+        }
+
+        public static LimitResult denied(String message) {
+            return new LimitResult(false, message);
+        }
+
+        public boolean isAllowed() { return allowed; }
+        public String getMessage() { return message; }
+    }
+}
