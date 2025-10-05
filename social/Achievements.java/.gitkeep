@@ -1,0 +1,150 @@
+package mazdady.social;
+
+import mazdady.user.User;
+
+import java.time.Instant;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.BiPredicate;
+
+/**
+ * نظام الإنجازات مع دعم التقدم الديناميكي
+ * يتبع نمط Strategy لفصل شروط الإنجازات
+ */
+public final class Achievements {
+    private final Map<String, Achievement> achievements = new ConcurrentHashMap<>();
+    private static Achievements instance;
+
+    private Achievements() {
+        initializeAchievements();
+    }
+
+    public static synchronized Achievements getInstance() {
+        if (instance == null) {
+            instance = new Achievements();
+        }
+        return instance;
+    }
+
+    private void initializeAchievements() {
+        // إنجازات التداول
+        achievements.put("first_trade", new Achievement(
+            "first_trade",
+            "أول صفقة",
+            "قم بأول صفقة تداول",
+            10,
+            (user, progress) -> user.getTradingHistory().size() >= 1
+        ));
+        
+        achievements.put("trading_master", new Achievement(
+            "trading_master",
+            "ماستر التداول",
+            "قم بـ 100 صفقة تداول",
+            100,
+            (user, progress) -> user.getTradingHistory().size() >= 100
+        ));
+        
+        // إنجازات المجتمع
+        achievements.put("social_butterfly", new Achievement(
+            "social_butterfly",
+            "فراشة اجتماعية",
+            "شارك في 10 حملات إعلانية",
+            50,
+            (user, progress) -> user.getAdCampaigns().size() >= 10
+        ));
+        
+        // إنجازات الولاء
+        achievements.put("loyal_member", new Achievement(
+            "loyal_member",
+            "عضو مخلص",
+            "استخدم التطبيق لمدة 30 يومًا متتاليًا",
+            200,
+            (user, progress) -> user.getStreakDays() >= 30
+        ));
+    }
+
+    /**
+     * التحقق من إنجاز المستخدم
+     */
+    public AchievementProgress checkAchievement(User user, String achievementId) {
+        Achievement achievement = achievements.get(achievementId);
+        if (achievement == null) {
+            return new AchievementProgress(achievementId, 0, false);
+        }
+        
+        int progress = calculateProgress(user, achievementId);
+        boolean unlocked = achievement.condition.test(user, progress);
+        
+        if (unlocked && !user.hasAchievement(achievementId)) {
+            unlockAchievement(user, achievement);
+        }
+        
+        return new AchievementProgress(achievementId, progress, unlocked);
+    }
+
+    /**
+     * التحقق من جميع الإنجازات
+     */
+    public void checkAllAchievements(User user) {
+        achievements.keySet().forEach(id -> checkAchievement(user, id));
+    }
+
+    private int calculateProgress(User user, String achievementId) {
+        switch (achievementId) {
+            case "first_trade":
+            case "trading_master":
+                return user.getTradingHistory().size();
+            case "social_butterfly":
+                return user.getAdCampaigns().size();
+            case "loyal_member":
+                return user.getStreakDays();
+            default:
+                return 0;
+        }
+    }
+
+    private void unlockAchievement(User user, Achievement achievement) {
+        user.addAchievement(achievement.id);
+        user.addCommunityPoints(achievement.rewardPoints);
+        System.out.println("ACHIEVEMENT UNLOCKED: " + achievement.name + " for user " + user.getUserId());
+    }
+
+    /**
+     * إنجاز
+     */
+    private static final class Achievement {
+        private final String id;
+        private final String name;
+        private final String description;
+        private final int rewardPoints;
+        private final BiPredicate<User, Integer> condition;
+
+        public Achievement(String id, String name, String description, int rewardPoints, 
+                          BiPredicate<User, Integer> condition) {
+            this.id = id;
+            this.name = name;
+            this.description = description;
+            this.rewardPoints = rewardPoints;
+            this.condition = condition;
+        }
+    }
+
+    /**
+     * تقدم الإنجاز
+     */
+    public static final class AchievementProgress {
+        private final String achievementId;
+        private final int progress;
+        private final boolean unlocked;
+
+        public AchievementProgress(String achievementId, int progress, boolean unlocked) {
+            this.achievementId = achievementId;
+            this.progress = progress;
+            this.unlocked = unlocked;
+        }
+
+        public String getAchievementId() { return achievementId; }
+        public int getProgress() { return progress; }
+        public boolean isUnlocked() { return unlocked; }
+    }
+}
