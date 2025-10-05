@@ -1,33 +1,75 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:id="@+id/popup_root"
+<androidx.cardview.widget.CardView 
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/popup_card"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:padding="20dp">
+    android:layout_margin="24dp"
+    app:cardCornerRadius="16dp"
+    app:cardElevation="8dp"
+    app:cardBackgroundColor="?attr/popupBackgroundColor">
 
-    <TextView
-        android:id="@+id/popup_title"
+    <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="العنوان"
-        android:textStyle="bold"
-        android:gravity="center" />
+        android:layout_height="match_parent"
+        android:orientation="vertical">
 
-    <ScrollView
-        android:id="@+id/popup_scroll"
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:fadeScrollbars="false" />
+        <!-- شريط العنوان -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingStart="20dp"
+            android:paddingEnd="20dp"
+            android:background="?attr/popupTitleBackgroundColor">
 
-    <TextView
-        android:id="@+id/popup_close"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="center"
-        android:layout_marginTop="20dp"
-        android:text="إغلاق"
-        android:padding="10dp" />
+            <TextView
+                android:id="@+id/popup_title"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/popup_title"
+                android:textColor="?attr/popupTitleColor"
+                android:textSize="?attr/popupTitleSize"
+                android:textStyle="bold"
+                android:fontFamily="sans-serif-medium" />
 
-</LinearLayout>
+            <ImageView
+                android:id="@+id/popup_close"
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:src="@drawable/ic_close"
+                android:layout_marginStart="16dp"
+                android:contentDescription="@string/close"
+                android:tint="?attr/popupButtonColor" />
+
+        </LinearLayout>
+
+        <!-- محتوى قابل للتمرير -->
+        <ScrollView
+            android:id="@+id/popup_scroll"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:fadeScrollbars="true"
+            android:scrollbarStyle="outsideOverlay"
+            android:overScrollMode="ifContentScrolls">
+
+            <TextView
+                android:id="@+id/popup_content"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:padding="20dp"
+                android:text="@string/popup_content"
+                android:textColor="?attr/popupContentColor"
+                android:textSize="?attr/popupContentSize"
+                android:lineSpacingExtra="4dp"
+                android:fontFamily="sans-serif" />
+
+        </ScrollView>
+
+    </LinearLayout>
+
+</androidx.cardview.widget.CardView>
