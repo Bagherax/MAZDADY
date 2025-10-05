@@ -1,0 +1,153 @@
+package mazdady.user;
+
+import android.content.Context;
+import android.telephony.TelephonyManager;
+import android.telephony.SubscriptionInfo;
+import android.telephony.SubscriptionManager;
+
+import java.util.List;
+import java.util.concurrent.CompletableFuture;
+
+/**
+ * كاشف بطاقة SIM مع دعم الكشف المتقدم
+ * يتبع نمط Strategy لفصل استراتيجيات الكشف
+ */
+public final class SIMDetector {
+    private final Context context;
+    private static SIMDetector instance;
+
+    private SIMDetector(Context context) {
+        this.context = context.getApplicationContext();
+    }
+
+    public static synchronized SIMDetector getInstance(Context context) {
+        if (instance == null) {
+            instance = new SIMDetector(context);
+        }
+        return instance;
+    }
+
+    /**
+     * كشف معلومات بطاقة SIM غير متزامن
+     */
+    public CompletableFuture<SIMInfo> detectSIMInfoAsync() {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                TelephonyManager telephonyManager = 
+                    (TelephonyManager) context.getSystemService(Context.TELEPHONY_SERVICE);
+                
+                if (telephonyManager == null) {
+                    return SIMInfo.unknown();
+                }
+                
+                // كشف معلومات SIM الأساسية
+                String simOperator = telephonyManager.getSimOperator();
+                String simCountryIso = telephonyManager.getSimCountryIso();
+                String simSerial = telephonyManager.getSimSerialNumber();
+                int simState = telephonyManager.getSimState();
+                
+                // كشف معلومات الشبكة
+                String networkOperator = telephonyManager.getNetworkOperator();
+                String networkCountryIso = telephonyManager.getNetworkCountryIso();
+                
+                // كشف بطاقات SIM المتعددة (Dual SIM)
+                List<SubscriptionInfo> subscriptions = getSubscriptions();
+                
+                SIMInfo simInfo = new SIMInfo(
+                    simOperator,
+                    simCountryIso,
+                    simSerial,
+                    simStateToString(simState),
+                    networkOperator,
+                    networkCountryIso,
+                    subscriptions.size(),
+                    subscriptions
+                );
+                
+                System.out.println("SIM DETECTOR: SIM info detected - Country: " + simCountryIso);
+                return simInfo;
+                
+            } catch (SecurityException e) {
+                System.err.println("SIM DETECTOR: Permission denied - " + e.getMessage());
+                return SIMInfo.unknown();
+            } catch (Exception e) {
+                System.err.println("SIM DETECTOR ERROR: " + e.getMessage());
+                return SIMInfo.unknown();
+            }
+        });
+    }
+
+    private List<SubscriptionInfo> getSubscriptions() {
+        try {
+            SubscriptionManager subscriptionManager = 
+                (SubscriptionManager) context.getSystemService(Context.TELEPHONY_SUBSCRIPTION_SERVICE);
+            
+            if (subscriptionManager != null) {
+                return subscriptionManager.getActiveSubscriptionInfoList();
+            }
+        } catch (Exception e) {
+            System.err.println("SUBSCRIPTION DETECTOR ERROR: " + e.getMessage());
+        }
+        return List.of();
+    }
+
+    private String simStateToString(int simState) {
+        switch (simState) {
+            case TelephonyManager.SIM_STATE_UNKNOWN: return "UNKNOWN";
+            case TelephonyManager.SIM_STATE_ABSENT: return "ABSENT";
+            case TelephonyManager.SIM_STATE_PIN_REQUIRED: return "PIN_REQUIRED";
+            case TelephonyManager.SIM_STATE_PUK_REQUIRED: return "PUK_REQUIRED";
+            case TelephonyManager.SIM_STATE_NETWORK_LOCKED: return "NETWORK_LOCKED";
+            case TelephonyManager.SIM_STATE_READY: return "READY";
+            case TelephonyManager.SIM_STATE_NOT_READY: return "NOT_READY";
+            case TelephonyManager.SIM_STATE_PERM_DISABLED: return "PERM_DISABLED";
+            case TelephonyManager.SIM_STATE_CARD_IO_ERROR: return "CARD_IO_ERROR";
+            case TelephonyManager.SIM_STATE_CARD_RESTRICTED: return "CARD_RESTRICTED";
+            default: return "UNKNOWN_STATE";
+        }
+    }
+
+    /**
+     * معلومات بطاقة SIM
+     */
+    public static final class SIMInfo {
+        private final String simOperator;
+        private final String simCountryIso;
+        private final String simSerial;
+        private final String simState;
+        private final String networkOperator;
+        private final String networkCountryIso;
+        private final int simCount;
+        private final List<SubscriptionInfo> subscriptions;
+
+        public SIMInfo(String simOperator, String simCountryIso, String simSerial,
+                      String simState, String networkOperator, String networkCountryIso,
+                      int simCount, List<SubscriptionInfo> subscriptions) {
+            this.simOperator = simOperator;
+            this.simCountryIso = simCountryIso;
+            this.simSerial = simSerial;
+            this.simState = simState;
+            this.networkOperator = networkOperator;
+            this.networkCountryIso = networkCountryIso;
+            this.simCount = simCount;
+            this.subscriptions = subscriptions;
+        }
+
+        public static SIMInfo unknown() {
+            return new SIMInfo("UNKNOWN", "UNKNOWN", "UNKNOWN", "UNKNOWN", 
+                             "UNKNOWN", "UNKNOWN", 0, List.of());
+        }
+
+        // Getters
+        public String getSimOperator() { return simOperator; }
+        public String getSimCountryIso() { return simCountryIso; }
+        public String getSimSerial() { return simSerial; }
+        public String getSimState() { return simState; }
+        public String getNetworkOperator() { return networkOperator; }
+        public String getNetworkCountryIso() { return networkCountryIso; }
+        public int getSimCount() { return simCount; }
+        public List<SubscriptionInfo> getSubscriptions() { return subscriptions; }
+        public boolean isReady() { return "READY".equals(simState); }
+        public boolean isDualSIM() { return simCount > 1; }
+    }
+}
