@@ -1,111 +1,153 @@
 package mazdady.user;
 
-public class UserManager {
-    private static UserManager instance;
-    private User currentUser;
-
-    private UserManager() {
-        // تحميل المستخدم من التخزين الآمن
-    }
-
-    public static synchronized UserManager getInstance() {
-        if (instance == null) {
-            instance = new UserManager();
-        }
-        return instance;
-    }
-
-    public boolean isNewUser() {
-        return currentUser == null || currentUser.getRegistrationDate() == null;
-    }
-
-    public boolean hasActiveSubscription() {
-        return currentUser != null && currentUser.getSubscription().isActive();
-    }
-
-    public User getCurrentUser() {
-        return currentUser;
-    }
-}
-package mazdady.user;
-
-import android.content.Context;
 import mazdady.security.SecureStorage;
+import mazdady.auth.KYCValidator;
 
-public class UserManager {
-    private static UserManager instance;
-    private User currentUser;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReference;
+
+/**
+ * مدير المستخدمين مع دعم التحميل الآمن
+ * يتبع نمط Singleton مع تهيئة آمنة
+ */
+public final class UserManager {
+    private final ConcurrentHashMap<String, User> userCache = new ConcurrentHashMap<>();
     private final SecureStorage secureStorage;
+    private final AtomicReference<User> currentUser = new AtomicReference<>();
+    private static UserManager instance;
 
-    private UserManager(Context context) {
-        this.secureStorage = new SecureStorage();
-        loadCurrentUser(context);
+    private UserManager(SecureStorage secureStorage) {
+        this.secureStorage = secureStorage;
+        loadCurrentUser();
     }
 
-    public static synchronized UserManager getInstance(Context context) {
+    public static synchronized UserManager getInstance(SecureStorage secureStorage) {
         if (instance == null) {
-            instance = new UserManager(context);
+            instance = new UserManager(secureStorage != null ? secureStorage : new SecureStorage());
         }
         return instance;
     }
 
-    private void loadCurrentUser(Context context) {
+    /**
+     * تحميل المستخدم الحالي
+     */
+    private void loadCurrentUser() {
         try {
-            // محاولة تحميل من التخزين الآمن
-            String userData = secureStorage.decrypt(loadFromStorage(context));
-            if (userData != null && !userData.isEmpty()) {
-                // في الإنتاج: تحويل من JSON إلى كائن User
-                currentUser = new User("loaded_user");
+            // في الإنتاج: تحميل من التخزين الآمن
+            String userId = secureStorage.decrypt("current_user_id_encrypted");
+            if (userId != null && !userId.isEmpty()) {
+                User user = getUserById(userId);
+                currentUser.set(user);
+                System.out.println("USER MANAGER: Current user loaded - " + userId);
             } else {
                 // مستخدم جديد
-                currentUser = new User(generateUserId());
-                saveCurrentUser(context);
+                createUser();
             }
         } catch (Exception e) {
-            // إنشاء مستخدم جديد في حال الخطأ
-            currentUser = new User(generateUserId());
-            saveCurrentUser(context);
+            System.err.println("USER LOAD ERROR: " + e.getMessage());
+            createUser();
         }
     }
 
-    private String generateUserId() {
-        return "user_" + System.currentTimeMillis();
-    }
-
-    private byte[] loadFromStorage(Context context) {
-        // في الإنتاج: تحميل من EncryptedSharedPreferences
-        return new byte[0];
-    }
-
-    private void saveCurrentUser(Context context) {
+    /**
+     * إنشاء مستخدم جديد
+     */
+    private void createUser() {
+        String userId = "user_" + System.currentTimeMillis();
+        User newUser = new User(userId);
+        userCache.put(userId, newUser);
+        currentUser.set(newUser);
+        
+        // حفظ المستخدم في التخزين الآمن
         try {
-            // في الإنتاج: تحويل currentUser إلى JSON وتخزينه مشفرًا
-            secureStorage.encrypt("user_data_placeholder");
+            secureStorage.encrypt("current_user_id_encrypted", userId);
+            System.out.println("USER MANAGER: New user created - " + userId);
         } catch (Exception e) {
-            // تجاهل الخطأ (لا توقف التطبيق)
+            System.err.println("USER SAVE ERROR: " + e.getMessage());
         }
     }
 
-    // --- Public Methods ---
-    public boolean isNewUser() {
-        return currentUser.isNewUser();
+    /**
+     * الحصول على مستخدم حسب المعرف
+     */
+    public User getUserById(String userId) {
+        if (userId == null || userId.isEmpty()) return null;
+        
+        return userCache.computeIfAbsent(userId, User::new);
     }
 
-    public boolean hasActiveSubscription() {
-        return currentUser.hasActiveSubscription();
-    }
-
-    public User getCurrentUser() {
-        return currentUser;
-    }
-
+    /**
+     * تحديث رصيد المستخدم
+     */
     public void updateBalance(double newBalance) {
-        currentUser.setBalance(newBalance);
-        // حفظ التغييرات
+        User user = currentUser.get();
+        if (user != null) {
+            user.setBalance(newBalance);
+            System.out.println("USER MANAGER: Balance updated to " + newBalance);
+        }
     }
 
-    public void recordProfit(double amount) {
-        currentUser.addProfit(amount);
-        // حفظ التغييرات
+    /**
+     * إضافة رصيد للمستخدم
+     */
+    public void addBalance(double amount) {
+        User user = currentUser.get();
+        if (user != null) {
+            user.addBalance(amount);
+            System.out.println("USER MANAGER: Added " + amount + " to balance");
+        }
+    }
+
+    /**
+     * خصم رصيد من المستخدم
+     */
+    public boolean deductBalance(double amount) {
+        User user = currentUser.get();
+        if (user != null) {
+            boolean success = user.deductBalance(amount);
+            if (success) {
+                System.out.println("USER MANAGER: Deducted " + amount + " from balance");
+            }
+            return success;
+        }
+        return false;
+    }
+
+    /**
+     * مستخدم جديد؟
+     */
+    public boolean isNewUser() {
+        User user = currentUser.get();
+        return user != null && user.isNewUser();
+    }
+
+    /**
+     * مستخدم نشط؟
+     */
+    public boolean isRecentlyActive() {
+        User user = currentUser.get();
+        return user != null && user.isRecentlyActive();
+    }
+
+    /**
+     * مستخدم محظوظ؟
+     */
+    public boolean hasRecentProfit() {
+        User user = currentUser.get();
+        return user != null && user.hasRecentProfit();
+    }
+
+    // --- Getters ---
+    public User getCurrentUser() { return currentUser.get(); }
+    public int getUserCount() { return userCache.size(); }
+    public void setCurrentUser(User user) { currentUser.set(user); }
+    public SecureStorage getSecureStorage() { return secureStorage; }
+    
+    /**
+     * إزالة مستخدم (للاختبارات)
+     */
+    public void removeUser(String userId) {
+        userCache.remove(userId);
+        System.out.println("USER MANAGER: User removed - " + userId);
     }
 }
