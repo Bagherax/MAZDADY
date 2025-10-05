@@ -1,45 +1,149 @@
 package mazdady.bot;
 
+import mazdady.trading.PriceEngine;
+import mazdady.user.User;
+import mazdady.user.UserManager;
+
+import java.time.Instant;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.TimeUnit;
 import java.util.function.BiFunction;
 
 /**
  * محرك سلوكيات البوتات مع دعم التعلم التكيفي
- * يتبع نمط Strategy لإدارة سلوكيات متعددة
+ * يتبع نمط Strategy لفصل استراتيجيات السلوك
  */
 public final class BotBehaviorEngine {
-    private final Map<String, BiFunction<TradingBot, BotContext, TradingBot.BotBehavior>> behaviorFactories;
-    private static final BotBehaviorEngine INSTANCE = new BotBehaviorEngine();
+    private final PriceEngine priceEngine;
+    private final Map<String, BotBehaviorStrategy> behaviorStrategies = new ConcurrentHashMap<>();
+    private final ScheduledExecutorService behaviorScheduler = Executors.newScheduledThreadPool(2);
+    private static BotBehaviorEngine instance;
 
-    private BotBehaviorEngine() {
-        this.behaviorFactories = new ConcurrentHashMap<>();
-        initializeBehaviorFactories();
+    private BotBehaviorEngine(PriceEngine priceEngine) {
+        this.priceEngine = priceEngine;
+        initializeBehaviorStrategies();
     }
 
-    public static BotBehaviorEngine getInstance() {
-        return INSTANCE;
-    }
-
-    private void initializeBehaviorFactories() {
-        behaviorFactories.put("aggressive_trading", (bot, context) -> new AggressiveTradingBehavior(context));
-        behaviorFactories.put("conservative_trading", (bot, context) -> new ConservativeTradingBehavior(context));
-        behaviorFactories.put("balanced_liquidity", (bot, context) -> new BalancedLiquidityBehavior(context));
-        behaviorFactories.put("dynamic_spread", (bot, context) -> new DynamicSpreadBehavior(context));
-        behaviorFactories.put("volatility_control", (bot, context) -> new VolatilityControlBehavior(context));
-        behaviorFactories.put("adaptive_teaching", (bot, context) -> new AdaptiveTeachingBehavior(context));
-    }
-
-    public TradingBot.BotBehavior createBehavior(String behaviorType, TradingBot bot, BotContext context) {
-        BiFunction<TradingBot, BotContext, TradingBot.BotBehavior> factory = behaviorFactories.get(behaviorType);
-        if (factory == null) {
-            throw new IllegalArgumentException("Unsupported behavior type: " + behaviorType);
+    public static synchronized BotBehaviorEngine getInstance(PriceEngine priceEngine) {
+        if (instance == null) {
+            instance = new BotBehaviorEngine(priceEngine);
         }
-        return factory.apply(bot, context);
+        return instance;
+    }
+
+    private void initializeBehaviorStrategies() {
+        behaviorStrategies.put("aggressive", new AggressiveBehaviorStrategy());
+        behaviorStrategies.put("conservative", new ConservativeBehaviorStrategy());
+        behaviorStrategies.put("adaptive", new AdaptiveBehaviorStrategy());
+        behaviorStrategies.put("stabilizer", new StabilizerBehaviorStrategy());
+        behaviorStrategies.put("teaching", new TeachingBehaviorStrategy());
+        
+        System.out.println("BOT BEHAVIOR ENGINE: Initialized " + behaviorStrategies.size() + " behavior strategies");
     }
 
     /**
-     * سياق سلوك البوت
+     * تطبيق سلوك البوت غير متزامن
+     */
+    public CompletableFuture<BehaviorResult> applyBotBehaviorAsync(
+        TradingBot bot,
+        String behaviorType,
+        BotContext context
+    ) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                BotBehaviorStrategy strategy = behaviorStrategies.get(behaviorType);
+                if (strategy == null) {
+                    return BehaviorResult.failure("Unsupported behavior type: " + behaviorType);
+                }
+                
+                BehaviorResult result = strategy.execute(bot, context);
+                
+                if (result.isSuccess()) {
+                    System.out.println("BOT BEHAVIOR ENGINE: Applied " + behaviorType + 
+                                     " behavior to bot " + bot.getBotId());
+                } else {
+                    System.err.println("BOT BEHAVIOR ENGINE ERROR: " + result.getMessage());
+                }
+                
+                return result;
+                
+            } catch (Exception e) {
+                return BehaviorResult.failure("Bot behavior application failed: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * جدولة تحديث السلوك الدوري
+     */
+    public void scheduleBehaviorUpdates(TradingBot bot, String behaviorType, long intervalSeconds) {
+        behaviorScheduler.scheduleAtFixedRate(
+            () -> updateBotBehavior(bot, behaviorType),
+            0,
+            intervalSeconds,
+            TimeUnit.SECONDS
+        );
+        
+        System.out.println("BOT BEHAVIOR ENGINE: Scheduled behavior updates for bot " + bot.getBotId() + 
+                         " every " + intervalSeconds + " seconds");
+    }
+
+    private void updateBotBehavior(TradingBot bot, String behaviorType) {
+        try {
+            BotContext context = new BotContext(
+                priceEngine.getCurrentPrice(),
+                priceEngine.getMarketTrend(),
+                priceEngine.getVolatility(),
+                UserManager.getInstance(null).getCurrentUser().getLevel(),
+                bot.getCapital()
+            );
+            
+            applyBotBehaviorAsync(bot, behaviorType, context);
+            
+        } catch (Exception e) {
+            System.err.println("BEHAVIOR UPDATE ERROR: " + e.getMessage());
+        }
+    }
+
+    /**
+     * إيقاف جدولة السلوك (للاختبارات)
+     */
+    public void shutdown() {
+        behaviorScheduler.shutdown();
+        System.out.println("BOT BEHAVIOR ENGINE: Shutdown completed");
+    }
+
+    /**
+     * نتيجة السلوك
+     */
+    public static final class BehaviorResult {
+        private final boolean success;
+        private final String message;
+
+        private BehaviorResult(boolean success, String message) {
+            this.success = success;
+            this.message = message;
+        }
+
+        public static BehaviorResult success(String message) {
+            return new BehaviorResult(true, message);
+        }
+
+        public static BehaviorResult failure(String message) {
+            return new BehaviorResult(false, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public String getMessage() { return message; }
+    }
+
+    /**
+     * سياق السلوك
      */
     public static final class BotContext {
         private final double marketPrice;
@@ -65,26 +169,114 @@ public final class BotBehaviorEngine {
         public double getAvailableCapital() { return availableCapital; }
     }
 
-    // سلوكيات مخصصة (يمكن توسيعها حسب الحاجة)
-    private static final class AggressiveTradingBehavior implements TradingBot.BotBehavior {
-        private final BotContext context;
-        AggressiveTradingBehavior(BotContext context) { this.context = context; }
-        @Override public String getName() { return "AGGRESSIVE_TRADING"; }
-        @Override public void execute(TradingBot bot) {
-            // في الإنتاج: تنفيذ استراتيجية تداول عدوانية
-            bot.getClass().getSimpleName(); // placeholder
+    /**
+     * استراتيجية سلوك البوت
+     */
+    @FunctionalInterface
+    public interface BotBehaviorStrategy {
+        BehaviorResult execute(TradingBot bot, BotContext context);
+    }
+
+    // --- استراتيجيات السلوك ---
+    private static final class AggressiveBehaviorStrategy implements BotBehaviorStrategy {
+        @Override
+        public BehaviorResult execute(TradingBot bot, BotContext context) {
+            try {
+                double tradeAmount = context.getAvailableCapital() * 0.1 * (1 + context.getVolatility());
+                bot.executeTrade(TradingBot.TradeType.BUY, tradeAmount);
+                return BehaviorResult.success("Aggressive behavior executed - BUY " + tradeAmount + " MAZDADY");
+            } catch (Exception e) {
+                return BehaviorResult.failure("Aggressive behavior failed: " + e.getMessage());
+            }
         }
     }
 
-    private static final class ConservativeTradingBehavior implements TradingBot.BotBehavior {
-        private final BotContext context;
-        ConservativeTradingBehavior(BotContext context) { this.context = context; }
-        @Override public String getName() { return "CONSERVATIVE_TRADING"; }
-        @Override public void execute(TradingBot bot) {
-            // في الإنتاج: تنفيذ استراتيجية تداول محافظة
-            bot.getClass().getSimpleName(); // placeholder
+    private static final class ConservativeBehaviorStrategy implements BotBehaviorStrategy {
+        @Override
+        public BehaviorResult execute(TradingBot bot, BotContext context) {
+            try {
+                if (context.getMarketTrend() > 0.5) {
+                    double tradeAmount = context.getAvailableCapital() * 0.05;
+                    bot.executeTrade(TradingBot.TradeType.BUY, tradeAmount);
+                    return BehaviorResult.success("Conservative behavior executed - BUY " + tradeAmount + " MAZDADY");
+                } else if (context.getMarketTrend() < -0.5) {
+                    double tradeAmount = context.getAvailableCapital() * 0.03;
+                    bot.executeTrade(TradingBot.TradeType.SELL, tradeAmount);
+                    return BehaviorResult.success("Conservative behavior executed - SELL " + tradeAmount + " MAZDADY");
+                }
+                return BehaviorResult.success("Conservative behavior - No action taken");
+            } catch (Exception e) {
+                return BehaviorResult.failure("Conservative behavior failed: " + e.getMessage());
+            }
         }
     }
 
-    // ملاحظة: السلوكيات الأخرى مُضمنة في فئات البوتات الخاصة بها
+    private static final class AdaptiveBehaviorStrategy implements BotBehaviorStrategy {
+        @Override
+        public BehaviorResult execute(TradingBot bot, BotContext context) {
+            try {
+                double volatilityFactor = Math.min(context.getVolatility() * 2, 1.0);
+                double trendFactor = (context.getMarketTrend() + 1) / 2; // تحويل من [-1,1] إلى [0,1]
+                
+                double tradeProbability = volatilityFactor * trendFactor;
+                if (ThreadLocalRandom.current().nextDouble() < tradeProbability) {
+                    TradingBot.TradeType tradeType = context.getMarketTrend() > 0 ? 
+                        TradingBot.TradeType.BUY : TradingBot.TradeType.SELL;
+                    double tradeAmount = context.getAvailableCapital() * 0.02 * (1 + volatilityFactor);
+                    bot.executeTrade(tradeType, tradeAmount);
+                    return BehaviorResult.success("Adaptive behavior executed - " + tradeType + " " + tradeAmount + " MAZDADY");
+                }
+                return BehaviorResult.success("Adaptive behavior - No action taken (probability: " + 
+                                           String.format("%.2f", tradeProbability) + ")");
+            } catch (Exception e) {
+                return BehaviorResult.failure("Adaptive behavior failed: " + e.getMessage());
+            }
+        }
+    }
+
+    private static final class StabilizerBehaviorStrategy implements BotBehaviorStrategy {
+        @Override
+        public BehaviorResult execute(TradingBot bot, BotContext context) {
+            try {
+                if (Math.abs(context.getMarketTrend()) > 0.8) {
+                    // السوق متقلب جدًّا - تدخل لاستقراره
+                    TradingBot.TradeType tradeType = context.getMarketTrend() > 0 ? 
+                        TradingBot.TradeType.SELL : TradingBot.TradeType.BUY;
+                    double tradeAmount = context.getAvailableCapital() * 0.15;
+                    bot.executeTrade(tradeType, tradeAmount);
+                    return BehaviorResult.success("Stabilizer behavior executed - " + tradeType + " " + tradeAmount + " MAZDADY to stabilize market");
+                }
+                return BehaviorResult.success("Stabilizer behavior - Market stable, no intervention needed");
+            } catch (Exception e) {
+                return BehaviorResult.failure("Stabilizer behavior failed: " + e.getMessage());
+            }
+        }
+    }
+
+    private static final class TeachingBehaviorStrategy implements BotBehaviorStrategy {
+        @Override
+        public BehaviorResult execute(TradingBot bot, BotContext context) {
+            try {
+                User user = UserManager.getInstance(null).getCurrentUser();
+                if (user != null) {
+                    double userBalance = user.getBalance();
+                    double botCapital = context.getAvailableCapital();
+                    
+                    // تقديم نصائح للمستخدم بناءً على الفرق في الرصيد
+                    if (userBalance < botCapital * 0.1) {
+                        System.out.println("TEACHING BOT: User " + user.getUserId() + 
+                                         " needs guidance - Low balance compared to bot capital");
+                        return BehaviorResult.success("Teaching behavior - Provided guidance to user");
+                    } else if (userBalance > botCapital * 10) {
+                        System.out.println("TEACHING BOT: User " + user.getUserId() + 
+                                         " is doing well - Congratulated user");
+                        return BehaviorResult.success("Teaching behavior - Congratulated advanced user");
+                    }
+                }
+                return BehaviorResult.success("Teaching behavior - No specific guidance needed");
+            } catch (Exception e) {
+                return BehaviorResult.failure("Teaching behavior failed: " + e.getMessage());
+            }
+        }
+    }
 }
