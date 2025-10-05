@@ -1,0 +1,116 @@
+package mazdady.ui;
+
+import android.content.Context;
+import android.view.View;
+import android.view.ViewGroup;
+
+import mazdady.admin.AdminConfig;
+import mazdady.i18n.TranslationManager;
+
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+
+/**
+ * مدير واجهة المستخدم مع دعم التخصيص الديناميكي
+ * يتبع نمط Facade لتوفير واجهة موحدة
+ */
+public final class UIManager {
+    private final Context context;
+    private final TranslationManager translationManager;
+    private final ThemeMgr themeManager;
+    private final Map<String, View> managedViews = new ConcurrentHashMap<>();
+    private static UIManager instance;
+
+    private UIManager(Context context) {
+        this.context = context.getApplicationContext();
+        this.translationManager = TranslationManager.getInstance(context);
+        this.themeManager = ThemeMgr.getInstance(context);
+    }
+
+    public static synchronized UIManager create(Context context) {
+        if (instance == null) {
+            instance = new UIManager(context);
+        }
+        return instance;
+    }
+
+    /**
+     * تطبيق التخطيط الديناميكي
+     */
+    public void applyDynamicLayout(ViewGroup rootView) {
+        AdminConfig.UIConfig uiConfig = AdminConfig.getInstance().getUIConfig();
+        
+        // تطبيق الألوان والثيمات
+        themeManager.applyTheme(rootView, uiConfig);
+        
+        // تطبيق الأبعاد الديناميكية
+        applyDynamicDimensions(rootView, uiConfig);
+        
+        // تطبيق الرؤية الديناميكية
+        applyElementVisibility(rootView, uiConfig);
+        
+        System.out.println("UI MANAGER: Dynamic layout applied");
+    }
+
+    /**
+     * تطبيق الأبعاد الديناميكية
+     */
+    private void applyDynamicDimensions(ViewGroup rootView, AdminConfig.UIConfig uiConfig) {
+        DimensionHelper dimensionHelper = new DimensionHelper(context);
+        dimensionHelper.applyDimensionsToView(rootView, uiConfig);
+    }
+
+    /**
+     * تطبيق الرؤية الديناميكية
+     */
+    private void applyElementVisibility(ViewGroup rootView, AdminConfig.UIConfig uiConfig) {
+        ElementVisibility visibilityManager = new ElementVisibility();
+        visibilityManager.applyVisibilityToView(rootView, uiConfig);
+    }
+
+    /**
+     * تحديث عنصر واجهة المستخدم
+     */
+    public void updateViewElement(String elementId, View view) {
+        if (view != null) {
+            managedViews.put(elementId, view);
+            
+            // تطبيق الترجمة الديناميكية
+            if (view instanceof android.widget.TextView) {
+                String translatedText = translationManager.getString(elementId);
+                if (translatedText != null) {
+                    ((android.widget.TextView) view).setText(translatedText);
+                }
+            }
+            
+            System.out.println("UI MANAGER: Element " + elementId + " updated");
+        }
+    }
+
+    /**
+     * إزالة عنصر واجهة المستخدم
+     */
+    public void removeViewElement(String elementId) {
+        View view = managedViews.remove(elementId);
+        if (view != null && view.getParent() instanceof ViewGroup) {
+            ((ViewGroup) view.getParent()).removeView(view);
+            System.out.println("UI MANAGER: Element " + elementId + " removed");
+        }
+    }
+
+    /**
+     * الحصول على عنصر واجهة المستخدم
+     */
+    public View getViewElement(String elementId) {
+        return managedViews.get(elementId);
+    }
+
+    /**
+     * تحديث الثيمات ديناميكيًا
+     */
+    public void updateTheme() {
+        AdminConfig.UIConfig uiConfig = AdminConfig.getInstance().getUIConfig();
+        themeManager.updateTheme(uiConfig);
+        System.out.println("UI MANAGER: Theme updated dynamically");
+    }
+}
