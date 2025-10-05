@@ -1,56 +1,109 @@
 package mazdady.dev;
 
+import mazdady.admin.AdminConfig;
+import mazdady.user.User;
+import mazdady.user.UserManager;
+
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Supplier;
 
 /**
  * دليل العمارة مع دعم التوثيق الديناميكي
- * يتبع نمط Singleton لتوفير مرجع موحد
+ * يتبع نمط Singleton مع تهيئة آمنة
  */
 public final class ArchGuide {
     private final Map<String, ArchitectureComponent> components = new ConcurrentHashMap<>();
-    private static final ArchGuide INSTANCE = new ArchGuide();
+    private static ArchGuide instance;
 
     private ArchGuide() {
         initializeArchitecture();
     }
 
-    public static ArchGuide getInstance() {
-        return INSTANCE;
+    public static synchronized ArchGuide getInstance() {
+        if (instance == null) {
+            instance = new ArchGuide();
+        }
+        return instance;
     }
 
     private void initializeArchitecture() {
-        // تعريف مكونات العمارة
+        // تحميل المكونات من الإعدادات الإدارية
+        AdminConfig adminConfig = AdminConfig.getInstance();
+        AdminConfig.ArchitectureConfig archConfig = adminConfig.getArchitectureConfig();
+        
+        // إضافة المكونات الأساسية
         components.put("CORE", new ArchitectureComponent(
             "Core Layer",
             "الطبقة الأساسية التي تحتوي على نقاط الدخول والتهيئة",
-            "core/"
+            "core/",
+            archConfig.getCoreLayerPriority()
         ));
+        
         components.put("USER", new ArchitectureComponent(
             "User Layer",
             "إدارة المستخدمين، المستويات، والاشتراكات",
-            "user/"
+            "user/",
+            archConfig.getUserLayerPriority()
         ));
+        
         components.put("WALLET", new ArchitectureComponent(
             "Wallet Layer",
             "إدارة المحفظة الرقمية والمعاملات",
-            "wallet/"
+            "wallet/",
+            archConfig.getWalletLayerPriority()
         ));
+        
         components.put("TRADING", new ArchitectureComponent(
             "Trading Layer",
             "محرك التداول وفرق التداول الذكية",
-            "trading/, team/"
+            "trading/, team/",
+            archConfig.getTradingLayerPriority()
         ));
+        
         components.put("ADMIN", new ArchitectureComponent(
             "Admin Layer",
             "لوحة التحكم الإدارية الكاملة",
-            "admin/"
+            "admin/",
+            archConfig.getAdminLayerPriority()
         ));
+        
         components.put("SECURITY", new ArchitectureComponent(
             "Security Layer",
             "الأمان المتقدم والتحقق من الهوية",
-            "security/, auth/"
+            "security/, auth/",
+            archConfig.getSecurityLayerPriority()
         ));
+        
+        components.put("UI", new ArchitectureComponent(
+            "UI Layer",
+            "واجهة المستخدم الديناميكية",
+            "ui/",
+            archConfig.getUiLayerPriority()
+        ));
+        
+        components.put("BOT", new ArchitectureComponent(
+            "Bot Layer",
+            "البوتات الذكية للتداول والدعم",
+            "bot/",
+            archConfig.getBotLayerPriority()
+        ));
+        
+        components.put("SOCIAL", new ArchitectureComponent(
+            "Social Layer",
+            "التفاعل الاجتماعي والمكافآت",
+            "social/",
+            archConfig.getSocialLayerPriority()
+        ));
+        
+        components.put("WITHDRAWAL", new ArchitectureComponent(
+            "Withdrawal Layer",
+            "نظام السحب والضرائب",
+            "withdrawal/",
+            archConfig.getWithdrawalLayerPriority()
+        ));
+        
+        System.out.println("ARCH GUIDE: Initialized with " + components.size() + " architecture components");
     }
 
     /**
@@ -70,6 +123,26 @@ public final class ArchGuide {
     }
 
     /**
+     * تحديث أولويات المكونات من الإعدادات الإدارية
+     */
+    public void updatePrioritiesFromConfig(AdminConfig.ArchitectureConfig config) {
+        if (config == null) return;
+        
+        components.get("CORE")?.setPriority(config.getCoreLayerPriority());
+        components.get("USER")?.setPriority(config.getUserLayerPriority());
+        components.get("WALLET")?.setPriority(config.getWalletLayerPriority());
+        components.get("TRADING")?.setPriority(config.getTradingLayerPriority());
+        components.get("ADMIN")?.setPriority(config.getAdminLayerPriority());
+        components.get("SECURITY")?.setPriority(config.getSecurityLayerPriority());
+        components.get("UI")?.setPriority(config.getUiLayerPriority());
+        components.get("BOT")?.setPriority(config.getBotLayerPriority());
+        components.get("SOCIAL")?.setPriority(config.getSocialLayerPriority());
+        components.get("WITHDRAWAL")?.setPriority(config.getWithdrawalLayerPriority());
+        
+        System.out.println("ARCH GUIDE: Priorities updated from admin config");
+    }
+
+    /**
      * عرض دليل العمارة الكامل
      */
     public String getFullGuide() {
@@ -77,37 +150,108 @@ public final class ArchGuide {
         guide.append("🏗️ MAZDADY ARCHITECTURE GUIDE\n");
         guide.append("================================\n\n");
         
-        for (Map.Entry<String, ArchitectureComponent> entry : components.entrySet()) {
-            ArchitectureComponent component = entry.getValue();
-            guide.append(String.format(
-                "🔷 %s\n" +
-                "   الوصف: %s\n" +
-                "   المسار: %s\n\n",
-                component.getName(),
-                component.getDescription(),
-                component.getPath()
-            ));
-        }
+        // فرز المكونات حسب الأولوية
+        components.values().stream()
+            .sorted((c1, c2) -> Integer.compare(c2.getPriority(), c1.getPriority()))
+            .forEach(component -> {
+                guide.append(String.format(
+                    "🔷 %s (Priority: %d)\n" +
+                    "   الوصف: %s\n" +
+                    "   المسار: %s\n\n",
+                    component.getName(),
+                    component.getPriority(),
+                    component.getDescription(),
+                    component.getPath()
+                ));
+            });
         
         return guide.toString();
     }
 
     /**
+     * التحقق من صحة البنية
+     */
+    public ValidationResult validateArchitecture() {
+        try {
+            // التحقق من وجود جميع المكونات المطلوبة
+            String[] requiredComponents = {"CORE", "USER", "WALLET", "TRADING", "ADMIN", "SECURITY"};
+            for (String component : requiredComponents) {
+                if (!components.containsKey(component)) {
+                    return ValidationResult.failure("Missing required component: " + component);
+                }
+            }
+            
+            // التحقق من الأولويات
+            for (ArchitectureComponent component : components.values()) {
+                if (component.getPriority() < 1 || component.getPriority() > 10) {
+                    return ValidationResult.failure("Invalid priority for component: " + component.getName());
+                }
+            }
+            
+            System.out.println("ARCH GUIDE: Architecture validation passed");
+            return ValidationResult.success("Architecture is valid and complete");
+            
+        } catch (Exception e) {
+            return ValidationResult.failure("Architecture validation failed: " + e.getMessage());
+        }
+    }
+
+    /**
      * مكون العمارة
      */
-    private static final class ArchitectureComponent {
+    public static final class ArchitectureComponent {
         private final String name;
         private final String description;
         private final String path;
+        private volatile int priority;
 
-        public ArchitectureComponent(String name, String description, String path) {
+        public ArchitectureComponent(String name, String description, String path, int priority) {
             this.name = name;
             this.description = description;
             this.path = path;
+            this.priority = priority;
         }
 
+        // Getters
         public String getName() { return name; }
         public String getDescription() { return description; }
         public String getPath() { return path; }
+        public int getPriority() { return priority; }
+        
+        // Setters
+        public void setPriority(int priority) { this.priority = priority; }
+        
+        @Override
+        public String toString() {
+            return "ArchitectureComponent{" +
+                "name='" + name + '\'' +
+                ", priority=" + priority +
+                ", path='" + path + '\'' +
+                '}';
+        }
+    }
+
+    /**
+     * نتيجة التحقق
+     */
+    public static final class ValidationResult {
+        private final boolean success;
+        private final String message;
+
+        private ValidationResult(boolean success, String message) {
+            this.success = success;
+            this.message = message;
+        }
+
+        public static ValidationResult success(String message) {
+            return new ValidationResult(true, message);
+        }
+
+        public static ValidationResult failure(String message) {
+            return new ValidationResult(false, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public String getMessage() { return message; }
     }
 }
