@@ -1,0 +1,65 @@
+package mazdady.social;
+
+import mazdady.user.User;
+
+import java.time.LocalDate;
+import java.util.concurrent.atomic.AtomicInteger;
+
+/**
+ * مكافآت السلسلة مع دعم المكافآت التراكمية
+ * يتبع نمط Observer لإعلام النظام بتغيرات السلسلة
+ */
+public final class StreakBonus {
+    private static StreakBonus instance;
+
+    private StreakBonus() {}
+
+    public static synchronized StreakBonus getInstance() {
+        if (instance == null) {
+            instance = new StreakBonus();
+        }
+        return instance;
+    }
+
+    /**
+     * تحديث سلسلة المستخدم
+     */
+    public void updateStreak(User user) {
+        LocalDate today = LocalDate.now();
+        LocalDate lastActivityDate = user.getLastActivityDate();
+        
+        if (lastActivityDate == null) {
+            // أول نشاط
+            user.setStreakDays(1);
+        } else if (today.equals(lastActivityDate.plusDays(1))) {
+            // استمرار السلسلة
+            user.setStreakDays(user.getStreakDays() + 1);
+        } else if (!today.equals(lastActivityDate)) {
+            // كسر السلسلة
+            user.setStreakDays(1);
+        }
+        
+        // تحديث تاريخ آخر نشاط
+        user.setLastActivityDate(today);
+        
+        // منح مكافأة السلسلة
+        grantStreakBonus(user);
+    }
+
+    private void grantStreakBonus(User user) {
+        int streak = user.getStreakDays();
+        
+        // مكافآت خاصة عند الوصول لمعالم محددة
+        if (streak == 7) {
+            user.setBalance(user.getBalance() + 50.0); // مكافأة أسبوعية
+            System.out.println("STREAK BONUS: Weekly bonus of 50 MAZDADY for 7-day streak");
+        } else if (streak == 30) {
+            user.setBalance(user.getBalance() + 200.0); // مكافأة شهرية
+            System.out.println("STREAK BONUS: Monthly bonus of 200 MAZDADY for 30-day streak");
+        } else if (streak % 10 == 0) {
+            double bonus = streak * 5.0; // مكافأة تصاعدية كل 10 أيام
+            user.setBalance(user.getBalance() + bonus);
+            System.out.println("STREAK BONUS: " + bonus + " MAZDADY for " + streak + "-day streak");
+        }
+    }
+}
