@@ -1,0 +1,74 @@
+package mazdady.svc;
+
+import android.content.Context;
+
+import java.util.concurrent.CompletableFuture;
+
+/**
+ * خدمة الإشعارات مع دعم القنوات المتعددة
+ * يتبع نمط Facade لتوفير واجهة موحدة
+ */
+public final class NotificationService {
+    private final Context context;
+    private static NotificationService instance;
+
+    private NotificationService(Context context) {
+        this.context = context.getApplicationContext();
+    }
+
+    public static NotificationService create(Context context) {
+        return new NotificationService(context);
+    }
+
+    /**
+     * إرسال إشعار غير متزامن
+     */
+    public CompletableFuture<NotificationResult> sendNotificationAsync(
+        String userId, 
+        String title, 
+        String message, 
+        NotificationChannel channel
+    ) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                // في الإنتاج: إرسال عبر FCM أو خدمات الإشعارات
+                System.out.println("NOTIFICATION SENT: [" + channel + "] " + title + " - " + message);
+                return NotificationResult.success("Notification sent successfully");
+                
+            } catch (Exception e) {
+                return NotificationResult.failure("Notification sending failed: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * قنوات الإشعارات
+     */
+    public enum NotificationChannel {
+        GENERAL, TRADING, WITHDRAWAL, PROMOTION, SECURITY
+    }
+
+    /**
+     * نتيجة الإشعار
+     */
+    public static final class NotificationResult {
+        private final boolean success;
+        private final String message;
+
+        private NotificationResult(boolean success, String message) {
+            this.success = success;
+            this.message = message;
+        }
+
+        public static NotificationResult success(String message) {
+            return new NotificationResult(true, message);
+        }
+
+        public static NotificationResult failure(String message) {
+            return new NotificationResult(false, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public String getMessage() { return message; }
+    }
+}
