@@ -4,21 +4,85 @@ import android.content.Context;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 
-public class AppIntegrityChecker {
-    // بصمة SHA-256 للتطبيق الأصلي (يتم توليدها عند الإصدار)
-    private static final String ORIGINAL_APP_SIGNATURE = 
-        "YOUR_APP_SHA256_SIGNATURE_HERE"; // ← يجب ملؤها عند الإصدار
+import java.security.MessageDigest;
+import java.security.cert.Certificate;
 
-    public static boolean isAppIntegrityValid(Context context) {
+/**
+ * التحقق من سلامة التطبيق مع دعم البصمة الرقمية
+ * يتبع نمط Singleton مع تهيئة آمنة
+ */
+public final class AppIntegrityChecker {
+    private final Context context;
+    private volatile String cachedAppSignature;
+
+    private AppIntegrityChecker(Context context) {
+        this.context = context.getApplicationContext();
+    }
+
+    public static AppIntegrityChecker create(Context context) {
+        return new AppIntegrityChecker(context);
+    }
+
+    /**
+     * التحقق من سلامة التطبيق
+     */
+    public boolean isAppIntegrityValid() {
         try {
-            PackageInfo packageInfo = context.getPackageManager()
-                .getPackageInfo(context.getPackageName(), PackageManager.GET_SIGNATURES);
-            
-            // في الإنتاج: مقارنة البصمة الفعلية مع ORIGINAL_APP_SIGNATURE
-            // هنا نستخدم true مؤقتًا للتطوير
-            return true;
+            String currentSignature = getAppSignature();
+            String expectedSignature = getExpectedSignature();
+            return currentSignature.equals(expectedSignature);
         } catch (Exception e) {
             return false;
+        }
+    }
+
+    private String getAppSignature() {
+        if (cachedAppSignature != null) {
+            return cachedAppSignature;
+        }
+        
+        synchronized (this) {
+            if (cachedAppSignature != null) {
+                return cachedAppSignature;
+            }
+            
+            try {
+                PackageInfo packageInfo = context.getPackageManager()
+                    .getPackageInfo(context.getPackageName(), PackageManager.GET_SIGNATURES);
+                
+                if (packageInfo.signatures != null && packageInfo.signatures.length > 0) {
+                    Certificate certificate = packageInfo.signatures[0];
+                    byte[] signatureBytes = certificate.getEncoded();
+                    cachedAppSignature = sha256(signatureBytes);
+                    return cachedAppSignature;
+                }
+            } catch (Exception e) {
+                // تجاهل الأخطاء واعتبار التوقيع غير صالح
+            }
+            
+            return "invalid_signature";
+        }
+    }
+
+    private String getExpectedSignature() {
+        // في الإنتاج: تحميل البصمة من السيرفر أو التكوين الآمن
+        // هنا نستخدم قيمة افتراضية لأغراض العرض
+        return "YOUR_APP_SHA256_SIGNATURE_HERE";
+    }
+
+    private String sha256(byte[] input) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(input);
+            StringBuilder hexString = new StringBuilder();
+            for (byte b : hash) {
+                String hex = Integer.toHexString(0xff & b);
+                if (hex.length() == 1) hexString.append('0');
+                hexString.append(hex);
+            }
+            return hexString.toString();
+        } catch (Exception e) {
+            throw new RuntimeException(e);
         }
     }
 }
