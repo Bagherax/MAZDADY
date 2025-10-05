@@ -1,0 +1,117 @@
+package mazdady.sec;
+
+import mazdady.user.User;
+
+import java.time.Instant;
+import java.util.concurrent.ConcurrentHashMap;
+
+/**
+ * تحليل السلوك مع دعم الأنماط الذكية
+ * يتبع نمط Strategy لفصل أنماط السلوك
+ */
+public final class BehavioralAnalysis {
+    private final ConcurrentHashMap<String, BehavioralProfile> profiles = new ConcurrentHashMap<>();
+    private static BehavioralAnalysis instance;
+
+    private BehavioralAnalysis() {}
+
+    public static synchronized BehavioralAnalysis getInstance() {
+        if (instance == null) {
+            instance = new BehavioralAnalysis();
+        }
+        return instance;
+    }
+
+    /**
+     * تسجيل نشاط المستخدم
+     */
+    public void recordActivity(String userId, String activityType, double amount) {
+        BehavioralProfile profile = profiles.computeIfAbsent(
+            userId,
+            k -> new BehavioralProfile(userId)
+        );
+        profile.recordActivity(activityType, amount);
+    }
+
+    /**
+     * التحقق من السلوك غير الطبيعي
+     */
+    public boolean isBehaviorAbnormal(String userId) {
+        BehavioralProfile profile = profiles.get(userId);
+        return profile != null && profile.isAbnormal();
+    }
+
+    /**
+     * الحصول على نمط السلوك
+     */
+    public BehaviorPattern getBehaviorPattern(String userId) {
+        BehavioralProfile profile = profiles.get(userId);
+        return profile != null ? profile.getPattern() : BehaviorPattern.NORMAL;
+    }
+
+    /**
+     * ملف السلوك
+     */
+    private static final class BehavioralProfile {
+        private final String userId;
+        private final java.util.Queue<UserActivity> recentActivities = 
+            new java.util.concurrent.ConcurrentLinkedQueue<>();
+
+        public BehavioralProfile(String userId) {
+            this.userId = userId;
+        }
+
+        public void recordActivity(String type, double amount) {
+            recentActivities.offer(new UserActivity(type, amount, System.currentTimeMillis()));
+            
+            // الاحتفاظ بآخر 100 نشاط فقط
+            if (recentActivities.size() > 100) {
+                recentActivities.poll();
+            }
+        }
+
+        public boolean isAbnormal() {
+            // في الإنتاج: استخدام خوارزميات ML للكشف عن الأنماط غير الطبيعية
+            return recentActivities.size() > 50 && 
+                   recentActivities.stream().filter(a -> "WITHDRAWAL".equals(a.type)).count() > 20;
+        }
+
+        public BehaviorPattern getPattern() {
+            if (isAbnormal()) {
+                return BehaviorPattern.SUSPICIOUS;
+            }
+            
+            long tradingCount = recentActivities.stream()
+                .filter(a -> "TRADE".equals(a.type))
+                .count();
+                
+            if (tradingCount > recentActivities.size() * 0.7) {
+                return BehaviorPattern.TRADER;
+            }
+            
+            return BehaviorPattern.NORMAL;
+        }
+    }
+
+    /**
+     * نشاط المستخدم
+     */
+    private static final class UserActivity {
+        private final String type;
+        private final double amount;
+        private final long timestamp;
+
+        public UserActivity(String type, double amount, long timestamp) {
+            this.type = type;
+            this.amount = amount;
+            this.timestamp = timestamp;
+        }
+    }
+
+    /**
+     * أنماط السلوك
+     */
+    public enum BehaviorPattern {
+        NORMAL, TRADER, INVESTOR, SUSPICIOUS
+    }
+}
