@@ -1,0 +1,110 @@
+package mazdady.sec;
+
+import mazdady.user.User;
+
+import java.time.Instant;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
+
+/**
+ * منع الاحتيال مع دعم الحماية التلقائية
+ * يتبع نمط State لتمثيل حالات الحماية
+ */
+public final class FraudPrevention {
+    private final ConcurrentHashMap<String, FraudProtectionState> protectionStates = new ConcurrentHashMap<>();
+    private static FraudPrevention instance;
+
+    private FraudPrevention() {}
+
+    public static synchronized FraudPrevention getInstance() {
+        if (instance == null) {
+            instance = new FraudPrevention();
+        }
+        return instance;
+    }
+
+    /**
+     * التحقق من عملية احتيالية محتملة
+     */
+    public FraudResult checkFraudRisk(User user, String operation, double amount) {
+        FraudProtectionState state = protectionStates.computeIfAbsent(
+            user.getUserId(),
+            k -> new NormalState()
+        );
+        
+        return state.checkFraudRisk(user, operation, amount);
+    }
+
+    /**
+     * تفعيل الحماية ضد الاحتيال
+     */
+    public void activateFraudProtection(String userId) {
+        protectionStates.put(userId, new ProtectedState());
+    }
+
+    /**
+     * تعطيل الحماية ضد الاحتيال
+     */
+    public void deactivateFraudProtection(String userId) {
+        protectionStates.put(userId, new NormalState());
+    }
+
+    /**
+     * نتيجة الاحتيال
+     */
+    public static final class FraudResult {
+        private final boolean highRisk;
+        private final String action;
+        private final String message;
+
+        private FraudResult(boolean highRisk, String action, String message) {
+            this.highRisk = highRisk;
+            this.action = action;
+            this.message = message;
+        }
+
+        public static FraudResult lowRisk(String message) {
+            return new FraudResult(false, "ALLOW", message);
+        }
+
+        public static FraudResult highRisk(String action, String message) {
+            return new FraudResult(true, action, message);
+        }
+
+        public boolean isHighRisk() { return highRisk; }
+        public String getAction() { return action; }
+        public String getMessage() { return message; }
+    }
+
+    /**
+     * واجهة حالة الحماية
+     */
+    private interface FraudProtectionState {
+        FraudResult checkFraudRisk(User user, String operation, double amount);
+    }
+
+    // --- حالات الحماية ---
+    private static final class NormalState implements FraudProtectionState {
+        @Override
+        public FraudResult checkFraudRisk(User user, String operation, double amount) {
+            // التحقق الأساسي من المخاطر
+            if (amount > 10000) {
+                return FraudResult.highRisk("REQUIRE_2FA", "Large transaction requires 2FA verification");
+            }
+            
+            if (amount > user.getBalance() * 0.8) {
+                return FraudResult.highRisk("REQUIRE_CONFIRMATION", "High percentage withdrawal requires confirmation");
+            }
+            
+            return FraudResult.lowRisk("Transaction approved");
+        }
+    }
+
+    private static final class ProtectedState implements FraudProtectionState {
+        @Override
+        public FraudResult checkFraudRisk(User user, String operation, double amount) {
+            // في وضع الحماية، جميع العمليات تتطلب تأكيدًا إضافيًا
+            return FraudResult.highRisk("REQUIRE_2FA", "Fraud protection mode: 2FA required for all transactions");
+        }
+    }
+}
