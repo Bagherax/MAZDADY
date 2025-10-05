@@ -1,0 +1,40 @@
+package mazdady.support;
+
+import android.content.Context;
+
+/**
+ * واجهة التذاكر مع دعم العمليات المتقدمة
+ * يتبع نمط Facade لتوفير واجهة موحدة
+ */
+public final class Ticketing {
+    private final Context context;
+
+    private Ticketing(Context context) {
+        this.context = context.getApplicationContext();
+    }
+
+    public static Ticketing create(Context context) {
+        return new Ticketing(context);
+    }
+
+    /**
+     * إنشاء تذكرة جديدة
+     */
+    public TicketingSystem.SupportTicket createTicket(String subject, String description, String category) {
+        return TicketingSystem.getInstance().createTicket(subject, description, category);
+    }
+
+    /**
+     * تحديث حالة التذكرة
+     */
+    public void updateTicketStatus(String ticketId, TicketingSystem.TicketStatus status) {
+        TicketingSystem.getInstance().updateTicketStatus(ticketId, status);
+    }
+
+    /**
+     * الحصول على تذكرة
+     */
+    public TicketingSystem.SupportTicket getTicket(String ticketId) {
+        return TicketingSystem.getInstance().getTicket(ticketId);
+    }
+}
