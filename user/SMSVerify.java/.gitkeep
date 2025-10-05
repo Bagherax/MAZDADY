@@ -1,0 +1,165 @@
+package mazdady.user;
+
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
+import android.telephony.SmsMessage;
+import android.telephony.TelephonyManager;
+
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
+import java.util.regex.Pattern;
+
+/**
+ * محقق الرسائل القصيرة مع دعم التحقق المتقدم
+ * يتبع نمط Observer لإعلام النظام بالرسائل
+ */
+public final class SMSVerify {
+    private final Context context;
+    private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
+    private final Pattern verificationCodePattern = Pattern.compile("\\b\\d{6}\\b");
+    private final Consumer<String> verificationCallback;
+    private volatile boolean isListening = false;
+    private static SMSVerify instance;
+
+    private SMSVerify(Context context, Consumer<String> verificationCallback) {
+        this.context = context.getApplicationContext();
+        this.verificationCallback = verificationCallback;
+    }
+
+    public static synchronized SMSVerify getInstance(Context context, Consumer<String> verificationCallback) {
+        if (instance == null) {
+            instance = new SMSVerify(context, verificationCallback);
+        }
+        return instance;
+    }
+
+    /**
+     * بدء الاستماع للرسائل القصيرة
+     */
+    public void startListening() {
+        if (isListening) return;
+        
+        try {
+            IntentFilter filter = new IntentFilter("android.provider.Telephony.SMS_RECEIVED");
+            context.registerReceiver(smsReceiver, filter);
+            isListening = true;
+            System.out.println("SMS VERIFY: Started listening for verification codes");
+        } catch (Exception e) {
+            System.err.println("SMS VERIFY ERROR: " + e.getMessage());
+        }
+    }
+
+    /**
+     * إيقاف الاستماع للرسائل القصيرة
+     */
+    public void stopListening() {
+        if (!isListening) return;
+        
+        try {
+            context.unregisterReceiver(smsReceiver);
+            isListening = false;
+            System.out.println("SMS VERIFY: Stopped listening for verification codes");
+        } catch (Exception e) {
+            System.err.println("SMS VERIFY STOP ERROR: " + e.getMessage());
+        }
+    }
+
+    /**
+     * محاكاة استقبال رمز التحقق
+     */
+    public CompletableFuture<String> simulateReceiveCodeAsync(String sender, String message) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                String code = extractVerificationCode(message);
+                if (code != null) {
+                    System.out.println("SMS VERIFY: Code extracted - " + code);
+                    if (verificationCallback != null) {
+                        verificationCallback.accept(code);
+                    }
+                    return code;
+                }
+                return "NO_CODE_FOUND";
+            } catch (Exception e) {
+                return "ERROR: " + e.getMessage();
+            }
+        });
+    }
+
+    private String extractVerificationCode(String message) {
+        if (message == null) return null;
+        
+        java.util.regex.Matcher matcher = verificationCodePattern.matcher(message);
+        if (matcher.find()) {
+            return matcher.group();
+        }
+        return null;
+    }
+
+    /**
+     * جدولة انتهاء صلاحية الرمز
+     */
+    public void scheduleCodeExpiration(String code, long expirationMinutes) {
+        scheduler.schedule(
+            () -> {
+                System.out.println("SMS VERIFY: Code " + code + " expired");
+                // في الإنتاج: إرسال إشعار للمستخدم
+            },
+            expirationMinutes,
+            TimeUnit.MINUTES
+        );
+    }
+
+    /**
+     * مستقبل الرسائل القصيرة
+     */
+    private final BroadcastReceiver smsReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            if ("android.provider.Telephony.SMS_RECEIVED".equals(intent.getAction())) {
+                try {
+                    Object[] pdus = (Object[]) intent.getExtras().get("pdus");
+                    if (pdus != null) {
+                        for (Object pdu : pdus) {
+                            SmsMessage sms = SmsMessage.createFromPdu((byte[]) pdu);
+                            String sender = sms.getDisplayOriginatingAddress();
+                            String message = sms.getMessageBody();
+                            
+                            // التحقق مما إذا كانت الرسالة من مصدر معروف
+                            if (isKnownSender(sender)) {
+                                String code = extractVerificationCode(message);
+                                if (code != null) {
+                                    System.out.println("SMS VERIFY: Code received from " + sender + " - " + code);
+                                    if (verificationCallback != null) {
+                                        verificationCallback.accept(code);
+                                    }
+                                    abortBroadcast(); // منع عرض الرسالة للمستخدم
+                                }
+                            }
+                        }
+                    }
+                } catch (Exception e) {
+                    System.err.println("SMS RECEIVER ERROR: " + e.getMessage());
+                }
+            }
+        }
+    };
+
+    private boolean isKnownSender(String sender) {
+        // في الإنتاج: التحقق من قائمة مصادر معروفة
+        return sender.contains("MAZDADY") || sender.contains("VERIFICATION");
+    }
+
+    /**
+     * إيقاف الجدولة (للاختبارات)
+     */
+    public void shutdown() {
+        scheduler.shutdown();
+        stopListening();
+        System.out.println("SMS VERIFY: Shutdown completed");
+    }
+}
