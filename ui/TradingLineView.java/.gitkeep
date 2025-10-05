@@ -1,0 +1,189 @@
+package mazdady.ui;
+
+import android.content.Context;
+import android.graphics.Canvas;
+import android.graphics.Color;
+import android.graphics.Paint;
+import android.graphics.Path;
+import android.util.AttributeSet;
+import android.view.View;
+
+import java.util.concurrent.CopyOnWriteArrayList;
+
+/**
+ * خط التداول التفاعلي مع دعم البيانات الحية
+ * يتبع نمط Observer لمراقبة بيانات التداول
+ */
+public final class TradingLineView extends View {
+    private final Paint linePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint gridPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint userPointPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Path linePath = new Path();
+    private final CopyOnWriteArrayList<DataPoint> dataPoints = new CopyOnWriteArrayList<>();
+    private volatile boolean showGrid = true;
+    private volatile boolean showUserPoints = true;
+
+    public TradingLineView(Context context, AttributeSet attrs) {
+        super(context, attrs);
+        initializePaints();
+    }
+
+    private void initializePaints() {
+        // خط التداول الرئيسي
+        linePaint.setColor(Color.parseColor("#4CAF50"));
+        linePaint.setStrokeWidth(6f);
+        linePaint.setStyle(Paint.Style.STROKE);
+        linePaint.setStrokeCap(Paint.Cap.ROUND);
+        linePaint.setStrokeJoin(Paint.Join.ROUND);
+
+        // خط الشبكة
+        gridPaint.setColor(Color.parseColor("#37474F"));
+        gridPaint.setStrokeWidth(1f);
+        gridPaint.setStyle(Paint.Style.STROKE);
+
+        // نقاط المستخدمين
+        userPointPaint.setColor(Color.YELLOW);
+        userPointPaint.setStrokeWidth(8f);
+        userPointPaint.setStyle(Paint.Style.STROKE);
+    }
+
+    /**
+     * إضافة نقطة بيانات جديدة
+     */
+    public void addDataPoint(double price, long timestamp) {
+        DataPoint point = new DataPoint(price, timestamp, System.currentTimeMillis());
+        dataPoints.add(point);
+        
+        // الحفاظ على أحدث 100 نقطة فقط
+        if (dataPoints.size() > 100) {
+            dataPoints.remove(0);
+        }
+        
+        postInvalidate();
+        System.out.println("TRADING LINE: New data point added - Price: " + price);
+    }
+
+    /**
+     * إضافة نقاط مستخدمين حقيقيين
+     */
+    public void addUserPoint(double price, String userId) {
+        DataPoint userPoint = new DataPoint(price, System.currentTimeMillis(), System.currentTimeMillis());
+        userPoint.setUserId(userId);
+        dataPoints.add(userPoint);
+        postInvalidate();
+        System.out.println("TRADING LINE: User point added for " + userId);
+    }
+
+    @Override
+    protected void onDraw(Canvas canvas) {
+        super.onDraw(canvas);
+        
+        if (dataPoints.isEmpty()) return;
+        
+        int width = getWidth();
+        int height = getHeight();
+        
+        // رسم شبكة الخلفية
+        if (showGrid) {
+            drawGrid(canvas, width, height);
+        }
+        
+        // رسم خط التداول
+        drawTradingLine(canvas, width, height);
+        
+        // رسم نقاط المستخدمين
+        if (showUserPoints) {
+            drawUserPoints(canvas, width, height);
+        }
+    }
+
+    private void drawGrid(Canvas canvas, int width, int height) {
+        // رسم خطوط الشبكة العمودية
+        for (int i = 0; i < 10; i++) {
+            float x = width * i / 10f;
+            canvas.drawLine(x, 0, x, height, gridPaint);
+        }
+        
+        // رسم خطوط الشبكة الأفقية
+        for (int i = 0; i < 5; i++) {
+            float y = height * i / 5f;
+            canvas.drawLine(0, y, width, y, gridPaint);
+        }
+    }
+
+    private void drawTradingLine(Canvas canvas, int width, int height) {
+        if (dataPoints.size() < 2) return;
+        
+        linePath.reset();
+        
+        // حساب الحد الأدنى والأقصى للأسعار
+        double minPrice = dataPoints.stream().mapToDouble(DataPoint::getPrice).min().orElse(100);
+        double maxPrice = dataPoints.stream().mapToDouble(DataPoint::getPrice).max().orElse(100);
+        double priceRange = maxPrice - minPrice;
+        if (priceRange == 0) priceRange = 1;
+        
+        // رسم الخط
+        for (int i = 0; i < dataPoints.size(); i++) {
+            DataPoint point = dataPoints.get(i);
+            float x = width * i / (float) Math.max(1, dataPoints.size() - 1);
+            float y = height - (float) ((point.getPrice() - minPrice) / priceRange * height);
+            
+            if (i == 0) {
+                linePath.moveTo(x, y);
+            } else {
+                linePath.lineTo(x, y);
+            }
+        }
+        
+        canvas.drawPath(linePath, linePaint);
+    }
+
+    private void drawUserPoints(Canvas canvas, int width, int height) {
+        // حساب الحد الأدنى والأقصى للأسعار
+        double minPrice = dataPoints.stream().mapToDouble(DataPoint::getPrice).min().orElse(100);
+        double maxPrice = dataPoints.stream().mapToDouble(DataPoint::getPrice).max().orElse(100);
+        double priceRange = maxPrice - minPrice;
+        if (priceRange == 0) priceRange = 1;
+        
+        // رسم نقاط المستخدمين
+        for (DataPoint point : dataPoints) {
+            if (point.getUserId() != null) {
+                float x = width * dataPoints.indexOf(point) / (float) Math.max(1, dataPoints.size() - 1);
+                float y = height - (float) ((point.getPrice() - minPrice) / priceRange * height);
+                
+                canvas.drawCircle(x, y, 12f, userPointPaint);
+            }
+        }
+    }
+
+    /**
+     * نقطة البيانات
+     */
+    private static final class DataPoint {
+        private final double price;
+        private final long timestamp;
+        private final long creationTime;
+        private String userId;
+
+        public DataPoint(double price, long timestamp, long creationTime) {
+            this.price = price;
+            this.timestamp = timestamp;
+            this.creationTime = creationTime;
+        }
+
+        // Getters
+        public double getPrice() { return price; }
+        public long getTimestamp() { return timestamp; }
+        public long getCreationTime() { return creationTime; }
+        public String getUserId() { return userId; }
+        public void setUserId(String userId) { this.userId = userId; }
+    }
+
+    // --- Getters/Setters ---
+    public boolean isShowGrid() { return showGrid; }
+    public void setShowGrid(boolean showGrid) { this.showGrid = showGrid; postInvalidate(); }
+    public boolean isShowUserPoints() { return showUserPoints; }
+    public void setShowUserPoints(boolean showUserPoints) { this.showUserPoints = showUserPoints; postInvalidate(); }
+    public int getDataPointCount() { return dataPoints.size(); }
+    public void clearData() { dataPoints.clear(); postInvalidate(); }
+}
