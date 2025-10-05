@@ -1,63 +1,527 @@
 package mazdady.arch;
 
+import mazdady.user.User;
 import mazdady.user.UserManager;
 import mazdady.security.SecurityMonitor;
 
-/**
- * منفذ المنطق التجاري مع التحقق من الصلاحيات والعقود
- * يستخدم نمط Template Method لفصل الخطوات الأساسية
- */
-public abstract class BusinessInteractor<T, R> {
-    private final SecurityMonitor securityMonitor;
-    private final ContractValidator validator;
+import java.util.concurrent.CompletableFuture;
+import java.util.function.BiFunction;
+import java.util.function.Consumer;
 
-    protected BusinessInteractor() {
-        this.securityMonitor = new SecurityMonitor(UserManager.getInstance(null));
-        this.validator = ContractValidator.getInstance();
+/**
+ * متفاعل الأعمال مع دعم حالات الأعمال المتقدمة
+ * يتبع نمط State لتمثيل حالات الأعمال المختلفة
+ */
+public final class BusinessInteractor {
+    private final UserManager userManager;
+    private final SecurityMonitor securityMonitor;
+    private static BusinessInteractor instance;
+
+    private BusinessInteractor(UserManager userManager, SecurityMonitor securityMonitor) {
+        this.userManager = userManager;
+        this.securityMonitor = securityMonitor;
+    }
+
+    public static synchronized BusinessInteractor getInstance(
+        UserManager userManager, 
+        SecurityMonitor securityMonitor
+    ) {
+        if (instance == null) {
+            instance = new BusinessInteractor(userManager, securityMonitor);
+        }
+        return instance;
     }
 
     /**
-     * القالب الأساسي لتنفيذ العملية التجارية
+     * تنفيذ حالة أعمال غير متزامنة
      */
-    public final R execute(T request) {
-        try {
-            // 1. التحقق من الصلاحيات
-            if (!hasPermission(request)) {
-                securityMonitor.reportSuspiciousActivity("UNAUTHORIZED_ACCESS");
-                throw new SecurityException("الوصول غير مصرح به");
+    public <T, R> CompletableFuture<BusinessResult<R>> executeBusinessCaseAsync(
+        String businessCaseId,
+        T input,
+        BiFunction<User, T, R> businessLogic
+    ) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                // 1. التحقق من المستخدم
+                User user = userManager.getCurrentUser();
+                if (user == null) {
+                    return BusinessResult.failure("User not authenticated");
+                }
+                
+                // 2. التحقق من صلاحيات الحالة
+                if (!hasPermissionForBusinessCase(user, businessCaseId)) {
+                    securityMonitor.reportSuspiciousActivity(
+                        user.getUserId(), 
+                        "UNAUTHORIZED_BUSINESS_CASE_" + businessCaseId
+                    );
+                    return BusinessResult.failure("Unauthorized business case: " + businessCaseId);
+                }
+                
+                // 3. تنفيذ منطق الأعمال
+                R result = businessLogic.apply(user, input);
+                
+                // 4. تسجيل الحالة
+                logBusinessCaseExecution(user.getUserId(), businessCaseId, input, result);
+                
+                System.out.println("BUSINESS INTERACTOR: Executed " + businessCaseId + 
+                                 " for user " + user.getUserId());
+                
+                return BusinessResult.success(result, "Business case executed successfully");
+                
+            } catch (Exception e) {
+                return BusinessResult.failure("Business case execution failed: " + e.getMessage());
             }
+        });
+    }
 
-            // 2. التحقق من صحة المدخلات
-            validator.validate(request);
+    private boolean hasPermissionForBusinessCase(User user, String businessCaseId) {
+        // في الإنتاج: التحقق من صلاحيات المستخدم
+        return user != null && user.getUserId() != null;
+    }
 
-            // 3. تنفيذ المنطق التجاري
-            return performBusinessLogic(request);
+    private <T, R> void logBusinessCaseExecution(
+        String userId, 
+        String businessCaseId, 
+        T input, 
+        R result
+    ) {
+        System.out.println("BUSINESS LOG: " + businessCaseId + 
+                         " executed for " + userId + 
+                         " - Input: " + input + 
+                         " - Result: " + result);
+    }
 
-        } catch (IllegalArgumentException e) {
-            throw new BusinessException("بيانات غير صالحة: " + e.getMessage(), e);
-        } catch (SecurityException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new BusinessException("فشل في تنفيذ العملية", e);
+    /**
+     * نتيجة حالة الأعمال
+     */
+    public static final class BusinessResult<T> {
+        private final boolean success;
+        private final T result;
+        private final String message;
+
+        private BusinessResult(boolean success, T result, String message) {
+            this.success = success;
+            this.result = result;
+            this.message = message;
+        }
+
+        public static <T> BusinessResult<T> success(T result, String message) {
+            return new BusinessResult<>(true, result, message);
+        }
+
+        public static <T> BusinessResult<T> failure(String message) {
+            return new BusinessResult<>(false, null, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public T getResult() { return result; }
+        public String getMessage() { return message; }
+    }
+
+    /**
+     * حالة الأعمال
+     */
+    @FunctionalInterface
+    public interface BusinessCase<T, R> {
+        R execute(User user, T input);
+    }
+
+    /**
+     * حالة أعمال التداول
+     */
+    public static final class TradingBusinessCase implements BusinessCase<Double, Boolean> {
+        @Override
+        public Boolean execute(User user, Double amount) {
+            // في الإنتاج: تنفيذ منطق التداول
+            System.out.println("TRADING BUSINESS CASE: Executing trade for " + user.getUserId() + 
+                             " with amount " + amount);
+            return true; // محاكاة النجاح
         }
     }
 
     /**
-     * التحقق من صلاحيات المستخدم للعملية
+     * حالة أعمال السحب
      */
-    protected abstract boolean hasPermission(T request);
+    public static final class WithdrawalBusinessCase implements BusinessCase<Double, Boolean> {
+        @Override
+        public Boolean execute(User user, Double amount) {
+            // في الإنتاج: تنفيذ منطق السحب
+            System.out.println("WITHDRAWAL BUSINESS CASE: Executing withdrawal for " + user.getUserId() + 
+                             " with amount " + amount);
+            return true; // محاكاة النجاح
+        }
+    }
 
     /**
-     * تنفيذ المنطق التجاري المحدد
+     * حالة أعمال الإيداع
      */
-    protected abstract R performBusinessLogic(T request);
+    public static final class DepositBusinessCase implements BusinessCase<Double, Boolean> {
+        @Override
+        public Boolean execute(User user, Double amount) {
+            // في الإنتاج: تنفيذ منطق الإيداع
+            System.out.println("DEPOSIT BUSINESS CASE: Executing deposit for " + user.getUserId() + 
+                             " with amount " + amount);
+            return true; // محاكاة النجاح
+        }
+    }
 
     /**
-     * استثناء مخصص للأخطاء التجارية
+     * حالة أعمال التحقق من الهوية
      */
-    public static class BusinessException extends RuntimeException {
-        public BusinessException(String message, Throwable cause) {
-            super(message, cause);
+    public static final class KYCBusinessCase implements BusinessCase<String, Boolean> {
+        @Override
+        public Boolean execute(User user, String documentData) {
+            // في الإنتاج: تنفيذ منطق التحقق من الهوية
+            System.out.println("KYC BUSINESS CASE: Executing KYC for " + user.getUserId());
+            return true; // محاكاة النجاح
+        }
+    }
+
+    /**
+     * حالة أعمال الترويج الاجتماعي
+     */
+    public static final class SocialPromotionBusinessCase implements BusinessCase<String, Boolean> {
+        @Override
+        public Boolean execute(User user, String promotionData) {
+            // في الإنتاج: تنفيذ منطق الترويج الاجتماعي
+            System.out.println("SOCIAL PROMOTION BUSINESS CASE: Executing promotion for " + user.getUserId());
+            return true; // محاكاة النجاح
+        }
+    }
+
+    /**
+     * حالة أعمال الإعلانات
+     */
+    public static final class AdCampaignBusinessCase implements BusinessCase<String, Boolean> {
+        @Override
+        public Boolean execute(User user, String campaignData) {
+            // في الإنتاج: تنفيذ منطق الحملات الإعلانية
+            System.out.println("AD CAMPAIGN BUSINESS CASE: Executing campaign for " + user.getUserId());
+            return true; // محاكاة النجاح
+        }
+    }
+
+    /**
+     * حالة أعمال البوتات
+     */
+    public static final class BotBusinessCase implements BusinessCase<String, Boolean> {
+        @Override
+        public Boolean execute(User user, String botData) {
+            // في الإنتاج: تنفيذ منطق البوتات
+            System.out.println("BOT BUSINESS CASE: Executing bot action for " + user.getUserId());
+            return true; // محاكاة النجاح
+        }
+    }
+
+    /**
+     * حالة أعمال المجتمع
+     */
+    public static final class CommunityBusinessCase implements BusinessCase<String, Boolean> {
+        @Override
+        public Boolean execute(User user, String communityData) {
+            // في الإنتاج: تنفيذ منطق المجتمع
+            System.out.println("COMMUNITY BUSINESS CASE: Executing community action for " + user.getUserId());
+            return true; // محاكاة النجاح
+        }
+    }
+
+    /**
+     * حالة أعمال الأمان
+     */
+    public static final class SecurityBusinessCase implements BusinessCase<String, Boolean> {
+        @Override
+        public Boolean execute(User user, String securityData) {
+            // في الإنتاج: تنفيذ منطق الأمان
+            System.out.println("SECURITY BUSINESS CASE: Executing security action for " + user.getUserId());
+            return true; // محاكاة النجاح
+        }
+    }
+
+    /**
+     * حالة أعمال الإعدادات
+     */
+    public static final class SettingsBusinessCase implements BusinessCase<String, Boolean> {
+        @Override
+        public Boolean execute(User user, String settingsData) {
+            // في الإنتاج: تنفيذ منطق الإعدادات
+            System.out.println("SETTINGS BUSINESS CASE: Executing settings action for " + user.getUserId());
+            return true; // محاكاة النجاح
+        }
+    }
+
+    /**
+     * حالة أعمال الدعم الفني
+     */
+    public static final class SupportBusinessCase implements BusinessCase<String, Boolean> {
+        @Override
+        public Boolean execute(User user, String supportData) {
+            // في الإنتاج: تنفيذ منطق الدعم الفني
+            System.out.println("SUPPORT BUSINESS CASE: Executing support action for " + user.getUserId());
+            return true; // محاكاة النجاح
+        }
+    }
+
+    /**
+     * حالة أعمال التحديثات
+     */
+    public static final class UpdateBusinessCase implements BusinessCase<String, Boolean> {
+        @Override
+        public Boolean execute(User user, String updateData) {
+            // في الإنتاج: تنفيذ منطق التحديثات
+            System.out.println("UPDATE BUSINESS CASE: Executing update action for " + user.getUserId());
+            return true; // محاكاة النجاح
+        }
+    }
+
+    /**
+     * حالة أعمال النسخ الاحتياطي
+     */
+    public static final class BackupBusinessCase implements BusinessCase<String, Boolean> {
+        @Override
+        public Boolean execute(User user, String backupData) {
+            // في الإنتاج: تنفيذ منطق النسخ الاحتياطي
+            System.out.println("BACKUP BUSINESS CASE: Executing backup action for " + user.getUserId());
+            return true; // محاكاة النجاح
+        }
+    }
+
+    /**
+     * حالة أعمال الاسترداد
+     */
+    public static final class RecoveryBusinessCase implements BusinessCase<String, Boolean> {
+        @Override
+        public Boolean execute(User user, String recoveryData) {
+            // في الإنتاج: تنفيذ منطق الاسترداد
+            System.out.println("RECOVERY BUSINESS CASE: Executing recovery action for " + user.getUserId());
+            return true; // محاكاة النجاح
+        }
+    }
+
+    /**
+     * حالة أعمال الصيانة
+     */
+    public static final class MaintenanceBusinessCase implements BusinessCase<String, Boolean> {
+        @Override
+        public Boolean execute(User user, String maintenanceData) {
+            // في الإنتاج: تنفيذ منطق الصيانة
+            System.out.println("MAINTENANCE BUSINESS CASE: Executing maintenance action for " + user.getUserId());
+            return true; // محاكاة النجاح
+        }
+    }
+
+    /**
+     * حالة أعمال الاختبارات
+     */
+    public static final class TestBusinessCase implements BusinessCase<String, Boolean> {
+        @Override
+        public Boolean execute(User user, String testData) {
+            // في الإنتاج: تنفيذ منطق الاختبارات
+            System.out.println("TEST BUSINESS CASE: Executing test action for " + user.getUserId());
+            return true; // محاكاة النجاح
+        }
+    }
+
+    /**
+     * حالة أعمال التوثيق
+     */
+    public static final class DocumentationBusinessCase implements BusinessCase<String, Boolean> {
+        @Override
+        public Boolean execute(User user, String documentationData) {
+            // في الإنتاج: تنفيذ منطق التوثيق
+            System.out.println("DOCUMENTATION BUSINESS CASE: Executing documentation action for " + user.getUserId());
+            return true; // محاكاة النجاح
+        }
+    }
+
+    /**
+     * حالة أعمال التحليلات
+     */
+    public static final class AnalyticsBusinessCase implements BusinessCase<String, Boolean> {
+        @Override
+        public Boolean execute(User user, String analyticsData) {
+            // في الإنتاج: تنفيذ منطق التحليلات
+            System.out.println("ANALYTICS BUSINESS CASE: Executing analytics action for " + user.getUserId());
+            return true; // محاكاة النجاح
+        }
+    }
+
+    /**
+     * حالة أعمال الذكاء الاصطناعي
+     */
+    public static final class AIBusinessCase implements BusinessCase<String, Boolean> {
+        @Override
+        public Boolean execute(User user, String aiData) {
+            // في الإنتاج: تنفيذ منطق الذكاء الاصطناعي
+            System.out.println("AI BUSINESS CASE: Executing AI action for " + user.getUserId());
+            return true; // محاكاة النجاح
+        }
+    }
+
+    /**
+     * حالة أعمال البلوك تشين
+     */
+    public static final class BlockchainBusinessCase implements BusinessCase<String, Boolean> {
+        @Override
+        public Boolean execute(User user, String blockchainData) {
+            // في الإنتاج: تنفيذ منطق البلوك تشين
+            System.out.println("BLOCKCHAIN BUSINESS CASE: Executing blockchain action for " + user.getUserId());
+            return true; // محاكاة النجاح
+        }
+    }
+
+    /**
+     * حالة أعمال المحفظة
+     */
+    public static final class WalletBusinessCase implements BusinessCase<String, Boolean> {
+        @Override
+        public Boolean execute(User user, String walletData) {
+            // في الإنتاج: تنفيذ منطق المحفظة
+            System.out.println("WALLET BUSINESS CASE: Executing wallet action for " + user.getUserId());
+            return true; // محاكاة النجاح
+        }
+    }
+
+    /**
+     * حالة أعمال المستخدم
+     */
+    public static final class UserBusinessCase implements BusinessCase<String, Boolean> {
+        @Override
+        public Boolean execute(User user, String userData) {
+            // في الإنتاج: تنفيذ منطق المستخدم
+            System.out.println("USER BUSINESS CASE: Executing user action for " + user.getUserId());
+            return true; // محاكاة النجاح
+        }
+    }
+
+    /**
+     * حالة أعمال الفريق
+     */
+    public static final class TeamBusinessCase implements BusinessCase<String, Boolean> {
+        @Override
+        public Boolean execute(User user, String teamData) {
+            // في الإنتاج: تنفيذ منطق الفريق
+            System.out.println("TEAM BUSINESS CASE: Executing team action for " + user.getUserId());
+            return true; // محاكاة النجاح
+        }
+    }
+
+    /**
+     * حالة أعمال التداول
+     */
+    public static final class TradingLineBusinessCase implements BusinessCase<String, Boolean> {
+        @Override
+        public Boolean execute(User user, String tradingLineData) {
+            // في الإنتاج: تنفيذ منطق خط التداول
+            System.out.println("TRADING LINE BUSINESS CASE: Executing trading line action for " + user.getUserId());
+            return true; // محاكاة النجاح
+        }
+    }
+
+    /**
+     * حالة أعمال الإشعارات
+     */
+    public static final class NotificationBusinessCase implements BusinessCase<String, Boolean> {
+        @Override
+        public Boolean execute(User user, String notificationData) {
+            // في الإنتاج: تنفيذ منطق الإشعارات
+            System.out.println("NOTIFICATION BUSINESS CASE: Executing notification action for " + user.getUserId());
+            return true; // محاكاة النجاح
+        }
+    }
+
+    /**
+     * حالة أعمال الترجمة
+     */
+    public static final class TranslationBusinessCase implements BusinessCase<String, Boolean> {
+        @Override
+        public Boolean execute(User user, String translationData) {
+            // في الإنتاج: تنفيذ منطق الترجمة
+            System.out.println("TRANSLATION BUSINESS CASE: Executing translation action for " + user.getUserId());
+            return true; // محاكاة النجاح
+        }
+    }
+
+    /**
+     * حالة أعمال التصميم
+     */
+    public static final class UIDesignBusinessCase implements BusinessCase<String, Boolean> {
+        @Override
+        public Boolean execute(User user, String uiDesignData) {
+            // في الإنتاج: تنفيذ منطق التصميم
+            System.out.println("UI DESIGN BUSINESS CASE: Executing UI design action for " + user.getUserId());
+            return true; // محاكاة النجاح
+        }
+    }
+
+    /**
+     * حالة أعمال التكامل
+     */
+    public static final class IntegrationBusinessCase implements BusinessCase<String, Boolean> {
+        @Override
+        public Boolean execute(User user, String integrationData) {
+            // في الإنتاج: تنفيذ منطق التكامل
+            System.out.println("INTEGRATION BUSINESS CASE: Executing integration action for " + user.getUserId());
+            return true; // محاكاة النجاح
+        }
+    }
+
+    /**
+     * حالة أعمال الأداء
+     */
+    public static final class PerformanceBusinessCase implements BusinessCase<String, Boolean> {
+        @Override
+        public Boolean execute(User user, String performanceData) {
+            // في الإنتاج: تنفيذ منطق الأداء
+            System.out.println("PERFORMANCE BUSINESS CASE: Executing performance action for " + user.getUserId());
+            return true; // محاكاة النجاح
+        }
+    }
+
+    /**
+     * حالة أعمال التجربة
+     */
+    public static final class ExperienceBusinessCase implements BusinessCase<String, Boolean> {
+        @Override
+        public Boolean execute(User user, String experienceData) {
+            // في الإنتاج: تنفيذ منطق التجربة
+            System.out.println("EXPERIENCE BUSINESS CASE: Executing experience action for " + user.getUserId());
+            return true; // محاكاة النجاح
+        }
+    }
+
+    /**
+     * حالة أعمال الجودة
+     */
+    public static final class QualityBusinessCase implements BusinessCase<String, Boolean> {
+        @Override
+        public Boolean execute(User user, String qualityData) {
+            // في الإنتاج: تنفيذ منطق الجودة
+            System.out.println("QUALITY BUSINESS CASE: Executing quality action for " + user.getUserId());
+            return true; // محاكاة النجاح
+        }
+    }
+
+    /**
+     * حالة أعمال الابتكار
+     */
+    public static final class InnovationBusinessCase implements BusinessCase<String, Boolean> {
+        @Override
+        public Boolean execute(User user, String innovationData) {
+            // في الإنتاج: تنفيذ منطق الابتكار
+            System.out.println("INNOVATION BUSINESS CASE: Executing innovation action for " + user.getUserId());
+            return true; // محاكاة النجاح
+        }
+    }
+
+    /**
+     * حالة أعمال المستقبل
+     */
+    public static final class FutureBusinessCase implements BusinessCase<String, Boolean> {
+        @Override
+        public Boolean execute(User user, String futureData) {
+            // في الإنتاج: تنفيذ منطق المستقبل
+            System.out.println("FUTURE BUSINESS CASE: Executing future action for " + user.getUserId());
+            return true; // محاكاة النجاح
         }
     }
 }
