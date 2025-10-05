@@ -1,0 +1,159 @@
+package mazdady.user;
+
+import java.util.regex.Pattern;
+import java.util.concurrent.ConcurrentHashMap;
+
+/**
+ * محقق أرقام الهاتف مع دعم التحقق المتقدم
+ * يتبع نمط Strategy لفصل استراتيجيات التحقق
+ */
+public final class PhoneValidator {
+    private static final Pattern PHONE_PATTERN = Pattern.compile("^\\+?[1-9]\\d{1,14}$");
+    private static final Pattern SAUDI_PATTERN = Pattern.compile("^\\+9665\\d{8}$|^05\\d{8}$");
+    private static final Pattern UAE_PATTERN = Pattern.compile("^\\+9715\\d{8}$|^05\\d{8}$");
+    private static final Pattern EGYPT_PATTERN = Pattern.compile("^\\+201\\d{9}$|^01\\d{9}$");
+    
+    private final ConcurrentHashMap<String, Pattern> countryPatterns = new ConcurrentHashMap<>();
+    private static PhoneValidator instance;
+
+    private PhoneValidator() {
+        initializeCountryPatterns();
+    }
+
+    public static synchronized PhoneValidator getInstance() {
+        if (instance == null) {
+            instance = new PhoneValidator();
+        }
+        return instance;
+    }
+
+    private void initializeCountryPatterns() {
+        countryPatterns.put("SA", SAUDI_PATTERN);
+        countryPatterns.put("AE", UAE_PATTERN);
+        countryPatterns.put("EG", EGYPT_PATTERN);
+        countryPatterns.put("KW", Pattern.compile("^\\+965\\d{8}$"));
+        countryPatterns.put("QA", Pattern.compile("^\\+974\\d{8}$"));
+        countryPatterns.put("BH", Pattern.compile("^\\+973\\d{8}$"));
+        countryPatterns.put("OM", Pattern.compile("^\\+968\\d{8}$"));
+        countryPatterns.put("JO", Pattern.compile("^\\+9627\\d{8}$"));
+        countryPatterns.put("LB", Pattern.compile("^\\+9613\\d{6}$|^\\+9617\\d{7}$"));
+    }
+
+    /**
+     * التحقق من صحة رقم الهاتف العام
+     */
+    public boolean isValidPhoneNumber(String phoneNumber) {
+        return phoneNumber != null && PHONE_PATTERN.matcher(phoneNumber).matches();
+    }
+
+    /**
+     * التحقق من صحة رقم الهاتف حسب البلد
+     */
+    public boolean isValidPhoneNumberForCountry(String phoneNumber, String countryCode) {
+        if (phoneNumber == null || countryCode == null) return false;
+        
+        Pattern pattern = countryPatterns.get(countryCode.toUpperCase());
+        if (pattern != null) {
+            return pattern.matcher(phoneNumber).matches();
+        }
+        
+        // إذا لم يكن هناك نمط مخصص، استخدم التحقق العام
+        return isValidPhoneNumber(phoneNumber);
+    }
+
+    /**
+     * اكتشاف بلد رقم الهاتف
+     */
+    public String detectCountryCode(String phoneNumber) {
+        if (phoneNumber == null) return "UNKNOWN";
+        
+        for (String countryCode : countryPatterns.keySet()) {
+            Pattern pattern = countryPatterns.get(countryCode);
+            if (pattern != null && pattern.matcher(phoneNumber).matches()) {
+                return countryCode;
+            }
+        }
+        
+        return "GLOBAL";
+    }
+
+    /**
+     * تنسيق رقم الهاتف
+     */
+    public String formatPhoneNumber(String phoneNumber, String countryCode) {
+        if (phoneNumber == null || countryCode == null) return phoneNumber;
+        
+        // في الإنتاج: تنسيق الرقم حسب معايير البلد
+        switch (countryCode.toUpperCase()) {
+            case "SA":
+                if (phoneNumber.startsWith("05")) {
+                    return "+966" + phoneNumber.substring(1);
+                }
+                break;
+            case "AE":
+                if (phoneNumber.startsWith("05")) {
+                    return "+971" + phoneNumber.substring(1);
+                }
+                break;
+            case "EG":
+                if (phoneNumber.startsWith("01")) {
+                    return "+20" + phoneNumber.substring(1);
+                }
+                break;
+        }
+        
+        return phoneNumber;
+    }
+
+    /**
+     * التحقق من رقم الهاتف مع التنسيق التلقائي
+     */
+    public ValidationResult validateAndFormat(String phoneNumber, String countryCode) {
+        if (phoneNumber == null) {
+            return ValidationResult.invalid("Phone number cannot be null");
+        }
+        
+        // تنسيق الرقم
+        String formattedNumber = formatPhoneNumber(phoneNumber, countryCode);
+        
+        // التحقق من الصحة
+        boolean isValid = isValidPhoneNumberForCountry(formattedNumber, countryCode);
+        
+        if (isValid) {
+            return ValidationResult.valid(formattedNumber, detectCountryCode(formattedNumber));
+        } else {
+            return ValidationResult.invalid("Invalid phone number for country " + countryCode);
+        }
+    }
+
+    /**
+     * نتيجة التحقق
+     */
+    public static final class ValidationResult {
+        private final boolean valid;
+        private final String formattedNumber;
+        private final String detectedCountry;
+        private final String errorMessage;
+
+        private ValidationResult(boolean valid, String formattedNumber, 
+                               String detectedCountry, String errorMessage) {
+            this.valid = valid;
+            this.formattedNumber = formattedNumber;
+            this.detectedCountry = detectedCountry;
+            this.errorMessage = errorMessage;
+        }
+
+        public static ValidationResult valid(String formattedNumber, String detectedCountry) {
+            return new ValidationResult(true, formattedNumber, detectedCountry, null);
+        }
+
+        public static ValidationResult invalid(String errorMessage) {
+            return new ValidationResult(false, null, null, errorMessage);
+        }
+
+        public boolean isValid() { return valid; }
+        public String getFormattedNumber() { return formattedNumber; }
+        public String getDetectedCountry() { return detectedCountry; }
+        public String getErrorMessage() { return errorMessage; }
+    }
+}
