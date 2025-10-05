@@ -1,0 +1,135 @@
+package mazdady.user;
+
+import android.content.Context;
+import android.content.Intent;
+import android.net.Uri;
+
+import java.util.concurrent.CompletableFuture;
+import java.util.function.Consumer;
+
+/**
+ * محقق رمز OTP عبر واتساب مع دعم التكامل المتقدم
+ * يتبع نمط Strategy لفصل استراتيجيات الإرسال
+ */
+public final class WhatsAppOTP {
+    private final Context context;
+    private final Consumer<String> otpCallback;
+    private static WhatsAppOTP instance;
+
+    private WhatsAppOTP(Context context, Consumer<String> otpCallback) {
+        this.context = context.getApplicationContext();
+        this.otpCallback = otpCallback;
+    }
+
+    public static synchronized WhatsAppOTP getInstance(Context context, Consumer<String> otpCallback) {
+        if (instance == null) {
+            instance = new WhatsAppOTP(context, otpCallback);
+        }
+        return instance;
+    }
+
+    /**
+     * إرسال رمز OTP عبر واتساب غير متزامن
+     */
+    public CompletableFuture<OTPResult> sendOTPAsync(String phoneNumber, String messageTemplate) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                // التحقق من صحة رقم الهاتف
+                if (!isValidWhatsAppNumber(phoneNumber)) {
+                    return OTPResult.failure("Invalid WhatsApp number");
+                }
+                
+                // تنسيق الرسالة
+                String formattedMessage = formatOTPMessage(messageTemplate);
+                
+                // إرسال الرسالة عبر واتساب
+                boolean sent = sendWhatsAppMessage(phoneNumber, formattedMessage);
+                
+                if (sent) {
+                    System.out.println("WHATSAPP OTP: Code sent to " + phoneNumber);
+                    return OTPResult.success("OTP sent successfully via WhatsApp");
+                } else {
+                    return OTPResult.failure("Failed to send OTP via WhatsApp");
+                }
+                
+            } catch (Exception e) {
+                return OTPResult.failure("WhatsApp OTP error: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * بدء استقبال رمز OTP من واتساب
+     */
+    public void startListeningForOTP() {
+        // في الإنتاج: استخدام Firebase أو خدمة استقبال الرسائل
+        System.out.println("WHATSAPP OTP: Listening for incoming OTP codes");
+    }
+
+    private boolean isValidWhatsAppNumber(String phoneNumber) {
+        // في الإنتاج: التحقق من وجود حساب واتساب مرتبط بالرقم
+        return phoneNumber != null && phoneNumber.matches("^\\+?[1-9]\\d{1,14}$");
+    }
+
+    private String formatOTPMessage(String template) {
+        // في الإنتاج: استبدال المتغيرات في القالب
+        String code = generateOTPCode();
+        return template.replace("{CODE}", code);
+    }
+
+    private String generateOTPCode() {
+        // توليد رمز عشوائي من 6 أرقام
+        return String.format("%06d", (int) (Math.random() * 1000000));
+    }
+
+    private boolean sendWhatsAppMessage(String phoneNumber, String message) {
+        try {
+            String url = "https://api.whatsapp.com/send?phone=" + phoneNumber + "&text=" + 
+                        Uri.encode(message);
+            
+            Intent intent = new Intent(Intent.ACTION_VIEW);
+            intent.setData(Uri.parse(url));
+            intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            
+            context.startActivity(intent);
+            return true;
+        } catch (Exception e) {
+            System.err.println("WHATSAPP SEND ERROR: " + e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * محاكاة استقبال رمز OTP من واتساب
+     */
+    public void simulateReceiveOTP(String code) {
+        if (otpCallback != null) {
+            otpCallback.accept(code);
+            System.out.println("WHATSAPP OTP: Code received - " + code);
+        }
+    }
+
+    /**
+     * نتيجة OTP
+     */
+    public static final class OTPResult {
+        private final boolean success;
+        private final String message;
+
+        private OTPResult(boolean success, String message) {
+            this.success = success;
+            this.message = message;
+        }
+
+        public static OTPResult success(String message) {
+            return new OTPResult(true, message);
+        }
+
+        public static OTPResult failure(String message) {
+            return new OTPResult(false, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public String getMessage() { return message; }
+    }
+}
