@@ -5,6 +5,8 @@ import android.content.res.Configuration;
 import android.os.Build;
 
 import java.util.Locale;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * كاشف لغة الجهاز مع دعم الكشف التلقائي
@@ -12,10 +14,12 @@ import java.util.Locale;
  */
 public final class DeviceLang {
     private final Context context;
+    private final Map<String, String> languageNames = new ConcurrentHashMap<>();
     private static DeviceLang instance;
 
     private DeviceLang(Context context) {
         this.context = context.getApplicationContext();
+        initializeLanguageNames();
     }
 
     public static synchronized DeviceLang getInstance(Context context) {
@@ -25,14 +29,39 @@ public final class DeviceLang {
         return instance;
     }
 
+    private void initializeLanguageNames() {
+        // تهيئة أسماء اللغات
+        languageNames.put("ar", "العربية");
+        languageNames.put("en", "English");
+        languageNames.put("es", "Español");
+        languageNames.put("fr", "Français");
+        languageNames.put("de", "Deutsch");
+        languageNames.put("it", "Italiano");
+        languageNames.put("pt", "Português");
+        languageNames.put("ru", "Русский");
+        languageNames.put("zh", "中文");
+        languageNames.put("ja", "日本語");
+        languageNames.put("ko", "한국어");
+        languageNames.put("tr", "Türkçe");
+        languageNames.put("fa", "فارسی");
+        languageNames.put("ur", "اردو");
+        
+        System.out.println("DEVICE LANG: Initialized with " + languageNames.size() + " language names");
+    }
+
     /**
      * الحصول على لغة الجهاز الحالية
      */
     public String getCurrentLanguage() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            return context.getResources().getConfiguration().getLocales().get(0).getLanguage();
-        } else {
-            return context.getResources().getConfiguration().locale.getLanguage();
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                return context.getResources().getConfiguration().getLocales().get(0).getLanguage();
+            } else {
+                return context.getResources().getConfiguration().locale.getLanguage();
+            }
+        } catch (Exception e) {
+            System.err.println("LANGUAGE DETECTION ERROR: " + e.getMessage());
+            return "en"; // اللغة الافتراضية
         }
     }
 
@@ -47,22 +76,69 @@ public final class DeviceLang {
      * تعيين لغة الجهاز
      */
     public void setLanguage(String languageCode) {
-        Locale locale = new Locale(languageCode);
-        Locale.setDefault(locale);
-        
-        Configuration config = context.getResources().getConfiguration();
-        config.setLocale(locale);
-        
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            context.createConfigurationContext(config);
-        } else {
-            context.getResources().updateConfiguration(config, 
-                context.getResources().getDisplayMetrics());
+        try {
+            Locale locale = new Locale(languageCode);
+            Locale.setDefault(locale);
+            
+            Configuration config = context.getResources().getConfiguration();
+            config.setLocale(locale);
+            
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                context.createConfigurationContext(config);
+            } else {
+                context.getResources().updateConfiguration(config, 
+                    context.getResources().getDisplayMetrics());
+            }
+            
+            // تفعيل دعم RTL للعربية
+            if ("ar".equals(languageCode)) {
+                RTLController.setRTL(context);
+            }
+            
+            System.out.println("DEVICE LANG: Language set to " + languageCode + 
+                             " (" + getLanguageName(languageCode) + ")");
+            
+        } catch (Exception e) {
+            System.err.println("LANGUAGE SET ERROR: " + e.getMessage());
         }
-        
-        // تفعيل دعم RTL للعربية
-        if ("ar".equals(languageCode)) {
-            RTLController.setRTL(context);
+    }
+
+    /**
+     * الحصول على اسم اللغة
+     */
+    public String getLanguageName(String languageCode) {
+        return languageNames.getOrDefault(languageCode.toLowerCase(), languageCode);
+    }
+
+    /**
+     * تحديث أسماء اللغات من الإعدادات الإدارية
+     */
+    public void updateLanguageNames(Map<String, String> newNames) {
+        if (newNames != null && !newNames.isEmpty()) {
+            languageNames.putAll(newNames);
+            System.out.println("DEVICE LANG: Updated language names from admin config");
+        }
+    }
+
+    /**
+     * إضافة اسم لغة جديد
+     */
+    public void addLanguageName(String languageCode, String displayName) {
+        if (languageCode != null && displayName != null) {
+            languageNames.put(languageCode.toLowerCase(), displayName);
+            System.out.println("DEVICE LANG: Added language name " + languageCode + " -> " + displayName);
+        }
+    }
+
+    /**
+     * إزالة اسم لغة
+     */
+    public void removeLanguageName(String languageCode) {
+        if (languageCode != null) {
+            String removed = languageNames.remove(languageCode.toLowerCase());
+            if (removed != null) {
+                System.out.println("DEVICE LANG: Removed language name for " + languageCode);
+            }
         }
     }
 
@@ -70,11 +146,29 @@ public final class DeviceLang {
      * الحصول على رمز اللغة مع المنطقة
      */
     public String getLanguageTag() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            return context.getResources().getConfiguration().getLocales().get(0).toLanguageTag();
-        } else {
-            Locale locale = context.getResources().getConfiguration().locale;
-            return locale.getLanguage() + "-" + locale.getCountry();
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                return context.getResources().getConfiguration().getLocales().get(0).toLanguageTag();
+            } else {
+                Locale locale = context.getResources().getConfiguration().locale;
+                return locale.getLanguage() + "-" + locale.getCountry();
+            }
+        } catch (Exception e) {
+            return "en-US"; // العلامة الافتراضية
         }
+    }
+
+    // --- Getters ---
+    public int getLanguageNameCount() { return languageNames.size(); }
+    public boolean hasLanguageName(String languageCode) { return languageNames.containsKey(languageCode.toLowerCase()); }
+    public Map<String, String> getLanguageNames() { return new ConcurrentHashMap<>(languageNames); }
+    
+    /**
+     * إعادة تعيين كاشف اللغة (للاختبارات)
+     */
+    public void reset() {
+        languageNames.clear();
+        initializeLanguageNames();
+        System.out.println("DEVICE LANG: Reset completed");
     }
 }
