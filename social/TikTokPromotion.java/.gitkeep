@@ -1,69 +1,19 @@
 package mazdady.social;
 
-import mazdady.ad.AdCampaign;
-
-/**
- * ترويج تيك توك مع دعم التكامل المتقدم
- * يتبع نمط Strategy لفصل منطق تيك توك
- */
-public final class TikTokPromotion {
-    private static TikTokPromotion instance;
-
-    private TikTokPromotion() {}
-
-    public static synchronized TikTokPromotion getInstance() {
-        if (instance == null) {
-            instance = new TikTokPromotion();
-        }
-        return instance;
+public final class TikTokPromotion implements PromotionManager.PromotionChannel {
+    @Override
+    public String getType() {
+        return "TIKTOK";
     }
 
-    /**
-     * التحقق من صحة رابط تيك توك
-     */
-    public boolean isValidTikTokUrl(String url) {
-        return url != null && url.contains("tiktok.com/");
+    @Override
+    public boolean isAvailable() {
+        return true; // في الإنتاج: تحقق من API
     }
 
-    /**
-     * إنشاء حملة تيك توك
-     */
-    public AdCampaign createTikTokCampaign(
-        String userId, 
-        String videoUrl, 
-        String goal, 
-        int targetCount, 
-        double budget
-    ) {
-        if (!isValidTikTokUrl(videoUrl)) {
-            throw new IllegalArgumentException("Invalid TikTok URL");
-        }
-        
-        return new AdCampaign.Builder()
-            .userId(userId)
-            .platform(AdCampaign.Platform.TIKTOK)
-            .contentUrl(videoUrl)
-            .goal(AdCampaign.Goal.valueOf(goal.toUpperCase()))
-            .targetCount(targetCount)
-            .budget(budget)
-            .build();
-    }
-
-    /**
-     * تقدير التكلفة لحملة تيك توك
-     */
-    public double estimateTikTokCost(String goal, int targetCount) {
-        switch (AdCampaign.Goal.valueOf(goal.toUpperCase())) {
-            case VIEWS:
-                return targetCount * 0.005; // 0.005 MAZDADY لكل مشاهدة
-            case LIKES:
-                return targetCount * 0.03;  // 0.03 MAZDADY لكل إعجاب
-            case COMMENTS:
-                return targetCount * 0.08;  // 0.08 MAZDADY لكل تعليق
-            case SUBSCRIBERS:
-                return targetCount * 0.15;  // 0.15 MAZDADY لكل متابع
-            default:
-                return targetCount * 0.005;
-        }
+    @Override
+    public void execute(PromotionManager.Promotion promotion) {
+        System.out.println("TIKTOK PROMOTION: Launching promotion " + promotion.getId() + " for user " + promotion.getAuthorId());
+        // في الإنتاج: استخدم TikTok API لرفع الفيديو
     }
 }
