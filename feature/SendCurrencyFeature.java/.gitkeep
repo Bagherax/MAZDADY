@@ -1,0 +1,126 @@
+package mazdady.feature;
+
+import mazdady.user.User;
+import mazdady.user.UserManager;
+import mazdady.wallet.WalletManager;
+
+import java.time.Duration;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicBoolean;
+
+/**
+ * ميزة إرسال العملة مع دعم الأمان المتقدم
+ * تتبع نمط Singleton مع تهيئة آمنة
+ */
+public final class SendCurrencyFeature {
+    private final WalletManager walletManager;
+    private final AtomicBoolean hasBeenUsed = new AtomicBoolean(false);
+    private static SendCurrencyFeature instance;
+
+    private SendCurrencyFeature(WalletManager walletManager) {
+        this.walletManager = walletManager;
+    }
+
+    public static synchronized SendCurrencyFeature getInstance(WalletManager walletManager) {
+        if (instance == null) {
+            instance = new SendCurrencyFeature(walletManager);
+        }
+        return instance;
+    }
+
+    /**
+     * إرسال العملة من مستخدم إلى آخر غير متزامن
+     */
+    public CompletableFuture<SendResult> sendCurrencyAsync(
+        String senderId, 
+        String receiverId, 
+        double amount
+    ) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                // التحقق من أن الميزة لم تُستخدم من قبل
+                if (hasBeenUsed.get()) {
+                    return SendResult.failure("This feature can only be used once");
+                }
+                
+                User sender = UserManager.getInstance(null).getUserById(senderId);
+                User receiver = UserManager.getInstance(null).getUserById(receiverId);
+                
+                if (sender == null || receiver == null) {
+                    return SendResult.failure("User not found");
+                }
+                
+                // التحقق من الرصيد
+                if (sender.getBalance() < amount) {
+                    return SendResult.failure("Insufficient balance");
+                }
+                
+                // خصم المبلغ من المرسل
+                sender.setBalance(sender.getBalance() - amount);
+                
+                // إضافة المبلغ للمستلم
+                receiver.setBalance(receiver.getBalance() + amount);
+                
+                // تمييز الميزة كمُستخدمة
+                hasBeenUsed.set(true);
+                
+                // تسجيل المعاملة
+                walletManager.recordTransaction(
+                    senderId + "_to_" + receiverId,
+                    senderId,
+                    receiverId,
+                    amount,
+                    "SEND_CURRENCY_FEATURE"
+                );
+                
+                System.out.println("SEND CURRENCY: " + amount + " MAZDADY sent from " + 
+                                 senderId + " to " + receiverId);
+                
+                return SendResult.success(amount, "Currency sent successfully");
+                
+            } catch (Exception e) {
+                return SendResult.failure("Send currency failed: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * التحقق من حالة الميزة
+     */
+    public boolean hasBeenUsed() { return hasBeenUsed.get(); }
+
+    /**
+     * إعادة تعيين الميزة (للاختبارات)
+     */
+    public void reset() {
+        hasBeenUsed.set(false);
+        System.out.println("SEND CURRENCY FEATURE: Reset completed");
+    }
+
+    /**
+     * نتيجة الإرسال
+     */
+    public static final class SendResult {
+        private final boolean success;
+        private final double amount;
+        private final String message;
+
+        private SendResult(boolean success, double amount, String message) {
+            this.success = success;
+            this.amount = amount;
+            this.message = message;
+        }
+
+        public static SendResult success(double amount, String message) {
+            return new SendResult(true, amount, message);
+        }
+
+        public static SendResult failure(String message) {
+            return new SendResult(false, 0, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public double getAmount() { return amount; }
+        public String getMessage() { return message; }
+    }
+}
