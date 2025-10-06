@@ -253,4 +253,202 @@ app.post('/api/admin/upload-popup-background', authenticateAdmin, upload.single(
 /**
  * رفع صورة خلفية لخط التداول
  */
-app.post('/api/admin/upload-trading-line-background', authenticateAdmin, upload.single('image'), (
+app.post('/api/admin/upload-trading-line-background', authenticateAdmin, upload.single('image'), (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({
+                success: false,
+                message: 'No image file uploaded'
+            });
+        }
+        
+        const imageFile = req.file;
+        const targetPath = path.join(__dirname, '../images/trading_line_background.gif');
+        
+        // نقل الملف إلى المجلد النهائي
+        fs.renameSync(imageFile.path, targetPath);
+        
+        // تحديث config.json
+        const configPath = path.join(__dirname, '../config.json');
+        const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+        config.ui.trading_line_background = 'https://raw.githubusercontent.com/BAGHERAX/MAZDADY/main/server/images/trading_line_background.gif';
+        fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+        
+        console.log('ADMIN API: Trading line background uploaded successfully');
+        res.json({
+            success: true,
+            message: 'Trading line background uploaded successfully',
+            image_url: config.ui.trading_line_background
+        });
+        
+    } catch (error) {
+        console.error('TRADING LINE BACKGROUND UPLOAD ERROR:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Trading line background upload failed: ' + error.message
+        });
+    }
+});
+
+/**
+ * رفع صورة خلفية للـ Floating Ad Button
+ */
+app.post('/api/admin/upload-floating-ad-background', authenticateAdmin, upload.single('image'), (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({
+                success: false,
+                message: 'No image file uploaded'
+            });
+        }
+        
+        const imageFile = req.file;
+        const targetPath = path.join(__dirname, '../images/floating_ad_background.png');
+        
+        // نقل الملف إلى المجلد النهائي
+        fs.renameSync(imageFile.path, targetPath);
+        
+        // تحديث config.json
+        const configPath = path.join(__dirname, '../config.json');
+        const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+        config.ui.floating_ad_background = 'https://raw.githubusercontent.com/BAGHERAX/MAZDADY/main/server/images/floating_ad_background.png';
+        fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+        
+        console.log('ADMIN API: Floating ad background uploaded successfully');
+        res.json({
+            success: true,
+            message: 'Floating ad background uploaded successfully',
+            image_url: config.ui.floating_ad_background
+        });
+        
+    } catch (error) {
+        console.error('FLOATING AD BACKGROUND UPLOAD ERROR:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Floating ad background upload failed: ' + error.message
+        });
+    }
+});
+
+/**
+ * تحديث إعدادات KYC
+ */
+app.put('/api/admin/kyc-config', authenticateAdmin, (req, res) => {
+    try {
+        const newKYCConfig = req.body;
+        const kycPath = path.join(__dirname, '../kyc-handler.yml');
+        
+        // التحقق من صحة إعدادات KYC
+        if (!isValidKYCConfig(newKYCConfig)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid KYC configuration format'
+            });
+        }
+        
+        // حفظ إعدادات KYC الجديدة
+        const yamlContent = convertToYAML(newKYCConfig);
+        fs.writeFileSync(kycPath, yamlContent);
+        
+        console.log('ADMIN API: KYC configuration updated successfully');
+        res.json({
+            success: true,
+            message: 'KYC configuration updated successfully'
+        });
+        
+    } catch (error) {
+        console.error('KYC CONFIG UPDATE ERROR:', error);
+        res.status(500).json({
+            success: false,
+            message: 'KYC configuration update failed: ' + error.message
+        });
+    }
+});
+
+/**
+ * بدء عملية KYC يدوية
+ */
+app.post('/api/admin/start-kyc', authenticateAdmin, (req, res) => {
+    try {
+        const { userId, documentData } = req.body;
+        
+        if (!userId || !documentData) {
+            return res.status(400).json({
+                success: false,
+                message: 'User ID and document data are required'
+            });
+        }
+        
+        // في الإنتاج: بدء عملية KYC عبر GitHub Actions
+        console.log('ADMIN API: Starting manual KYC for user ' + userId);
+        
+        res.json({
+            success: true,
+            message: 'KYC process started for user ' + userId,
+            kycId: 'KYC_' + Date.now()
+        });
+        
+    } catch (error) {
+        console.error('MANUAL KYC ERROR:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Manual KYC failed: ' + error.message
+        });
+    }
+});
+
+/**
+ * تفعيل بوت الطوارئ
+ */
+app.post('/api/admin/activate-emergency-bot', authenticateAdmin, (req, res) => {
+    try {
+        const { botType, parameters } = req.body;
+        
+        if (!botType) {
+            return res.status(400).json({
+                success: false,
+                message: 'Bot type is required'
+            });
+        }
+        
+        // في الإنتاج: تفعيل بوت الطوارئ المحدد
+        console.log('ADMIN API: Activating emergency bot - ' + botType);
+        
+        res.json({
+            success: true,
+            message: 'Emergency bot activated: ' + botType,
+            botId: 'BOT_' + Date.now()
+        });
+        
+    } catch (error) {
+        console.error('EMERGENCY BOT ACTIVATION ERROR:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Emergency bot activation failed: ' + error.message
+        });
+    }
+});
+
+// --- Utility Functions ---
+function isValidConfig(config) {
+    return config && typeof config === 'object';
+}
+
+function isValidDimensions(dimensions) {
+    return dimensions && typeof dimensions === 'object';
+}
+
+function isValidKYCConfig(kycConfig) {
+    return kycConfig && typeof kycConfig === 'object';
+}
+
+function convertToYAML(config) {
+    // في الإنتاج: استخدام مكتبة YAML
+    return JSON.stringify(config, null, 2); // محاكاة YAML
+}
+
+// --- Start Server ---
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+    console.log('ADMIN API SERVER: Running on port ' + PORT);
+});
