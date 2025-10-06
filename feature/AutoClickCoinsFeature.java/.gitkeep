@@ -1,0 +1,128 @@
+package mazdady.feature;
+
+import mazdady.trading.PriceEngine;
+import mazdady.user.User;
+import mazdady.user.UserManager;
+
+import java.time.Duration;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.TimeUnit;
+
+/**
+ * ميزة النقر التلقائي للعملات مع دعم التداول الآلي
+ * يتبع نمط Strategy لفصل استراتيجيات النقر
+ */
+public final class AutoClickCoinsFeature {
+    private final ScheduledExecutorService clickScheduler = Executors.newScheduledThreadPool(1);
+    private final PriceEngine priceEngine;
+    private volatile boolean isActive = false;
+    private volatile long clickIntervalMs = 1000; // كل ثانية افتراضيًا
+
+    public AutoClickCoinsFeature(PriceEngine priceEngine) {
+        this.priceEngine = priceEngine;
+    }
+
+    /**
+     * تفعيل ميزة النقر التلقائي
+     */
+    public void activateAutoClick(String userId, Duration duration) {
+        if (isActive) {
+            System.out.println("AUTO CLICK: Already active for user " + userId);
+            return;
+        }
+        
+        isActive = true;
+        long durationMs = duration.toMillis();
+        
+        System.out.println("AUTO CLICK: Activated for user " + userId + 
+                         " - Duration: " + durationMs + "ms");
+        
+        // جدولة النقرات التلقائية
+        clickScheduler.scheduleAtFixedRate(
+            () -> executeAutoClick(userId),
+            0,
+            clickIntervalMs,
+            TimeUnit.MILLISECONDS
+        );
+        
+        // جدولة إيقاف الميزة بعد المدة المحددة
+        clickScheduler.schedule(
+            this::deactivateAutoClick,
+            durationMs,
+            TimeUnit.MILLISECONDS
+        );
+    }
+
+    /**
+     * تنفيذ النقر التلقائي
+     */
+    private void executeAutoClick(String userId) {
+        if (!isActive) return;
+        
+        try {
+            User user = UserManager.getInstance(null).getUserById(userId);
+            if (user == null) return;
+            
+            // محاكاة النقر التلقائي
+            double currentPrice = priceEngine.getCurrentPrice();
+            double clickAmount = ThreadLocalRandom.current().nextDouble(0.1, 1.0); // 0.1 إلى 1 MAZDADY
+            double profit = clickAmount * currentPrice * 0.01; // ربح متواضع 1%
+            
+            // إضافة الربح للمستخدم
+            user.setBalance(user.getBalance() + profit);
+            
+            System.out.println("AUTO CLICK: User " + userId + " earned " + 
+                             String.format("%.4f", profit) + " MAZDADY");
+            
+        } catch (Exception e) {
+            System.err.println("AUTO CLICK ERROR: " + e.getMessage());
+        }
+    }
+
+    /**
+     * تعطيل ميزة النقر التلقائي
+     */
+    private void deactivateAutoClick() {
+        isActive = false;
+        System.out.println("AUTO CLICK: Deactivated");
+    }
+
+    /**
+     * تحديث فترة النقر
+     */
+    public void updateClickInterval(long intervalMs) {
+        if (intervalMs > 0) {
+            this.clickIntervalMs = intervalMs;
+            System.out.println("AUTO CLICK: Click interval updated to " + intervalMs + "ms");
+        }
+    }
+
+    /**
+     * التحقق من حالة الميزة
+     */
+    public boolean isActive() { return isActive; }
+
+    /**
+     * إيقاف الميزة (للاختبارات)
+     */
+    public void shutdown() {
+        isActive = false;
+        clickScheduler.shutdown();
+        System.out.println("AUTO CLICK: Shutdown completed");
+    }
+
+    // --- Getters ---
+    public long getClickIntervalMs() { return clickIntervalMs; }
+    public ScheduledExecutorService getClickScheduler() { return clickScheduler; }
+    
+    /**
+     * إعادة تعيين الميزة (للاختبارات)
+     */
+    public void reset() {
+        isActive = false;
+        clickIntervalMs = 1000;
+        System.out.println("AUTO CLICK: Reset completed");
+    }
+}
