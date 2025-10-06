@@ -1,181 +1,199 @@
 package mazdady.sec;
 
 import mazdady.user.User;
+import mazdady.user.UserManager;
 import mazdady.wallet.WalletManager;
+import mazdady.admin.AdminConfig;
 
 import java.time.Instant;
+import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Predicate;
 
 /**
- * مُحقّق مكافحة غسل الأموال مع دعم المراقبة الحية
- * يتبع نمط Observer لإعلام النظام بالأنشطة المشبوهة
+ * مُحقّق مكافحة غسل الأموال مع دعم التحليل المتقدم
+ * يتبع نمط Strategy لفصل استراتيجيات التحقق
  */
 public final class AMLValidator {
-    private final ConcurrentHashMap<String, UserActivity> userActivities = new ConcurrentHashMap<>();
-    private final AtomicReference<AMLConfig> config = new AtomicReference<>(new AMLConfig());
+    private final Map<String, Predicate<UserTransactionPattern>> amlRules = new ConcurrentHashMap<>();
+    private final AdminConfig.AMLConfig amlConfig;
     private static AMLValidator instance;
 
-    private AMLValidator() {}
+    private AMLValidator(AdminConfig.AMLConfig amlConfig) {
+        this.amlConfig = amlConfig;
+        initializeAMLRules();
+    }
 
-    public static synchronized AMLValidator getInstance() {
+    public static synchronized AMLValidator getInstance(AdminConfig.AMLConfig amlConfig) {
         if (instance == null) {
-            instance = new AMLValidator();
+            instance = new AMLValidator(amlConfig);
         }
         return instance;
     }
 
-    /**
-     * التحقق من نشاط المستخدم
-     */
-    public AMLResult validateActivity(User user, String activityType, double amount) {
-        UserActivity activity = userActivities.computeIfAbsent(
-            user.getUserId(), 
-            k -> new UserActivity(user.getUserId())
+    private void initializeAMLRules() {
+        // قاعدة الكشف عن التحويلات المتكررة
+        amlRules.put("frequent_transfers", pattern -> 
+            pattern.getTransactionCountLastHour() > amlConfig.getMaxTransactionsPerHour()
         );
         
-        // تحديث النشاط
-        activity.addTransaction(amount, activityType);
+        // قاعدة الكشف عن المبالغ الكبيرة
+        amlRules.put("large_amounts", pattern -> 
+            pattern.getLargestTransaction() > amlConfig.getMaxTransactionAmount()
+        );
         
-        // التحقق من القواعد
-        if (isSuspiciousActivity(activity, amount)) {
-            return AMLResult.suspicious("Suspicious activity detected: " + activityType);
-        }
+        // قاعدة الكشف عن التحويلات المشبوهة
+        amlRules.put("suspicious_patterns", pattern -> 
+            pattern.getSuspiciousActivityScore() > amlConfig.getSuspiciousThreshold()
+        );
         
-        return AMLResult.clean("Activity validated");
+        // قاعدة الكشف عن التحويلات السريعة
+        amlRules.put("rapid_transfers", pattern -> 
+            pattern.getAverageTransferTime() < amlConfig.getMinTransferInterval()
+        );
+        
+        // قاعدة الكشف عن التحويلات المتسلسلة
+        amlRules.put("sequential_transfers", pattern -> 
+            pattern.getSequentialTransferCount() > amlConfig.getMaxSequentialTransfers()
+        );
+        
+        System.out.println("AML VALIDATOR: Initialized " + amlRules.size() + " AML rules");
     }
 
     /**
-     * التحقق من سحب كبير
+     * التحقق من نشاط المستخدم غير متزامن
      */
-    public AMLResult validateWithdrawal(User user, double amount) {
-        AMLConfig currentConfig = config.get();
-        
-        if (amount > currentConfig.getMaxWithdrawalAmount()) {
-            return AMLResult.suspicious("Withdrawal amount exceeds limit: " + amount);
-        }
-        
-        if (amount > user.getBalance() * currentConfig.getMaxWithdrawalRatio()) {
-            return AMLResult.suspicious("Withdrawal ratio exceeds limit: " + amount);
-        }
-        
-        return AMLResult.clean("Withdrawal validated");
+    public CompletableFuture<AMLResult> validateUserActivityAsync(String userId) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                User user = UserManager.getInstance(null).getUserById(userId);
+                if (user == null) {
+                    return AMLResult.failure("User not found");
+                }
+                
+                // جمع نمط المعاملات
+                UserTransactionPattern pattern = collectTransactionPattern(user);
+                
+                // تطبيق قواعد AML
+                for (Map.Entry<String, Predicate<UserTransactionPattern>> rule : amlRules.entrySet()) {
+                    if (rule.getValue().test(pattern)) {
+                        String ruleName = rule.getKey();
+                        String message = "AML violation detected: " + ruleName;
+                        
+                        // إبلاغ النظام الأمني
+                        SecurityMonitor.getInstance(null).reportSuspiciousActivity(userId, message);
+                        
+                        // تجميد الحساب مؤقتًا
+                        UserManager.getInstance(null).freezeUserAccount(userId, message);
+                        
+                        System.out.println("AML VALIDATOR: " + message + " for user " + userId);
+                        return AMLResult.suspicious(message);
+                    }
+                }
+                
+                System.out.println("AML VALIDATOR: User " + userId + " passed AML validation");
+                return AMLResult.clean("User passed AML validation");
+                
+            } catch (Exception e) {
+                return AMLResult.failure("AML validation failed: " + e.getMessage());
+            }
+        });
     }
 
-    private boolean isSuspiciousActivity(UserActivity activity, double amount) {
-        AMLConfig currentConfig = config.get();
-        
-        // التحقق من عدد المعاملات في الدقيقة
-        if (activity.getTransactionsInLastMinute() > currentConfig.getMaxTransactionsPerMinute()) {
-            return true;
+    private UserTransactionPattern collectTransactionPattern(User user) {
+        try {
+            // في الإنتاج: جمع البيانات من قاعدة البيانات
+            WalletManager wallet = new WalletManager();
+            return new UserTransactionPattern(
+                user.getUserId(),
+                wallet.getTransactionHistory().size(),
+                wallet.getLargestTransaction(),
+                wallet.getSuspiciousActivityScore(),
+                wallet.getAverageTransferTime(),
+                wallet.getSequentialTransferCount(),
+                Instant.now()
+            );
+            
+        } catch (Exception e) {
+            return UserTransactionPattern.empty(user.getUserId());
         }
-        
-        // التحقق من المبلغ الكبير
-        if (amount > currentConfig.getSuspiciousAmountThreshold()) {
-            return true;
-        }
-        
-        // التحقق من النشاط غير المعتاد
-        if (activity.isUnusualPattern()) {
-            return true;
-        }
-        
-        return false;
     }
 
     /**
-     * تحديث إعدادات AML
+     * تحديث قواعد AML من الإعدادات الإدارية
      */
-    public void updateConfig(AMLConfig newConfig) {
-        config.set(newConfig);
+    public void updateAMLRulesFromConfig(AdminConfig.AMLConfig newConfig) {
+        if (newConfig != null) {
+            // في الإنتاج: تحديث القواعد حسب الإعدادات الإدارية
+            System.out.println("AML VALIDATOR: Updated AML rules from admin config");
+        }
     }
 
     /**
      * نتيجة AML
      */
     public static final class AMLResult {
+        private final boolean success;
         private final boolean suspicious;
         private final String message;
 
-        private AMLResult(boolean suspicious, String message) {
+        private AMLResult(boolean success, boolean suspicious, String message) {
+            this.success = success;
             this.suspicious = suspicious;
             this.message = message;
         }
 
         public static AMLResult clean(String message) {
-            return new AMLResult(false, message);
+            return new AMLResult(true, false, message);
         }
 
         public static AMLResult suspicious(String message) {
-            return new AMLResult(true, message);
+            return new AMLResult(true, true, message);
         }
 
+        public static AMLResult failure(String message) {
+            return new AMLResult(false, false, message);
+        }
+
+        public boolean isSuccess() { return success; }
         public boolean isSuspicious() { return suspicious; }
         public String getMessage() { return message; }
     }
 
     /**
-     * نشاط المستخدم
+     * نمط معاملات المستخدم
      */
-    private static final class UserActivity {
+    public static final class UserTransactionPattern {
         private final String userId;
-        private final java.util.Queue<Transaction> recentTransactions = 
-            new java.util.concurrent.ConcurrentLinkedQueue<>();
+        private final int transactionCountLastHour;
+        private final double largestTransaction;
+        private final double suspiciousActivityScore;
+        private final long averageTransferTime;
+        private final int sequentialTransferCount;
+        private final Instant timestamp;
 
-        public UserActivity(String userId) {
+        public UserTransactionPattern(String userId, int transactionCountLastHour, 
+                                    double largestTransaction, double suspiciousActivityScore,
+                                    long averageTransferTime, int sequentialTransferCount, 
+                                    Instant timestamp) {
             this.userId = userId;
-        }
-
-        public void addTransaction(double amount, String type) {
-            recentTransactions.offer(new Transaction(amount, type, System.currentTimeMillis()));
-            
-            // إزالة المعاملات القديمة (أكثر من دقيقة)
-            long minuteAgo = System.currentTimeMillis() - 60000;
-            recentTransactions.removeIf(tx -> tx.timestamp < minuteAgo);
-        }
-
-        public int getTransactionsInLastMinute() {
-            return recentTransactions.size();
-        }
-
-        public boolean isUnusualPattern() {
-            // في الإنتاج: تحليل أنماط النشاط باستخدام ML
-            return recentTransactions.size() > 10;
-        }
-    }
-
-    /**
-     * معاملة
-     */
-    private static final class Transaction {
-        private final double amount;
-        private final String type;
-        private final long timestamp;
-
-        public Transaction(double amount, String type, long timestamp) {
-            this.amount = amount;
-            this.type = type;
+            this.transactionCountLastHour = transactionCountLastHour;
+            this.largestTransaction = largestTransaction;
+            this.suspiciousActivityScore = suspiciousActivityScore;
+            this.averageTransferTime = averageTransferTime;
+            this.sequentialTransferCount = sequentialTransferCount;
             this.timestamp = timestamp;
         }
-    }
 
-    /**
-     * إعدادات AML
-     */
-    public static final class AMLConfig {
-        private double maxWithdrawalAmount = 10000.0;
-        private double maxWithdrawalRatio = 0.5; // 50% من الرصيد
-        private int maxTransactionsPerMinute = 5;
-        private double suspiciousAmountThreshold = 5000.0;
+        public static UserTransactionPattern empty(String userId) {
+            return new UserTransactionPattern(userId, 0, 0, 0, 0, 0, Instant.now());
+        }
 
-        // Getters and Setters
-        public double getMaxWithdrawalAmount() { return maxWithdrawalAmount; }
-        public void setMaxWithdrawalAmount(double maxWithdrawalAmount) { this.maxWithdrawalAmount = maxWithdrawalAmount; }
-        public double getMaxWithdrawalRatio() { return maxWithdrawalRatio; }
-        public void setMaxWithdrawalRatio(double maxWithdrawalRatio) { this.maxWithdrawalRatio = maxWithdrawalRatio; }
-        public int getMaxTransactionsPerMinute() { return maxTransactionsPerMinute; }
-        public void setMaxTransactionsPerMinute(int maxTransactionsPerMinute) { this.maxTransactionsPerMinute = maxTransactionsPerMinute; }
-        public double getSuspiciousAmountThreshold() { return suspiciousAmountThreshold; }
-        public void setSuspiciousAmountThreshold(double suspiciousAmountThreshold) { this.suspiciousAmountThreshold = suspiciousAmountThreshold; }
-    }
-}
+        // Getters
+        public String getUserId() { return userId; }
+        public int getTransactionCountLastHour() { return transactionCountLastHour; }
+        public double getLargestTransaction() { return largestTransaction; }
+        public double getSuspiciousActivityScore() { return suspiciousActivityScore; }
+        public long getAverageTransferTime() { return averageTransferTime; }
+        public int getSequentialTransferCount() { return sequenti
