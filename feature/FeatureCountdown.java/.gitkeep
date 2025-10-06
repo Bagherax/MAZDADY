@@ -1,6 +1,11 @@
 package mazdady.feature;
 
+import mazdady.user.User;
+import mazdady.user.UserManager;
+import mazdady.admin.AdminConfig;
+
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
@@ -10,123 +15,217 @@ import java.util.function.Consumer;
 
 /**
  * عداد تنازلي للميزات مع دعم التحديثات الحية
- * يتبع نمط Observer لإعلام المستمعين بالتغيرات
+ * يتبع نمط Observer لإعلام النظام بتغيرات العداد
  */
 public final class FeatureCountdown {
-    private final Map<String, CountdownTimer> activeCountdowns = new ConcurrentHashMap<>();
-    private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(2);
-    private static final FeatureCountdown INSTANCE = new FeatureCountdown();
+    private final Map<String, FeatureTimer> activeTimers = new ConcurrentHashMap<>();
+    private final ScheduledExecutorService countdownScheduler = Executors.newScheduledThreadPool(1);
+    private final AdminConfig.FeatureConfig featureConfig;
+    private static FeatureCountdown instance;
 
-    private FeatureCountdown() {}
+    private FeatureCountdown(AdminConfig.FeatureConfig featureConfig) {
+        this.featureConfig = featureConfig;
+        startCountdownMonitoring();
+    }
 
-    public static FeatureCountdown getInstance() {
-        return INSTANCE;
+    public static synchronized FeatureCountdown getInstance(AdminConfig.FeatureConfig featureConfig) {
+        if (instance == null) {
+            instance = new FeatureCountdown(featureConfig);
+        }
+        return instance;
+    }
+
+    private void startCountdownMonitoring() {
+        countdownScheduler.scheduleAtFixedRate(
+            this::updateActiveCountdowns,
+            0,
+            1,
+            TimeUnit.SECONDS
+        );
+        
+        System.out.println("FEATURE COUNTDOWN: Started monitoring every second");
     }
 
     /**
-     * بدء عداد تنازلي لميزة
+     * بدء عداد تنازلي لميزة غير متزامن
      */
-    public void startCountdown(String featureId, Duration duration, Consumer<Duration> onTick, Runnable onExpiry) {
-        CountdownTimer timer = new CountdownTimer(duration, onTick, onExpiry);
-        activeCountdowns.put(featureId, timer);
-        timer.start();
+    public void startFeatureCountdownAsync(
+        String userId, 
+        String featureId, 
+        Duration duration,
+        Consumer<CountdownEvent> onTick,
+        Runnable onExpiry
+    ) {
+        new Thread(() -> {
+            try {
+                FeatureTimer timer = new FeatureTimer(
+                    featureId,
+                    userId,
+                    duration,
+                    Instant.now(),
+                    onTick,
+                    onExpiry
+                );
+                
+                activeTimers.put(getTimerKey(userId, featureId), timer);
+                System.out.println("FEATURE COUNTDOWN: Started countdown for " + featureId + 
+                                 " - Duration: " + duration.getSeconds() + " seconds");
+                
+            } catch (Exception e) {
+                System.err.println("COUNTDOWN START ERROR: " + e.getMessage());
+            }
+        }).start();
+    }
+
+    private void updateActiveCountdowns() {
+        try {
+            Instant now = Instant.now();
+            activeTimers.values().removeIf(timer -> {
+                Duration remaining = Duration.between(now, timer.getExpiryTime());
+                if (remaining.isNegative() || remaining.isZero()) {
+                    // انتهاء العداد
+                    timer.triggerExpiry();
+                    System.out.println("FEATURE COUNTDOWN: Timer expired for " + timer.getFeatureId());
+                    return true;
+                } else {
+                    // تحديث العداد
+                    timer.tick(remaining);
+                    return false;
+                }
+            });
+            
+        } catch (Exception e) {
+            System.err.println("COUNTDOWN UPDATE ERROR: " + e.getMessage());
+        }
     }
 
     /**
-     * إيقاف عداد تنازلي
+     * إيقاف عداد تنازلي لميزة
      */
-    public void stopCountdown(String featureId) {
-        CountdownTimer timer = activeCountdowns.remove(featureId);
+    public void stopFeatureCountdown(String userId, String featureId) {
+        String timerKey = getTimerKey(userId, featureId);
+        FeatureTimer timer = activeTimers.remove(timerKey);
         if (timer != null) {
-            timer.stop();
+            System.out.println("FEATURE COUNTDOWN: Stopped countdown for " + featureId);
         }
     }
 
     /**
      * الحصول على الوقت المتبقي لميزة
      */
-    public Duration getRemainingTime(String featureId) {
-        CountdownTimer timer = activeCountdowns.get(featureId);
-        return timer != null ? timer.getRemainingTime() : Duration.ZERO;
+    public Duration getRemainingTime(String userId, String featureId) {
+        String timerKey = getTimerKey(userId, featureId);
+        FeatureTimer timer = activeTimers.get(timerKey);
+        if (timer != null) {
+            return Duration.between(Instant.now(), timer.getExpiryTime());
+        }
+        return Duration.ZERO;
+    }
+
+    private String getTimerKey(String userId, String featureId) {
+        return userId + "_" + featureId;
     }
 
     /**
-     * التحقق من انتهاء الميزة
+     * مؤقت الميزة
      */
-    public boolean isExpired(String featureId) {
-        Duration remaining = getRemainingTime(featureId);
-        return remaining.isZero() || remaining.isNegative();
-    }
-
-    /**
-     * مؤقت العداد التنازلي
-     */
-    private final class CountdownTimer {
-        private final Duration totalDuration;
-        private final Consumer<Duration> onTick;
+    private static final class FeatureTimer {
+        private final String featureId;
+        private final String userId;
+        private final Duration duration;
+        private final Instant startTime;
+        private final Instant expiryTime;
+        private final Consumer<CountdownEvent> onTick;
         private final Runnable onExpiry;
-        private volatile long startTime;
-        private volatile boolean running = true;
 
-        public CountdownTimer(Duration duration, Consumer<Duration> onTick, Runnable onExpiry) {
-            this.totalDuration = duration;
+        public FeatureTimer(String featureId, String userId, Duration duration, Instant startTime,
+                           Consumer<CountdownEvent> onTick, Runnable onExpiry) {
+            this.featureId = featureId;
+            this.userId = userId;
+            this.duration = duration;
+            this.startTime = startTime;
+            this.expiryTime = startTime.plus(duration);
             this.onTick = onTick;
             this.onExpiry = onExpiry;
         }
 
-        public void start() {
-            this.startTime = System.currentTimeMillis();
-            
-            // جدولة التحديثات كل ثانية
-            scheduler.scheduleAtFixedRate(
-                this::tick,
-                0,
-                1,
-                TimeUnit.SECONDS
-            );
-            
-            // جدولة انتهاء الصلاحية
-            scheduler.schedule(
-                this::expire,
-                totalDuration.getSeconds(),
-                TimeUnit.SECONDS
-            );
-        }
-
-        public void stop() {
-            this.running = false;
-        }
-
-        private void tick() {
-            if (!running) return;
-            
-            Duration remaining = getRemainingTime();
-            if (!remaining.isNegative() && !remaining.isZero()) {
-                onTick.accept(remaining);
+        public void tick(Duration remaining) {
+            if (onTick != null) {
+                CountdownEvent event = new CountdownEvent(
+                    featureId,
+                    userId,
+                    remaining,
+                    formatDuration(remaining)
+                );
+                onTick.accept(event);
             }
         }
 
-        private void expire() {
-            if (!running) return;
+        public void triggerExpiry() {
+            if (onExpiry != null) {
+                onExpiry.run();
+            }
             
-            running = false;
-            onExpiry.run();
+            // تعطيل الميزة تلقائيًا
+            FeatureManager.getInstance(null).disableFeatureForUser(userId, featureId);
         }
 
-        public Duration getRemainingTime() {
-            if (!running) return Duration.ZERO;
+        private String formatDuration(Duration duration) {
+            long seconds = duration.getSeconds();
+            long hours = seconds / 3600;
+            long minutes = (seconds % 3600) / 60;
+            seconds = seconds % 60;
             
-            long elapsedMs = System.currentTimeMillis() - startTime;
-            long remainingMs = totalDuration.toMillis() - elapsedMs;
-            return remainingMs > 0 ? Duration.ofMillis(remainingMs) : Duration.ZERO;
+            if (hours > 0) {
+                return String.format("%dh %dm %ds", hours, minutes, seconds);
+            } else if (minutes > 0) {
+                return String.format("%dm %ds", minutes, seconds);
+            } else {
+                return String.format("%ds", seconds);
+            }
         }
+
+        // Getters
+        public String getFeatureId() { return featureId; }
+        public String getUserId() { return userId; }
+        public Duration getDuration() { return duration; }
+        public Instant getStartTime() { return startTime; }
+        public Instant getExpiryTime() { return expiryTime; }
     }
 
     /**
-     * إيقاف جميع العدادات (للاختبارات)
+     * حدث العداد التنازلي
+     */
+    public static final class CountdownEvent {
+        private final String featureId;
+        private final String userId;
+        private final Duration remainingTime;
+        private final String formattedTime;
+
+        public CountdownEvent(String featureId, String userId, Duration remainingTime, String formattedTime) {
+            this.featureId = featureId;
+            this.userId = userId;
+            this.remainingTime = remainingTime;
+            this.formattedTime = formattedTime;
+        }
+
+        // Getters
+        public String getFeatureId() { return featureId; }
+        public String getUserId() { return userId; }
+        public Duration getRemainingTime() { return remainingTime; }
+        public String getFormattedTime() { return formattedTime; }
+    }
+
+    // --- Getters ---
+    public int getActiveTimerCount() { return activeTimers.size(); }
+    public Map<String, FeatureTimer> getActiveTimers() { return new ConcurrentHashMap<>(activeTimers); }
+    
+    /**
+     * إيقاف المراقبة (للاختبارات)
      */
     public void shutdown() {
-        scheduler.shutdown();
-        activeCountdowns.clear();
+        countdownScheduler.shutdown();
+        activeTimers.clear();
+        System.out.println("FEATURE COUNTDOWN: Shutdown completed");
     }
 }
