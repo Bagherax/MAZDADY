@@ -1,0 +1,18 @@
+package mazdady.social;
+
+public final class TelegramPromotion implements PromotionManager.PromotionChannel {
+    @Override
+    public String getType() {
+        return "TELEGRAM";
+    }
+
+    @Override
+    public boolean isAvailable() {
+        return true;
+    }
+
+    @Override
+    public void execute(PromotionManager.Promotion promotion) {
+        System.out.println("TELEGRAM PROMOTION: Launching promotion " + promotion.getId() + " for user " + promotion.getAuthorId());
+    }
+}
