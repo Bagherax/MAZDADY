@@ -1,7 +1,15 @@
 package mazdady.offline;
 
+import mazdady.user.User;
+import mazdady.user.UserManager;
+
+import java.time.Instant;
+import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.PriorityBlockingQueue;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Consumer;
 
 /**
  * مدير الطابور مع دعم الأولويات والمعالجة المتزامنة
@@ -9,68 +17,296 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 public final class QueueMgr {
     private final PriorityBlockingQueue<QueuedOperation> operationQueue = new PriorityBlockingQueue<>();
+    private final Map<String, Consumer<QueueEvent>> queueListeners = new ConcurrentHashMap<>();
     private final AtomicLong sequenceNumber = new AtomicLong(0);
-    private static final QueueMgr INSTANCE = new QueueMgr();
+    private static QueueMgr instance;
 
-    private QueueMgr() {}
+    private QueueMgr() {
+        startQueueProcessing();
+    }
 
-    public static QueueMgr getInstance() {
-        return INSTANCE;
+    public static synchronized QueueMgr getInstance() {
+        if (instance == null) {
+            instance = new QueueMgr();
+        }
+        return instance;
+    }
+
+    private void startQueueProcessing() {
+        new Thread(() -> {
+            try {
+                while (!Thread.currentThread().isInterrupted()) {
+                    QueuedOperation operation = operationQueue.take();
+                    processOperation(operation);
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                System.out.println("QUEUE MGR: Processing thread interrupted");
+            }
+        }).start();
+        
+        System.out.println("QUEUE MGR: Started processing operations");
     }
 
     /**
-     * إضافة عملية إلى الطابور
+     * إضافة عملية إلى الطابور غير متزامن
      */
-    public void enqueue(Operation operation, Priority priority) {
-        QueuedOperation queuedOp = new QueuedOperation(
-            operation,
-            priority,
-            System.currentTimeMillis(),
-            sequenceNumber.getAndIncrement()
-        );
-        operationQueue.offer(queuedOp);
-        System.out.println("QUEUE: Enqueued operation " + operation.getType() + 
-                          " with priority " + priority);
+    public CompletableFuture<QueueResult> enqueueOperationAsync(
+        String userId,
+        OperationType operationType,
+        Object data,
+        Priority priority
+    ) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                User user = UserManager.getInstance(null).getUserById(userId);
+                if (user == null) {
+                    return QueueResult.failure("User not found");
+                }
+                
+                QueuedOperation operation = new QueuedOperation(
+                    "op_" + sequenceNumber.getAndIncrement(),
+                    userId,
+                    operationType,
+                    data,
+                    priority,
+                    Instant.now()
+                );
+                
+                operationQueue.offer(operation);
+                notifyQueueListeners(new QueueEvent(
+                    QueueEventType.OPERATION_ENQUEUED,
+                    operation.getOperationId(),
+                    userId,
+                    operationType,
+                    "Operation enqueued successfully",
+                    Instant.now()
+                ));
+                
+                System.out.println("QUEUE MGR: Enqueued operation " + operation.getOperationId() + 
+                                 " - Type: " + operationType + " - Priority: " + priority);
+                
+                return QueueResult.success(operation.getOperationId(), "Operation enqueued successfully");
+                
+            } catch (Exception e) {
+                return QueueResult.failure("Operation enqueue failed: " + e.getMessage());
+            }
+        });
+    }
+
+    private void processOperation(QueuedOperation operation) {
+        try {
+            notifyQueueListeners(new QueueEvent(
+                QueueEventType.OPERATION_PROCESSING,
+                operation.getOperationId(),
+                operation.getUserId(),
+                operation.getOperationType(),
+                "Processing operation...",
+                Instant.now()
+            ));
+            
+            // في الإنتاج: تنفيذ العملية حسب نوعها
+            boolean success = executeOperation(operation);
+            
+            QueueEventType eventType = success ? 
+                QueueEventType.OPERATION_COMPLETED : 
+                QueueEventType.OPERATION_FAILED;
+                
+            String message = success ? 
+                "Operation completed successfully" : 
+                "Operation failed";
+                
+            notifyQueueListeners(new QueueEvent(
+                eventType,
+                operation.getOperationId(),
+                operation.getUserId(),
+                operation.getOperationType(),
+                message,
+                Instant.now()
+            ));
+            
+            System.out.println("QUEUE MGR: " + (success ? "Completed" : "Failed") + 
+                             " operation " + operation.getOperationId());
+            
+        } catch (Exception e) {
+            notifyQueueListeners(new QueueEvent(
+                QueueEventType.OPERATION_FAILED,
+                operation.getOperationId(),
+                operation.getUserId(),
+                operation.getOperationType(),
+                "Operation processing error: " + e.getMessage(),
+                Instant.now()
+            ));
+            
+            System.err.println("QUEUE PROCESSING ERROR: " + e.getMessage());
+        }
+    }
+
+    private boolean executeOperation(QueuedOperation operation) {
+        try {
+            switch (operation.getOperationType()) {
+                case BUY_ORDER:
+                    return executeBuyOrder(operation);
+                case SELL_ORDER:
+                    return executeSellOrder(operation);
+                case WITHDRAWAL:
+                    return executeWithdrawal(operation);
+                case DEPOSIT:
+                    return executeDeposit(operation);
+                case KYC_VERIFICATION:
+                    return executeKYCVerification(operation);
+                case AD_CAMPAIGN:
+                    return executeAdCampaign(operation);
+                case SOCIAL_PROMOTION:
+                    return executeSocialPromotion(operation);
+                case COMMUNITY_REWARD:
+                    return executeCommunityReward(operation);
+                case LEVEL_UPGRADE:
+                    return executeLevelUpgrade(operation);
+                case FEATURE_PURCHASE:
+                    return executeFeaturePurchase(operation);
+                default:
+                    System.err.println("UNSUPPORTED OPERATION: " + operation.getOperationType());
+                    return false;
+            }
+            
+        } catch (Exception e) {
+            System.err.println("OPERATION EXECUTION ERROR: " + e.getMessage());
+            return false;
+        }
+    }
+
+    // --- تنفيذ العمليات ---
+    private boolean executeBuyOrder(QueuedOperation operation) {
+        // في الإنتاج: تنفيذ أمر شراء
+        System.out.println("QUEUE MGR: Executing BUY order for user " + operation.getUserId());
+        return true; // محاكاة النجاح
+    }
+
+    private boolean executeSellOrder(QueuedOperation operation) {
+        // في الإنتاج: تنفيذ أمر بيع
+        System.out.println("QUEUE MGR: Executing SELL order for user " + operation.getUserId());
+        return true; // محاكاة النجاح
+    }
+
+    private boolean executeWithdrawal(QueuedOperation operation) {
+        // في الإنتاج: تنفيذ سحب
+        System.out.println("QUEUE MGR: Executing WITHDRAWAL for user " + operation.getUserId());
+        return true; // محاكاة النجاح
+    }
+
+    private boolean executeDeposit(QueuedOperation operation) {
+        // في الإنتاج: تنفيذ إيداع
+        System.out.println("QUEUE MGR: Executing DEPOSIT for user " + operation.getUserId());
+        return true; // محاكاة النجاح
+    }
+
+    private boolean executeKYCVerification(QueuedOperation operation) {
+        // في الإنتاج: تنفيذ التحقق من الهوية
+        System.out.println("QUEUE MGR: Executing KYC verification for user " + operation.getUserId());
+        return true; // محاكاة النجاح
+    }
+
+    private boolean executeAdCampaign(QueuedOperation operation) {
+        // في الإنتاج: تنفيذ حملة إعلانية
+        System.out.println("QUEUE MGR: Executing AD campaign for user " + operation.getUserId());
+        return true; // محاكاة النجاح
+    }
+
+    private boolean executeSocialPromotion(QueuedOperation operation) {
+        // في الإنتاج: تنفيذ ترويج اجتماعي
+        System.out.println("QUEUE MGR: Executing SOCIAL promotion for user " + operation.getUserId());
+        return true; // محاكاة النجاح
+    }
+
+    private boolean executeCommunityReward(QueuedOperation operation) {
+        // في الإنتاج: تنفيذ مكافأة مجتمعية
+        System.out.println("QUEUE MGR: Executing COMMUNITY reward for user " + operation.getUserId());
+        return true; // محاكاة النجاح
+    }
+
+    private boolean executeLevelUpgrade(QueuedOperation operation) {
+        // في الإنتاج: تنفيذ ترقية مستوى
+        System.out.println("QUEUE MGR: Executing LEVEL upgrade for user " + operation.getUserId());
+        return true; // محاكاة النجاح
+    }
+
+    private boolean executeFeaturePurchase(QueuedOperation operation) {
+        // في الإنتاج: تنفيذ شراء ميزة
+        System.out.println("QUEUE MGR: Executing FEATURE purchase for user " + operation.getUserId());
+        return true; // محاكاة النجاح
     }
 
     /**
-     * الحصول على العملية التالية من الطابور
+     * إضافة مستمع لأحداث الطابور
      */
-    public QueuedOperation dequeue() throws InterruptedException {
-        return operationQueue.take();
+    public void addQueueListener(String listenerId, Consumer<QueueEvent> listener) {
+        if (listenerId != null && listener != null) {
+            queueListeners.put(listenerId, listener);
+            System.out.println("QUEUE MGR: Added queue listener - " + listenerId);
+        }
+    }
+
+    /**
+     * إزالة مستمع لأحداث الطابور
+     */
+    public void removeQueueListener(String listenerId) {
+        if (listenerId != null) {
+            queueListeners.remove(listenerId);
+            System.out.println("QUEUE MGR: Removed queue listener - " + listenerId);
+        }
+    }
+
+    private void notifyQueueListeners(QueueEvent event) {
+        queueListeners.values().forEach(listener -> {
+            try {
+                listener.accept(event);
+            } catch (Exception e) {
+                // تجاهل أخطاء المستمعين
+            }
+        });
     }
 
     /**
      * الحصول على حجم الطابور
      */
-    public int size() {
+    public int getQueueSize() {
         return operationQueue.size();
     }
 
     /**
-     * مسح الطابور
+     * التحقق من وجود عمليات في الطابور
      */
-    public void clear() {
+    public boolean hasPendingOperations() {
+        return !operationQueue.isEmpty();
+    }
+
+    /**
+     * مسح الطابور (للاختبارات)
+     */
+    public void clearQueue() {
         operationQueue.clear();
+        System.out.println("QUEUE MGR: Queue cleared");
     }
 
     /**
-     * واجهة العملية
+     * إيقاف المدير (للاختبارات)
      */
-    @FunctionalInterface
-    public interface Operation {
-        String getType();
-        void execute();
-        boolean isRetryable();
+    public void shutdown() {
+        operationQueue.clear();
+        queueListeners.clear();
+        System.out.println("QUEUE MGR: Shutdown completed");
     }
 
-    /**
-     * أولوية العملية
-     */
-    public enum Priority implements Comparable<Priority> {
-        HIGH(1),
-        MEDIUM(2),
-        LOW(3);
+    // --- أنواع العمليات ---
+    public enum OperationType {
+        BUY_ORDER, SELL_ORDER, WITHDRAWAL, DEPOSIT, KYC_VERIFICATION,
+        AD_CAMPAIGN, SOCIAL_PROMOTION, COMMUNITY_REWARD, LEVEL_UPGRADE, FEATURE_PURCHASE
+    }
+
+    // --- الأولويات ---
+    public enum Priority {
+        HIGH(1), MEDIUM(2), LOW(3);
 
         private final int value;
 
@@ -78,30 +314,31 @@ public final class QueueMgr {
             this.value = value;
         }
 
-        public int getValue() {
-            return value;
-        }
+        public int getValue() { return value; }
     }
 
     /**
-     * العملية المؤجلة
+     * عملية في الطابور
      */
-    public static final class QueuedOperation implements Comparable<QueuedOperation> {
-        private final Operation operation;
+    private static final class QueuedOperation implements Comparable<QueuedOperation> {
+        private final String operationId;
+        private final String userId;
+        private final OperationType operationType;
+        private final Object data;
         private final Priority priority;
-        private final long timestamp;
+        private final Instant timestamp;
         private final long sequenceNumber;
 
-        public QueuedOperation(Operation operation, Priority priority, long timestamp, long sequenceNumber) {
-            this.operation = operation;
+        public QueuedOperation(String operationId, String userId, OperationType operationType, 
+                             Object data, Priority priority, Instant timestamp) {
+            this.operationId = operationId;
+            this.userId = userId;
+            this.operationType = operationType;
+            this.data = data;
             this.priority = priority;
             this.timestamp = timestamp;
-            this.sequenceNumber = sequenceNumber;
+            this.sequenceNumber = System.nanoTime();
         }
-
-        public Operation getOperation() { return operation; }
-        public Priority getPriority() { return priority; }
-        public long getTimestamp() { return timestamp; }
 
         @Override
         public int compareTo(QueuedOperation other) {
@@ -111,12 +348,115 @@ public final class QueueMgr {
                 return priorityCompare;
             }
             
-            int timestampCompare = Long.compare(this.timestamp, other.timestamp);
+            int timestampCompare = this.timestamp.compareTo(other.timestamp);
             if (timestampCompare != 0) {
                 return timestampCompare;
             }
             
             return Long.compare(this.sequenceNumber, other.sequenceNumber);
         }
+
+        // Getters
+        public String getOperationId() { return operationId; }
+        public String getUserId() { return userId; }
+        public OperationType getOperationType() { return operationType; }
+        public Object getData() { return data; }
+        public Priority getPriority() { return priority; }
+        public Instant getTimestamp() { return timestamp; }
+        public long getSequenceNumber() { return sequenceNumber; }
+    }
+
+    /**
+     * حدث الطابور
+     */
+    public static final class QueueEvent {
+        private final QueueEventType type;
+        private final String operationId;
+        private final String userId;
+        private final OperationType operationType;
+        private final String message;
+        private final Instant timestamp;
+
+        public QueueEvent(QueueEventType type, String operationId, String userId, 
+                         OperationType operationType, String message, Instant timestamp) {
+            this.type = type;
+            this.operationId = operationId;
+            this.userId = userId;
+            this.operationType = operationType;
+            this.message = message;
+            this.timestamp = timestamp;
+        }
+
+        // Getters
+        public QueueEventType getType() { return type; }
+        public String getOperationId() { return operationId; }
+        public String getUserId() { return userId; }
+        public OperationType getOperationType() { return operationType; }
+        public String getMessage() { return message; }
+        public Instant getTimestamp() { return timestamp; }
+        
+        @Override
+        public String toString() {
+            return "QueueEvent{" +
+                "type=" + type +
+                ", operationId='" + operationId + '\'' +
+                ", userId='" + userId + '\'' +
+                ", operationType=" + operationType +
+                ", message='" + message + '\'' +
+                ", timestamp=" + timestamp +
+                '}';
+        }
+    }
+
+    /**
+     * أنواع أحداث الطابور
+     */
+    public enum QueueEventType {
+        OPERATION_ENQUEUED, OPERATION_PROCESSING, OPERATION_COMPLETED, OPERATION_FAILED
+    }
+
+    /**
+     * نتيجة الطابور
+     */
+    public static final class QueueResult {
+        private final boolean success;
+        private final String operationId;
+        private final String message;
+
+        private QueueResult(boolean success, String operationId, String message) {
+            this.success = success;
+            this.operationId = operationId;
+            this.message = message;
+        }
+
+        public static QueueResult success(String operationId, String message) {
+            return new QueueResult(true, operationId, message);
+        }
+
+        public static QueueResult failure(String message) {
+            return new QueueResult(false, null, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public String getOperationId() { return operationId; }
+        public String getMessage() { return message; }
+    }
+
+    // --- Getters ---
+    public int getOperationCount() { return operationQueue.size(); }
+    public boolean isEmpty() { return operationQueue.isEmpty(); }
+    public int getListenerCount() { return queueListeners.size(); }
+    public Map<String, Consumer<QueueEvent>> getQueueListeners() { 
+        return new ConcurrentHashMap<>(queueListeners); 
+    }
+    
+    /**
+     * إعادة تعيين المدير (للاختبارات)
+     */
+    public void reset() {
+        operationQueue.clear();
+        queueListeners.clear();
+        sequenceNumber.set(0);
+        System.out.println("QUEUE MGR: Reset completed");
     }
 }
