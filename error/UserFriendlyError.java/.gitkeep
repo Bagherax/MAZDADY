@@ -1,28 +1,31 @@
 package mazdady.error;
 
 import mazdady.i18n.TranslationManager;
+import mazdady.user.User;
+import mazdady.user.UserManager;
 
 import android.content.Context;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Consumer;
 
 /**
  * أخطاء ودية للمستخدم مع دعم الترجمة الديناميكية
  * يتبع نمط Strategy لفصل رسائل الأخطاء
  */
 public final class UserFriendlyError {
-    private final Map<String, ErrorMessage> errorMessages = new ConcurrentHashMap<>();
     private final TranslationManager translationManager;
+    private final Map<String, ErrorMessage> errorMessages = new ConcurrentHashMap<>();
     private static UserFriendlyError instance;
 
     private UserFriendlyError(Context context) {
-        this.translationManager = new TranslationManager(context);
+        this.translationManager = TranslationManager.getInstance(context);
         initializeErrorMessages();
     }
 
     public static synchronized UserFriendlyError getInstance(Context context) {
         if (instance == null) {
-            instance = new UserFriendlyError(context.getApplicationContext());
+            instance = new UserFriendlyError(context);
         }
         return instance;
     }
@@ -53,31 +56,119 @@ public final class UserFriendlyError {
             "generic_error_message",
             "ok_button"
         ));
+        errorMessages.put("WITHDRAWAL_LIMIT_EXCEEDED", new ErrorMessage(
+            "withdrawal_limit_title",
+            "withdrawal_limit_message",
+            "ok_button"
+        ));
+        errorMessages.put("INVALID_INPUT", new ErrorMessage(
+            "invalid_input_title",
+            "invalid_input_message",
+            "ok_button"
+        ));
+        errorMessages.put("SECURITY_VIOLATION", new ErrorMessage(
+            "security_violation_title",
+            "security_violation_message",
+            "contact_support_button"
+        ));
+        errorMessages.put("SYSTEM_MAINTENANCE", new ErrorMessage(
+            "maintenance_title",
+            "maintenance_message",
+            "try_later_button"
+        ));
+        errorMessages.put("RATE_LIMIT_EXCEEDED", new ErrorMessage(
+            "rate_limit_title",
+            "rate_limit_message",
+            "wait_button"
+        ));
+        
+        System.out.println("USER FRIENDLY ERROR: Initialized " + errorMessages.size() + " error messages");
     }
 
     /**
-     * الحصول على رسالة خطأ ودية
+     * عرض رسالة خطأ ودية للمستخدم غير متزامن
      */
-    public FriendlyError getFriendlyError(String errorCode) {
-        ErrorMessage msg = errorMessages.getOrDefault(errorCode, errorMessages.get("GENERIC_ERROR"));
-        return new FriendlyError(
-            translationManager.getString(msg.titleKey),
-            translationManager.getString(msg.messageKey),
-            translationManager.getString(msg.actionKey)
-        );
+    public void showErrorAsync(String errorCode, Consumer<ErrorDisplayResult> callback) {
+        new Thread(() -> {
+            try {
+                ErrorMessage msg = errorMessages.getOrDefault(errorCode, errorMessages.get("GENERIC_ERROR"));
+                String title = translationManager.getString(msg.getTitleKey(), "خطأ");
+                String message = translationManager.getString(msg.getMessageKey(), "حدث خطأ غير متوقع");
+                String action = translationManager.getString(msg.getActionKey(), "موافق");
+                
+                ErrorDisplayResult result = ErrorDisplayResult.success(title, message, action);
+                
+                if (callback != null) {
+                    callback.accept(result);
+                }
+                
+                System.out.println("USER FRIENDLY ERROR: Showed error - " + errorCode);
+                
+            } catch (Exception e) {
+                if (callback != null) {
+                    callback.accept(ErrorDisplayResult.failure("Error display failed: " + e.getMessage()));
+                }
+            }
+        }).start();
     }
 
     /**
-     * عرض رسالة خطأ للمستخدم
+     * عرض رسالة خطأ مخصصة للمستخدم
      */
-    public void showError(Context context, String errorCode) {
-        FriendlyError error = getFriendlyError(errorCode);
-        // في الإنتاج: عرض Popup أو Toast
-        System.out.println("USER ERROR: " + error.getTitle() + " - " + error.getMessage());
+    public void showCustomErrorAsync(String title, String message, String action, Consumer<ErrorDisplayResult> callback) {
+        new Thread(() -> {
+            try {
+                ErrorDisplayResult result = ErrorDisplayResult.success(title, message, action);
+                
+                if (callback != null) {
+                    callback.accept(result);
+                }
+                
+                System.out.println("USER FRIENDLY ERROR: Showed custom error - " + title);
+                
+            } catch (Exception e) {
+                if (callback != null) {
+                    callback.accept(ErrorDisplayResult.failure("Custom error display failed: " + e.getMessage()));
+                }
+            }
+        }).start();
     }
 
     /**
-     * رسالة خطأ
+     * تسجيل خطأ في سجل النظام
+     */
+    public void logError(String errorCode, String details) {
+        try {
+            User user = UserManager.getInstance(null).getCurrentUser();
+            String userId = user != null ? user.getUserId() : "UNKNOWN";
+            
+            System.err.println("USER ERROR LOG: [" + userId + "] " + errorCode + " - " + details);
+            
+            // في الإنتاج: حفظ في قاعدة البيانات أو السيرفر
+            saveErrorLog(userId, errorCode, details);
+            
+        } catch (Exception e) {
+            System.err.println("ERROR LOGGING FAILED: " + e.getMessage());
+        }
+    }
+
+    private void saveErrorLog(String userId, String errorCode, String details) {
+        // في الإنتاج: حفظ في قاعدة البيانات الآمنة
+        System.out.println("ERROR LOGGER: Saved error log for user " + userId);
+    }
+
+    /**
+     * تحديث رسائل الأخطاء من الإعدادات الإدارية
+     */
+    public void updateErrorMessagesFromConfig(AdminConfig.ErrorConfig config) {
+        if (config == null) return;
+        
+        // في الإنتاج: تحديث رسائل الأخطاء من الإعدادات الإدارية
+        System.out.println("USER FRIENDLY ERROR: Updated error messages from admin config");
+    }
+
+    /**
+     * رسالة الخطأ
      */
     private static final class ErrorMessage {
         private final String titleKey;
@@ -89,24 +180,40 @@ public final class UserFriendlyError {
             this.messageKey = messageKey;
             this.actionKey = actionKey;
         }
+
+        // Getters
+        public String getTitleKey() { return titleKey; }
+        public String getMessageKey() { return messageKey; }
+        public String getActionKey() { return actionKey; }
     }
 
     /**
-     * خطأ ودي
+     * نتيجة عرض الخطأ
      */
-    public static final class FriendlyError {
+    public static final class ErrorDisplayResult {
+        private final boolean success;
         private final String title;
         private final String message;
-        private final String actionText;
+        private final String action;
 
-        public FriendlyError(String title, String message, String actionText) {
+        private ErrorDisplayResult(boolean success, String title, String message, String action) {
+            this.success = success;
             this.title = title;
             this.message = message;
-            this.actionText = actionText;
+            this.action = action;
         }
 
+        public static ErrorDisplayResult success(String title, String message, String action) {
+            return new ErrorDisplayResult(true, title, message, action);
+        }
+
+        public static ErrorDisplayResult failure(String message) {
+            return new ErrorDisplayResult(false, null, null, null);
+        }
+
+        public boolean isSuccess() { return success; }
         public String getTitle() { return title; }
         public String getMessage() { return message; }
-        public String getActionText() { return actionText; }
+        public String getAction() { return action; }
     }
 }
