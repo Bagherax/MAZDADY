@@ -16,7 +16,7 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * مدير الأمان التلقائي مع دعم الاسترداد
- * يتبع نمط Observer لإعلام النظام بالتغيرات
+ * يتبع نمط Facade لتوفير واجهة موحدة
  */
 public final class FailSafeMgr {
     private final SecureStorage secureStorage;
@@ -47,7 +47,7 @@ public final class FailSafeMgr {
             TimeUnit.SECONDS
         );
         
-        System.out.println("FAIL SAFE MANAGER: Started monitoring every 10 seconds");
+        System.out.println("FAIL SAFE MGR: Started monitoring every 10 seconds");
     }
 
     /**
@@ -113,12 +113,12 @@ public final class FailSafeMgr {
      */
     public void activateFailSafe() {
         if (failSafeActive) {
-            System.out.println("FAIL SAFE MANAGER: Fail safe already active");
+            System.out.println("FAIL SAFE MGR: Fail safe already active");
             return;
         }
         
         failSafeActive = true;
-        System.out.println("🛡️ FAIL SAFE MANAGER: Fail safe activated at " + Instant.now());
+        System.out.println("🛡️ FAIL SAFE MGR: Fail safe activated at " + Instant.now());
         
         // تنفيذ إجراءات الأمان
         executeFailSafeMeasures();
@@ -154,12 +154,12 @@ public final class FailSafeMgr {
      */
     public void deactivateFailSafe() {
         if (!failSafeActive) {
-            System.out.println("FAIL SAFE MANAGER: Fail safe already inactive");
+            System.out.println("FAIL SAFE MGR: Fail safe already inactive");
             return;
         }
         
         failSafeActive = false;
-        System.out.println("✅ FAIL SAFE MANAGER: Fail safe deactivated at " + Instant.now());
+        System.out.println("✅ FAIL SAFE MGR: Fail safe deactivated at " + Instant.now());
         
         // تنفيذ إجراءات إنهاء الأمان
         executeFailSafeExitMeasures();
@@ -181,7 +181,7 @@ public final class FailSafeMgr {
             secureStorage.logSecurityEvent("FAIL_SAFE_ACTIVATED", 
                 "Fail safe mode activated due to critical conditions");
             
-            System.out.println("FAIL SAFE MANAGER: Fail safe measures executed");
+            System.out.println("FAIL SAFE MGR: Fail safe measures executed");
             
         } catch (Exception e) {
             System.err.println("FAIL SAFE MEASURES ERROR: " + e.getMessage());
@@ -204,7 +204,7 @@ public final class FailSafeMgr {
             secureStorage.logSecurityEvent("FAIL_SAFE_DEACTIVATED", 
                 "Fail safe mode deactivated - System stabilized");
             
-            System.out.println("FAIL SAFE MANAGER: Fail safe exit measures executed");
+            System.out.println("FAIL SAFE MGR: Fail safe exit measures executed");
             
         } catch (Exception e) {
             System.err.println("FAIL SAFE EXIT MEASURES ERROR: " + e.getMessage());
@@ -225,7 +225,7 @@ public final class FailSafeMgr {
             String configBackup = AdminConfig.getInstance().exportConfig();
             secureStorage.putString("emergency_config_backup", configBackup);
             
-            System.out.println("FAIL SAFE MANAGER: Emergency backup created");
+            System.out.println("FAIL SAFE MGR: Emergency backup created");
             
         } catch (Exception e) {
             System.err.println("EMERGENCY BACKUP ERROR: " + e.getMessage());
@@ -256,7 +256,7 @@ public final class FailSafeMgr {
                     AdminConfig.getInstance().importConfig(configBackup);
                 }
                 
-                System.out.println("FAIL SAFE MANAGER: System recovered from emergency backup");
+                System.out.println("FAIL SAFE MGR: System recovered from emergency backup");
                 return RecoveryResult.success("System recovered successfully from backup");
                 
             } catch (Exception e) {
@@ -272,7 +272,7 @@ public final class FailSafeMgr {
         failSafeScheduler.shutdown();
         failSafeStates.clear();
         failSafeActive = false;
-        System.out.println("FAIL SAFE MANAGER: Shutdown completed");
+        System.out.println("FAIL SAFE MGR: Shutdown completed");
     }
 
     /**
@@ -359,6 +359,6 @@ public final class FailSafeMgr {
     public void resetFailSafeState() {
         failSafeActive = false;
         failSafeStates.clear();
-        System.out.println("FAIL SAFE MANAGER: Fail safe state reset");
+        System.out.println("FAIL SAFE MGR: Fail safe state reset");
     }
 }
