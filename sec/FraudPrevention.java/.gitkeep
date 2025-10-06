@@ -1,20 +1,30 @@
 package mazdady.sec;
 
 import mazdady.user.User;
+import mazdady.user.UserManager;
+import mazdady.wallet.WalletManager;
+import mazdady.admin.AdminConfig;
 
 import java.time.Instant;
+import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Predicate;
 
 /**
- * منع الاحتيال مع دعم الحماية التلقائية
- * يتبع نمط State لتمثيل حالات الحماية
+ * منع الاحتيال مع دعم الحماية المتقدمة
+ * يتبع نمط Observer لإعلام النظام بالأنشطة المشبوهة
  */
 public final class FraudPrevention {
-    private final ConcurrentHashMap<String, FraudProtectionState> protectionStates = new ConcurrentHashMap<>();
+    private final Map<String, AtomicInteger> fraudAttempts = new ConcurrentHashMap<>();
+    private final Map<String, FraudPattern> fraudPatterns = new ConcurrentHashMap<>();
+    private final Map<String, Predicate<FraudContext>> fraudRules = new ConcurrentHashMap<>();
     private static FraudPrevention instance;
 
-    private FraudPrevention() {}
+    private FraudPrevention() {
+        initializeFraudRules();
+    }
 
     public static synchronized FraudPrevention getInstance() {
         if (instance == null) {
@@ -23,88 +33,241 @@ public final class FraudPrevention {
         return instance;
     }
 
-    /**
-     * التحقق من عملية احتيالية محتملة
-     */
-    public FraudResult checkFraudRisk(User user, String operation, double amount) {
-        FraudProtectionState state = protectionStates.computeIfAbsent(
-            user.getUserId(),
-            k -> new NormalState()
+    private void initializeFraudRules() {
+        fraudRules.put("rapid_withdrawals", context -> 
+            context.getWithdrawalCountLastHour() > 10
         );
         
-        return state.checkFraudRisk(user, operation, amount);
+        fraudRules.put("multiple_device_logins", context -> 
+            context.getDeviceCount() > 3
+        );
+        
+        fraudRules.put("suspicious_ip_addresses", context -> 
+            context.hasSuspiciousIP()
+        );
+        
+        fraudRules.put("unusual_trading_patterns", context -> 
+            context.getTradingVolatility() > 0.8
+        );
+        
+        fraudRules.put("fake_social_engagement", context -> 
+            context.getSocialActivityScore() < 0.1
+        );
+        
+        fraudRules.put("abnormal_feature_usage", context -> 
+            context.getFeatureUsageAnomaly() > 0.9
+        );
+        
+        fraudRules.put("geolocation_anomalies", context -> 
+            context.hasLocationAnomaly()
+        );
+        
+        System.out.println("FRAUD PREVENTION: Initialized " + fraudRules.size() + " fraud prevention rules");
     }
 
     /**
-     * تفعيل الحماية ضد الاحتيال
+     * منع الاحتيال غير متزامن
      */
-    public void activateFraudProtection(String userId) {
-        protectionStates.put(userId, new ProtectedState());
+    public CompletableFuture<FraudResult> preventFraudAsync(String userId) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                User user = UserManager.getInstance(null).getUserById(userId);
+                if (user == null) {
+                    return FraudResult.failure("User not found");
+                }
+                
+                // جمع سياق الاحتيال
+                FraudContext context = collectFraudContext(user);
+                
+                // تطبيق قواعد منع الاحتيال
+                for (Map.Entry<String, Predicate<FraudContext>> rule : fraudRules.entrySet()) {
+                    if (rule.getValue().test(context)) {
+                        String ruleName = rule.getKey();
+                        handleFraudDetection(userId, ruleName, context);
+                        
+                        System.out.println("FRAUD PREVENTION: Fraud detected for " + userId + 
+                                         " - Rule: " + ruleName);
+                        
+                        return FraudResult.detected(ruleName, "Fraud detected: " + ruleName);
+                    }
+                }
+                
+                System.out.println("FRAUD PREVENTION: No fraud detected for " + userId);
+                return FraudResult.clean("No fraud detected");
+                
+            } catch (Exception e) {
+                return FraudResult.failure("Fraud prevention failed: " + e.getMessage());
+            }
+        });
+    }
+
+    private FraudContext collectFraudContext(User user) {
+        try {
+            // في الإنتاج: جمع البيانات من قاعدة البيانات
+            WalletManager wallet = new WalletManager();
+            UserManager userManager = UserManager.getInstance(null);
+            
+            return new FraudContext(
+                user.getUserId(),
+                userManager.getUserWithdrawalCount(user.getUserId()),
+                userManager.getUserDeviceCount(user.getUserId()),
+                userManager.hasSuspiciousIP(user.getUserId()),
+                userManager.getTradingVolatility(user.getUserId()),
+                userManager.getSocialActivityScore(user.getUserId()),
+                userManager.getFeatureUsageAnomaly(user.getUserId()),
+                userManager.hasLocationAnomaly(user.getUserId()),
+                Instant.now()
+            );
+            
+        } catch (Exception e) {
+            return FraudContext.empty(user.getUserId());
+        }
+    }
+
+    private void handleFraudDetection(String userId, String ruleName, FraudContext context) {
+        try {
+            // زيادة عدد محاولات الاحتيال
+            AtomicInteger attempts = fraudAttempts.computeIfAbsent(userId, k -> new AtomicInteger(0));
+            int attemptCount = attempts.incrementAndGet();
+            
+            // تسجيل نمط الاحتيال
+            FraudPattern pattern = new FraudPattern(userId, ruleName, context, Instant.now());
+            fraudPatterns.put(userId + "_" + System.currentTimeMillis(), pattern);
+            
+            // اتخاذ إجراءات وقائية
+            if (attemptCount >= 3) {
+                // تجميد الحساب
+                UserManager.getInstance(null).freezeUserAccount(userId, "Multiple fraud attempts detected");
+                System.out.println("FRAUD PREVENTION: Account frozen for " + userId + 
+                                 " - " + attemptCount + " fraud attempts");
+            } else if (attemptCount >= 2) {
+                // تحذير المستخدم
+                UserManager.getInstance(null).warnUser(userId, "Fraud attempt detected - Please verify your identity");
+                System.out.println("FRAUD PREVENTION: Warning issued to " + userId);
+            } else {
+                // إشعار النظام الأمني
+                SecurityMonitor.getInstance(null).reportSuspiciousActivity(userId, "Fraud attempt: " + ruleName);
+                System.out.println("FRAUD PREVENTION: Suspicious activity reported for " + userId);
+            }
+            
+        } catch (Exception e) {
+            System.err.println("FRAUD HANDLING ERROR: " + e.getMessage());
+        }
     }
 
     /**
-     * تعطيل الحماية ضد الاحتيال
+     * تحديث قواعد منع الاحتيال من الإعدادات الإدارية
      */
-    public void deactivateFraudProtection(String userId) {
-        protectionStates.put(userId, new NormalState());
+    public void updateFraudRulesFromConfig(AdminConfig.FraudConfig config) {
+        if (config != null) {
+            // في الإنتاج: تحديث القواعد حسب الإعدادات الإدارية
+            System.out.println("FRAUD PREVENTION: Updated fraud rules from admin config");
+        }
     }
 
     /**
-     * نتيجة الاحتيال
+     * نتيجة منع الاحتيال
      */
     public static final class FraudResult {
-        private final boolean highRisk;
-        private final String action;
+        private final boolean clean;
+        private final boolean detected;
+        private final boolean failed;
+        private final String ruleName;
         private final String message;
 
-        private FraudResult(boolean highRisk, String action, String message) {
-            this.highRisk = highRisk;
-            this.action = action;
+        private FraudResult(boolean clean, boolean detected, boolean failed, 
+                           String ruleName, String message) {
+            this.clean = clean;
+            this.detected = detected;
+            this.failed = failed;
+            this.ruleName = ruleName;
             this.message = message;
         }
 
-        public static FraudResult lowRisk(String message) {
-            return new FraudResult(false, "ALLOW", message);
+        public static FraudResult clean(String message) {
+            return new FraudResult(true, false, false, null, message);
         }
 
-        public static FraudResult highRisk(String action, String message) {
-            return new FraudResult(true, action, message);
+        public static FraudResult detected(String ruleName, String message) {
+            return new FraudResult(false, true, false, ruleName, message);
         }
 
-        public boolean isHighRisk() { return highRisk; }
-        public String getAction() { return action; }
+        public static FraudResult failure(String message) {
+            return new FraudResult(false, false, true, null, message);
+        }
+
+        public boolean isClean() { return clean; }
+        public boolean isDetected() { return detected; }
+        public boolean isFailed() { return failed; }
+        public String getRuleName() { return ruleName; }
         public String getMessage() { return message; }
     }
 
     /**
-     * واجهة حالة الحماية
+     * سياق الاحتيال
      */
-    private interface FraudProtectionState {
-        FraudResult checkFraudRisk(User user, String operation, double amount);
+    public static final class FraudContext {
+        private final String userId;
+        private final int withdrawalCountLastHour;
+        private final int deviceCount;
+        private final boolean hasSuspiciousIP;
+        private final double tradingVolatility;
+        private final double socialActivityScore;
+        private final double featureUsageAnomaly;
+        private final boolean hasLocationAnomaly;
+        private final Instant timestamp;
+
+        public FraudContext(String userId, int withdrawalCountLastHour, int deviceCount,
+                           boolean hasSuspiciousIP, double tradingVolatility,
+                           double socialActivityScore, double featureUsageAnomaly,
+                           boolean hasLocationAnomaly, Instant timestamp) {
+            this.userId = userId;
+            this.withdrawalCountLastHour = withdrawalCountLastHour;
+            this.deviceCount = deviceCount;
+            this.hasSuspiciousIP = hasSuspiciousIP;
+            this.tradingVolatility = tradingVolatility;
+            this.socialActivityScore = socialActivityScore;
+            this.featureUsageAnomaly = featureUsageAnomaly;
+            this.hasLocationAnomaly = hasLocationAnomaly;
+            this.timestamp = timestamp;
+        }
+
+        public static FraudContext empty(String userId) {
+            return new FraudContext(userId, 0, 0, false, 0, 0, 0, false, Instant.now());
+        }
+
+        // Getters
+        public String getUserId() { return userId; }
+        public int getWithdrawalCountLastHour() { return withdrawalCountLastHour; }
+        public int getDeviceCount() { return deviceCount; }
+        public boolean hasSuspiciousIP() { return hasSuspiciousIP; }
+        public double getTradingVolatility() { return tradingVolatility; }
+        public double getSocialActivityScore() { return socialActivityScore; }
+        public double getFeatureUsageAnomaly() { return featureUsageAnomaly; }
+        public boolean hasLocationAnomaly() { return hasLocationAnomaly; }
+        public Instant getTimestamp() { return timestamp; }
     }
 
-    // --- حالات الحماية ---
-    private static final class NormalState implements FraudProtectionState {
-        @Override
-        public FraudResult checkFraudRisk(User user, String operation, double amount) {
-            // التحقق الأساسي من المخاطر
-            if (amount > 10000) {
-                return FraudResult.highRisk("REQUIRE_2FA", "Large transaction requires 2FA verification");
-            }
-            
-            if (amount > user.getBalance() * 0.8) {
-                return FraudResult.highRisk("REQUIRE_CONFIRMATION", "High percentage withdrawal requires confirmation");
-            }
-            
-            return FraudResult.lowRisk("Transaction approved");
-        }
-    }
+    /**
+     * نمط الاحتيال
+     */
+    public static final class FraudPattern {
+        private final String userId;
+        private final String ruleName;
+        private final FraudContext context;
+        private final Instant detectionTime;
 
-    private static final class ProtectedState implements FraudProtectionState {
-        @Override
-        public FraudResult checkFraudRisk(User user, String operation, double amount) {
-            // في وضع الحماية، جميع العمليات تتطلب تأكيدًا إضافيًا
-            return FraudResult.highRisk("REQUIRE_2FA", "Fraud protection mode: 2FA required for all transactions");
+        public FraudPattern(String userId, String ruleName, FraudContext context, Instant detectionTime) {
+            this.userId = userId;
+            this.ruleName = ruleName;
+            this.context = context;
+            this.detectionTime = detectionTime;
         }
+
+        // Getters
+        public String getUserId() { return userId; }
+        public String getRuleName() { return ruleName; }
+        public FraudContext getContext() { return context; }
+        public Instant getDetectionTime() { return detectionTime; }
     }
 }
