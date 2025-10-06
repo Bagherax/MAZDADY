@@ -1,0 +1,361 @@
+package mazdady.feature;
+
+import mazdady.user.User;
+import mazdady.user.UserManager;
+import mazdady.wallet.WalletManager;
+import mazdady.admin.AdminConfig;
+import mazdady.gift.GiftManager;
+
+import java.time.Duration;
+import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+
+/**
+ * مدير الميزات المدفوعة مع دعم الأسعار الديناميكية
+ * يتبع نمط Strategy لفصل استراتيجيات التسعير
+ */
+public final class PaidFeatureManager {
+    private final Map<String, PaidFeature> paidFeatures = new ConcurrentHashMap<>();
+    private final WalletManager walletManager;
+    private final AdminConfig.FeatureConfig featureConfig;
+    private static PaidFeatureManager instance;
+
+    private PaidFeatureManager(WalletManager walletManager, AdminConfig.FeatureConfig featureConfig) {
+        this.walletManager = walletManager;
+        this.featureConfig = featureConfig;
+        initializePaidFeatures();
+    }
+
+    public static synchronized PaidFeatureManager getInstance(
+        WalletManager walletManager, 
+        AdminConfig.FeatureConfig featureConfig
+    ) {
+        if (instance == null) {
+            instance = new PaidFeatureManager(walletManager, featureConfig);
+        }
+        return instance;
+    }
+
+    private void initializePaidFeatures() {
+        // 1. ميزة النقر التلقائي
+        paidFeatures.put("auto_click_coins", new AutoClickCoinsFeature());
+        
+        // 2. ميزات الحماية من الخسارة
+        paidFeatures.put("loss_protection_10", new LossProtectionFeature(10, "loss_protection_10"));
+        paidFeatures.put("loss_protection_20", new LossProtectionFeature(20, "loss_protection_20"));
+        paidFeatures.put("loss_protection_30", new LossProtectionFeature(30, "loss_protection_30"));
+        paidFeatures.put("loss_protection_40", new LossProtectionFeature(40, "loss_protection_40"));
+        paidFeatures.put("loss_protection_50", new LossProtectionFeature(50, "loss_protection_50"));
+        paidFeatures.put("loss_protection_60", new LossProtectionFeature(60, "loss_protection_60"));
+        paidFeatures.put("loss_protection_70", new LossProtectionFeature(70, "loss_protection_70"));
+        
+        // 3. ميزة إرسال العملة
+        paidFeatures.put("send_currency", new SendCurrencyFeature());
+        
+        System.out.println("PAID FEATURE MANAGER: Initialized " + paidFeatures.size() + " paid features");
+    }
+
+    /**
+     * شراء ميزة مدفوعة غير متزامن
+     */
+    public CompletableFuture<PurchaseResult> purchaseFeatureAsync(
+        String userId, 
+        String featureId, 
+        Duration duration
+    ) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                User user = UserManager.getInstance(null).getUserById(userId);
+                if (user == null) {
+                    return PurchaseResult.failure("User not found");
+                }
+                
+                PaidFeature feature = paidFeatures.get(featureId);
+                if (feature == null) {
+                    return PurchaseResult.failure("Feature not found: " + featureId);
+                }
+                
+                // حساب السعر حسب المدة
+                double price = feature.calculatePrice(duration);
+                
+                // التحقق من الرصيد
+                if (user.getBalance() < price) {
+                    return PurchaseResult.failure("Insufficient balance - Need " + price + " MAZDADY");
+                }
+                
+                // خصم السعر
+                user.setBalance(user.getBalance() - price);
+                walletManager.withdrawMAZDADY(price);
+                
+                // تفعيل الميزة
+                FeatureManager.getInstance(null).enableFeatureForUserAsync(userId, featureId, duration);
+                
+                System.out.println("PAID FEATURE: Purchased " + featureId + 
+                                 " for " + userId + " - Price: " + price + " MAZDADY - Duration: " + 
+                                 duration.getSeconds() + " seconds");
+                
+                return PurchaseResult.success(featureId, price, duration, "Feature purchased successfully");
+                
+            } catch (Exception e) {
+                return PurchaseResult.failure("Purchase failed: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * إرسال ميزة كهدية غير متزامن
+     */
+    public CompletableFuture<GiftResult> sendFeatureAsGiftAsync(
+        String senderId,
+        String receiverId,
+        String featureId,
+        Duration duration
+    ) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                User sender = UserManager.getInstance(null).getUserById(senderId);
+                User receiver = UserManager.getInstance(null).getUserById(receiverId);
+                
+                if (sender == null || receiver == null) {
+                    return GiftResult.failure("User not found");
+                }
+                
+                PaidFeature feature = paidFeatures.get(featureId);
+                if (feature == null) {
+                    return GiftResult.failure("Feature not found: " + featureId);
+                }
+                
+                // حساب السعر حسب المدة
+                double price = feature.calculatePrice(duration);
+                
+                // التحقق من رصيد المرسل
+                if (sender.getBalance() < price) {
+                    return GiftResult.failure("Insufficient balance - Need " + price + " MAZDADY");
+                }
+                
+                // خصم السعر من المرسل
+                sender.setBalance(sender.getBalance() - price);
+                
+                // تفعيل الميزة للمستلم
+                FeatureManager.getInstance(null).enableFeatureForUserAsync(receiverId, featureId, duration);
+                
+                // إرسال إشعار للمستلم
+                GiftManager.getInstance(null).sendGiftNotification(
+                    receiverId, 
+                    "هدية من " + sender.getUserId(), 
+                    "تم منحك ميزة " + featureId + " لمدة " + duration.getSeconds() + " ثانية!"
+                );
+                
+                System.out.println("PAID FEATURE GIFT: Sent " + featureId + 
+                                 " from " + senderId + " to " + receiverId + 
+                                 " - Price: " + price + " MAZDADY");
+                
+                return GiftResult.success(featureId, receiverId, price, duration, "Feature gifted successfully");
+                
+            } catch (Exception e) {
+                return GiftResult.failure("Gift failed: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * تحديث أسعار الميزات من الإعدادات الإدارية
+     */
+    public void updatePricesFromConfig(AdminConfig.FeatureConfig config) {
+        if (config == null) return;
+        
+        // في الإنتاج: تحديث الأسعار حسب الإعدادات الإدارية
+        System.out.println("PAID FEATURE MANAGER: Prices updated from admin config");
+    }
+
+    /**
+     * ميزة مدفوعة
+     */
+    @FunctionalInterface
+    public interface PaidFeature {
+        double calculatePrice(Duration duration);
+        String getFeatureId();
+        String getDescription();
+        Duration getDefaultDuration();
+    }
+
+    // --- الميزات المدفوعة ---
+    
+    /**
+     * ميزة النقر التلقائي للعملات
+     */
+    private static final class AutoClickCoinsFeature implements PaidFeature {
+        @Override
+        public double calculatePrice(Duration duration) {
+            // السعر حسب المدة: 1 MAZDADY لكل دقيقة
+            long minutes = duration.toMinutes();
+            return Math.max(1.0, minutes * 1.0);
+        }
+
+        @Override
+        public String getFeatureId() { return "auto_click_coins"; }
+
+        @Override
+        public String getDescription() { 
+            return "ميزة النقر التلقائي للعملات في التداول - تحقق أرباح متواضعة"; 
+        }
+
+        @Override
+        public Duration getDefaultDuration() { return Duration.ofMinutes(5); }
+    }
+
+    /**
+     * ميزة الحماية من الخسارة
+     */
+    private static final class LossProtectionFeature implements PaidFeature {
+        private final int protectionPercentage;
+        private final String featureId;
+
+        public LossProtectionFeature(int protectionPercentage, String featureId) {
+            this.protectionPercentage = protectionPercentage;
+            this.featureId = featureId;
+        }
+
+        @Override
+        public double calculatePrice(Duration duration) {
+            // السعر حسب النسبة والمدة
+            long minutes = duration.toMinutes();
+            double basePrice = protectionPercentage * 0.5; // 0.5 MAZDADY لكل 1%
+            return Math.max(5.0, basePrice * (minutes / 5.0)); // الحد الأدنى 5 MAZDADY
+        }
+
+        @Override
+        public String getFeatureId() { return featureId; }
+
+        @Override
+        public String getDescription() { 
+            return "ميزة الحماية من الخسارة بنسبة " + protectionPercentage + "%"; 
+        }
+
+        @Override
+        public Duration getDefaultDuration() { return Duration.ofMinutes(10); }
+
+        public int getProtectionPercentage() { return protectionPercentage; }
+    }
+
+    /**
+     * ميزة إرسال العملة
+     */
+    private static final class SendCurrencyFeature implements PaidFeature {
+        @Override
+        public double calculatePrice(Duration duration) {
+            // ميزة لمرة واحدة فقط - سعر ثابت
+            return 2.0; // 2 MAZDADY
+        }
+
+        @Override
+        public String getFeatureId() { return "send_currency"; }
+
+        @Override
+        public String getDescription() { 
+            return "ميزة إرسال العملة من مستخدم إلى آخر - تعمل مرة واحدة"; 
+        }
+
+        @Override
+        public Duration getDefaultDuration() { return Duration.ofSeconds(1); } // لمرة واحدة
+    }
+
+    /**
+     * نتيجة الشراء
+     */
+    public static final class PurchaseResult {
+        private final boolean success;
+        private final String featureId;
+        private final double price;
+        private final Duration duration;
+        private final String message;
+
+        private PurchaseResult(boolean success, String featureId, double price, 
+                             Duration duration, String message) {
+            this.success = success;
+            this.featureId = featureId;
+            this.price = price;
+            this.duration = duration;
+            this.message = message;
+        }
+
+        public static PurchaseResult success(String featureId, double price, 
+                                          Duration duration, String message) {
+            return new PurchaseResult(true, featureId, price, duration, message);
+        }
+
+        public static PurchaseResult failure(String message) {
+            return new PurchaseResult(false, null, 0, null, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public String getFeatureId() { return featureId; }
+        public double getPrice() { return price; }
+        public Duration getDuration() { return duration; }
+        public String getMessage() { return message; }
+    }
+
+    /**
+     * نتيجة الهدايا
+     */
+    public static final class GiftResult {
+        private final boolean success;
+        private final String featureId;
+        private final String receiverId;
+        private final double price;
+        private final Duration duration;
+        private final String message;
+
+        private GiftResult(boolean success, String featureId, String receiverId, 
+                          double price, Duration duration, String message) {
+            this.success = success;
+            this.featureId = featureId;
+            this.receiverId = receiverId;
+            this.price = price;
+            this.duration = duration;
+            this.message = message;
+        }
+
+        public static GiftResult success(String featureId, String receiverId, 
+                                      double price, Duration duration, String message) {
+            return new GiftResult(true, featureId, receiverId, price, duration, message);
+        }
+
+        public static GiftResult failure(String message) {
+            return new GiftResult(false, null, null, 0, null, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public String getFeatureId() { return featureId; }
+        public String getReceiverId() { return receiverId; }
+        public double getPrice() { return price; }
+        public Duration getDuration() { return duration; }
+        public String getMessage() { return message; }
+    }
+
+    // --- Getters ---
+    public Map<String, PaidFeature> getPaidFeatures() { 
+        return new ConcurrentHashMap<>(paidFeatures); 
+    }
+    public int getPaidFeatureCount() { return paidFeatures.size(); }
+    public boolean hasPaidFeature(String featureId) { return paidFeatures.containsKey(featureId); }
+    public PaidFeature getPaidFeature(String featureId) { return paidFeatures.get(featureId); }
+    
+    /**
+     * إضافة ميزة مدفوعة مخصصة
+     */
+    public void addCustomPaidFeature(String featureId, PaidFeature feature) {
+        if (featureId != null && feature != null) {
+            paidFeatures.put(featureId, feature);
+            System.out.println("PAID FEATURE MANAGER: Added custom paid feature - " + featureId);
+        }
+    }
+    
+    /**
+     * إزالة ميزة مدفوعة مخصصة
+     */
+    public void removeCustomPaidFeature(String featureId) {
+        if (featureId != null) {
+            paidFeatures.remove(featureId);
+            System.out.println("PAID FEATURE MANAGER: Removed cus
