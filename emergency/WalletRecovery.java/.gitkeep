@@ -1,8 +1,8 @@
 package mazdady.emergency;
 
+import mazdady.wallet.WalletManager;
 import mazdady.user.User;
 import mazdady.user.UserManager;
-import mazdady.wallet.WalletManager;
 import mazdady.security.SecureStorage;
 import mazdady.auth.KYCValidator;
 
@@ -10,7 +10,7 @@ import java.time.Instant;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.function.Consumer;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * استرداد المحفظة مع دعم التحقق المتقدم
@@ -19,7 +19,7 @@ import java.util.function.Consumer;
 public final class WalletRecovery {
     private final SecureStorage secureStorage;
     private final KYCValidator kycValidator;
-    private final Map<String, Consumer<RecoveryEvent>> recoveryListeners = new ConcurrentHashMap<>();
+    private final Map<String, RecoverySession> recoverySessions = new ConcurrentHashMap<>();
     private static WalletRecovery instance;
 
     private WalletRecovery(SecureStorage secureStorage, KYCValidator kycValidator) {
@@ -35,22 +35,32 @@ public final class WalletRecovery {
     }
 
     /**
-     * استرداد المحفظة غير متزامن مع دعم التحقق المتقدم
+     * بدء جلسة استرداد المحفظة غير متزامن
      */
-    public CompletableFuture<RecoveryResult> recoverWalletAsync(
+    public CompletableFuture<RecoveryResult> startRecoverySessionAsync(
         String userId, 
         String recoveryPhrase, 
         String kycDocument
     ) {
         return CompletableFuture.supplyAsync(() -> {
             try {
-                // 1. التحقق من المستخدم
-                User user = UserManager.getInstance(null).getUserById(userId);
-                if (user == null) {
-                    return RecoveryResult.failure("User not found");
+                // إنشاء جلسة استرداد
+                RecoverySession session = new RecoverySession(
+                    "RECOVERY_" + System.currentTimeMillis(),
+                    userId,
+                    recoveryPhrase,
+                    kycDocument,
+                    Instant.now()
+                );
+                
+                recoverySessions.put(session.getSessionId(), session);
+                
+                // التحقق من عبارة الاسترداد
+                if (!isValidRecoveryPhrase(recoveryPhrase)) {
+                    return RecoveryResult.failure("Invalid recovery phrase");
                 }
                 
-                // 2. التحقق من KYC
+                // التحقق من KYC
                 if (!user.isKYCVerified()) {
                     KYCValidator.KYCResult kycResult = 
                         kycValidator.startKYCVerificationAsync(userId, kycDocument).join();
@@ -59,21 +69,19 @@ public final class WalletRecovery {
                     }
                 }
                 
-                // 3. التحقق من عبارة الاسترداد
-                if (!isValidRecoveryPhrase(recoveryPhrase)) {
-                    return RecoveryResult.failure("Invalid recovery phrase");
-                }
-                
-                // 4. استرداد المحفظة
+                // استرداد المحفظة
                 WalletManager walletManager = new WalletManager();
                 boolean success = walletManager.recoverWalletFromPhrase(recoveryPhrase);
                 
                 if (success) {
-                    // 5. تحديث حالة المستخدم
-                    user.setWalletRecovered(true);
-                    user.setLastRecoveryTime(Instant.now());
+                    // تحديث حالة المستخدم
+                    User user = UserManager.getInstance(null).getUserById(userId);
+                    if (user != null) {
+                        user.setWalletRecovered(true);
+                        user.setLastRecoveryTime(Instant.now());
+                    }
                     
-                    // 6. حفظ في التخزين الآمن
+                    // حفظ في التخزين الآمن
                     secureStorage.putString("wallet_recovery_" + userId, 
                         secureStorage.encrypt(recoveryPhrase));
                     
@@ -215,6 +223,37 @@ public final class WalletRecovery {
     }
 
     /**
+     * جلسة الاسترداد
+     */
+    private static final class RecoverySession {
+        private final String sessionId;
+        private final String userId;
+        private final String recoveryPhrase;
+        private final String kycDocument;
+        private final Instant startTime;
+        private volatile boolean completed = false;
+
+        public RecoverySession(String sessionId, String userId, String recoveryPhrase, 
+                              String kycDocument, Instant startTime) {
+            this.sessionId = sessionId;
+            this.userId = userId;
+            this.recoveryPhrase = recoveryPhrase;
+            this.kycDocument = kycDocument;
+            this.startTime = startTime;
+        }
+
+        public void markAsCompleted() { this.completed = true; }
+        
+        // Getters
+        public String getSessionId() { return sessionId; }
+        public String getUserId() { return userId; }
+        public String getRecoveryPhrase() { return recoveryPhrase; }
+        public String getKycDocument() { return kycDocument; }
+        public Instant getStartTime() { return startTime; }
+        public boolean isCompleted() { return completed; }
+    }
+
+    /**
      * نتيجة الاسترداد
      */
     public static final class RecoveryResult {
@@ -297,8 +336,8 @@ public final class WalletRecovery {
         private final String message;
         private final Instant recoveryTime;
 
-        private RecoveryStatus(boolean recovered, boolean pending, boolean notFound, boolean error, 
-                             String message, Instant recoveryTime) {
+        private RecoveryStatus(boolean recovered, boolean pending, boolean notFound, 
+                             boolean error, String message, Instant recoveryTime) {
             this.recovered = recovered;
             this.pending = pending;
             this.notFound = notFound;
