@@ -1,107 +1,364 @@
 package mazdady.emergency;
 
+import mazdady.user.User;
 import mazdady.user.UserManager;
 import mazdady.wallet.WalletManager;
+import mazdady.security.SecureStorage;
+import mazdady.admin.AdminConfig;
 
 import java.time.Instant;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 /**
- * مدير الأمان التلقائي مع دعم النسخ الاحتياطي
- * يتبع نمط Observer لإعلام المكونات بالتغيرات
+ * مدير الأمان التلقائي مع دعم الاسترداد
+ * يتبع نمط Observer لإعلام النظام بالتغيرات
  */
 public final class FailSafeMgr {
-    private final AtomicBoolean isFailSafeActive = new AtomicBoolean(false);
-    private final AtomicReference<Instant> lastBackupTime = new AtomicReference<>(Instant.now());
-    private static final FailSafeMgr INSTANCE = new FailSafeMgr();
+    private final SecureStorage secureStorage;
+    private final WalletManager walletManager;
+    private final ScheduledExecutorService failSafeScheduler = Executors.newScheduledThreadPool(1);
+    private final Map<String, FailSafeState> failSafeStates = new ConcurrentHashMap<>();
+    private volatile boolean failSafeActive = false;
+    private static FailSafeMgr instance;
 
-    private FailSafeMgr() {}
+    private FailSafeMgr(SecureStorage secureStorage, WalletManager walletManager) {
+        this.secureStorage = secureStorage;
+        this.walletManager = walletManager;
+        startFailSafeMonitoring();
+    }
 
-    public static FailSafeMgr getInstance() {
-        return INSTANCE;
+    public static synchronized FailSafeMgr getInstance(SecureStorage secureStorage, WalletManager walletManager) {
+        if (instance == null) {
+            instance = new FailSafeMgr(secureStorage, walletManager);
+        }
+        return instance;
+    }
+
+    private void startFailSafeMonitoring() {
+        failSafeScheduler.scheduleAtFixedRate(
+            this::checkFailSafeConditions,
+            0,
+            10,
+            TimeUnit.SECONDS
+        );
+        
+        System.out.println("FAIL SAFE MANAGER: Started monitoring every 10 seconds");
     }
 
     /**
-     * تفعيل وضع الأمان التلقائي
+     * التحقق من شروط الأمان التلقائي غير متزامن
      */
-    public void activateFailSafe() {
-        if (isFailSafeActive.compareAndSet(false, true)) {
-            System.out.println("FAIL-SAFE: Activated at " + Instant.now());
+    private void checkFailSafeConditions() {
+        try {
+            if (failSafeActive) return;
             
-            // 1. إنشاء نسخة احتياطية فورية
-            createEmergencyBackup();
+            // التحقق من شروط الأمان
+            if (shouldActivateFailSafe()) {
+                activateFailSafe();
+            }
             
-            // 2. تعطيل العمليات غير الضرورية
-            disableNonEssentialOperations();
+        } catch (Exception e) {
+            System.err.println("FAIL SAFE MONITORING ERROR: " + e.getMessage());
+        }
+    }
+
+    private boolean shouldActivateFailSafe() {
+        try {
+            // التحقق من حالة المحفظة
+            if (walletManager.getSystemTreasury() < 500.0) {
+                return true;
+            }
             
-            // 3. تفعيل الحماية القصوى
-            enableMaximumProtection();
+            // التحقق من عدد المستخدمين
+            int userCount = UserManager.getInstance(null).getUserCount();
+            if (userCount < 5) {
+                return true;
+            }
+            
+            // التحقق من حالة الأمان
+            if (secureStorage.isCompromised()) {
+                return true;
+            }
+            
+            return false;
+            
+        } catch (Exception e) {
+            System.err.println("FAIL SAFE CONDITION CHECK ERROR: " + e.getMessage());
+            return false;
         }
     }
 
     /**
-     * إلغاء تفعيل وضع الأمان
+     * تفعيل الأمان التلقائي غير متزامن
+     */
+    public CompletableFuture<FailSafeResult> activateFailSafeAsync() {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                activateFailSafe();
+                return FailSafeResult.success("Fail safe activated successfully");
+                
+            } catch (Exception e) {
+                return FailSafeResult.failure("Fail safe activation failed: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * تفعيل الأمان التلقائي
+     */
+    public void activateFailSafe() {
+        if (failSafeActive) {
+            System.out.println("FAIL SAFE MANAGER: Fail safe already active");
+            return;
+        }
+        
+        failSafeActive = true;
+        System.out.println("🛡️ FAIL SAFE MANAGER: Fail safe activated at " + Instant.now());
+        
+        // تنفيذ إجراءات الأمان
+        executeFailSafeMeasures();
+        
+        // إنشاء نسخة احتياطية فورية
+        createEmergencyBackup();
+        
+        // جدولة إيقاف الأمان التلقائي بعد 12 ساعة
+        failSafeScheduler.schedule(
+            this::deactivateFailSafe,
+            12,
+            TimeUnit.HOURS
+        );
+    }
+
+    /**
+     * تعطيل الأمان التلقائي غير متزامن
+     */
+    public CompletableFuture<FailSafeResult> deactivateFailSafeAsync() {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                deactivateFailSafe();
+                return FailSafeResult.success("Fail safe deactivated successfully");
+                
+            } catch (Exception e) {
+                return FailSafeResult.failure("Fail safe deactivation failed: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * تعطيل الأمان التلقائي
      */
     public void deactivateFailSafe() {
-        if (isFailSafeActive.compareAndSet(true, false)) {
-            System.out.println("FAIL-SAFE: Deactivated at " + Instant.now());
+        if (!failSafeActive) {
+            System.out.println("FAIL SAFE MANAGER: Fail safe already inactive");
+            return;
+        }
+        
+        failSafeActive = false;
+        System.out.println("✅ FAIL SAFE MANAGER: Fail safe deactivated at " + Instant.now());
+        
+        // تنفيذ إجراءات إنهاء الأمان
+        executeFailSafeExitMeasures();
+    }
+
+    private void executeFailSafeMeasures() {
+        try {
+            // 1. تجميد جميع العمليات المالية
+            walletManager.freezeAllOperations();
             
-            // استعادة العمليات العادية
-            restoreNormalOperations();
+            // 2. تعطيل بوتات التداول
+            mazdady.bot.BotManager.getInstance(mazdady.trading.PriceEngine.getInstance())
+                .stopAllBotsAsync();
+            
+            // 3. تفعيل وضع القراءة فقط
+            AdminConfig.getInstance().setReadOnlyMode(true);
+            
+            // 4. تسجيل الحدث في السجل الأمني
+            secureStorage.logSecurityEvent("FAIL_SAFE_ACTIVATED", 
+                "Fail safe mode activated due to critical conditions");
+            
+            System.out.println("FAIL SAFE MANAGER: Fail safe measures executed");
+            
+        } catch (Exception e) {
+            System.err.println("FAIL SAFE MEASURES ERROR: " + e.getMessage());
+        }
+    }
+
+    private void executeFailSafeExitMeasures() {
+        try {
+            // 1. إلغاء تجميد العمليات المالية
+            walletManager.unfreezeAllOperations();
+            
+            // 2. إعادة تفعيل بوتات التداول
+            mazdady.bot.BotManager.getInstance(mazdady.trading.PriceEngine.getInstance())
+                .startAllBots();
+            
+            // 3. إلغاء وضع القراءة فقط
+            AdminConfig.getInstance().setReadOnlyMode(false);
+            
+            // 4. تسجيل الحدث في السجل الأمني
+            secureStorage.logSecurityEvent("FAIL_SAFE_DEACTIVATED", 
+                "Fail safe mode deactivated - System stabilized");
+            
+            System.out.println("FAIL SAFE MANAGER: Fail safe exit measures executed");
+            
+        } catch (Exception e) {
+            System.err.println("FAIL SAFE EXIT MEASURES ERROR: " + e.getMessage());
         }
     }
 
     private void createEmergencyBackup() {
-        // في الإنتاج: حفظ حالة النظام في التخزين الآمن
-        UserManager userMgr = UserManager.getInstance(null);
-        WalletManager walletMgr = new WalletManager();
-        
-        System.out.println("BACKUP: Emergency backup created - User: " + 
-                          userMgr.getCurrentUser().getUserId() + 
-                          ", Balance: " + walletMgr.getBalance());
-        
-        lastBackupTime.set(Instant.now());
-    }
-
-    private void disableNonEssentialOperations() {
-        // في الإنتاج: تعطيل الإعلانات، الترويج، الميزات غير الأساسية
-        System.out.println("FAIL-SAFE: Non-essential operations disabled");
-    }
-
-    private void enableMaximumProtection() {
-        // تفعيل الحماية ضد الخسارة
-        mazdady.economy.ControlledLossManager.getInstance().activateHighRiskProtection();
-        
-        // تجميد عمليات السحب
-        System.out.println("FAIL-SAFE: Withdrawals temporarily suspended");
-    }
-
-    private void restoreNormalOperations() {
-        // في الإنتاج: استعادة جميع العمليات
-        System.out.println("FAIL-SAFE: Normal operations restored");
-    }
-
-    /**
-     * التحقق من حالة الأمان
-     */
-    public boolean isFailSafeActive() {
-        return isFailSafeActive.get();
-    }
-
-    /**
-     * الحصول على وقت آخر نسخة احتياطية
-     */
-    public Instant getLastBackupTime() {
-        return lastBackupTime.get();
-    }
-
-    /**
-     * إنشاء نسخة احتياطية يدوية
-     */
-    public void createManualBackup() {
-        if (!isFailSafeActive.get()) {
-            createEmergencyBackup();
+        try {
+            // 1. حفظ حالة المستخدمين
+            String userBackup = UserManager.getInstance(null).exportUserData();
+            secureStorage.putString("emergency_user_backup", userBackup);
+            
+            // 2. حفظ حالة المحفظة
+            String walletBackup = walletManager.exportWalletData();
+            secureStorage.putString("emergency_wallet_backup", walletBackup);
+            
+            // 3. حفظ حالة الإعدادات
+            String configBackup = AdminConfig.getInstance().exportConfig();
+            secureStorage.putString("emergency_config_backup", configBackup);
+            
+            System.out.println("FAIL SAFE MANAGER: Emergency backup created");
+            
+        } catch (Exception e) {
+            System.err.println("EMERGENCY BACKUP ERROR: " + e.getMessage());
         }
+    }
+
+    /**
+     * استرداد النظام من النسخة الاحتياطية غير متزامن
+     */
+    public CompletableFuture<RecoveryResult> recoverFromBackupAsync() {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                // 1. استرداد حالة المستخدمين
+                String userBackup = secureStorage.getString("emergency_user_backup", null);
+                if (userBackup != null) {
+                    UserManager.getInstance(null).importUserData(userBackup);
+                }
+                
+                // 2. استرداد حالة المحفظة
+                String walletBackup = secureStorage.getString("emergency_wallet_backup", null);
+                if (walletBackup != null) {
+                    walletManager.importWalletData(walletBackup);
+                }
+                
+                // 3. استرداد حالة الإعدادات
+                String configBackup = secureStorage.getString("emergency_config_backup", null);
+                if (configBackup != null) {
+                    AdminConfig.getInstance().importConfig(configBackup);
+                }
+                
+                System.out.println("FAIL SAFE MANAGER: System recovered from emergency backup");
+                return RecoveryResult.success("System recovered successfully from backup");
+                
+            } catch (Exception e) {
+                return RecoveryResult.failure("Recovery from backup failed: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * إيقاف المدير (للاختبارات)
+     */
+    public void shutdown() {
+        failSafeScheduler.shutdown();
+        failSafeStates.clear();
+        failSafeActive = false;
+        System.out.println("FAIL SAFE MANAGER: Shutdown completed");
+    }
+
+    /**
+     * حالة الأمان التلقائي
+     */
+    private static final class FailSafeState {
+        private final String userId;
+        private final Instant activationTime;
+        private volatile boolean active = true;
+
+        public FailSafeState(String userId, Instant activationTime) {
+            this.userId = userId;
+            this.activationTime = activationTime;
+        }
+
+        public String getUserId() { return userId; }
+        public Instant getActivationTime() { return activationTime; }
+        public boolean isActive() { return active; }
+        public void deactivate() { this.active = false; }
+    }
+
+    /**
+     * نتيجة الأمان التلقائي
+     */
+    public static final class FailSafeResult {
+        private final boolean success;
+        private final String message;
+
+        private FailSafeResult(boolean success, String message) {
+            this.success = success;
+            this.message = message;
+        }
+
+        public static FailSafeResult success(String message) {
+            return new FailSafeResult(true, message);
+        }
+
+        public static FailSafeResult failure(String message) {
+            return new FailSafeResult(false, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public String getMessage() { return message; }
+    }
+
+    /**
+     * نتيجة الاسترداد
+     */
+    public static final class RecoveryResult {
+        private final boolean success;
+        private final String message;
+
+        private RecoveryResult(boolean success, String message) {
+            this.success = success;
+            this.message = message;
+        }
+
+        public static RecoveryResult success(String message) {
+            return new RecoveryResult(true, message);
+        }
+
+        public static RecoveryResult failure(String message) {
+            return new RecoveryResult(false, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public String getMessage() { return message; }
+    }
+
+    // --- Getters ---
+    public boolean isFailSafeActive() { return failSafeActive; }
+    public int getActiveFailSafeCount() { return (int) failSafeStates.values().stream().filter(FailSafeState::isActive).count(); }
+    public Instant getLastActivationTime() { 
+        return failSafeStates.values().stream()
+            .filter(FailSafeState::isActive)
+            .map(FailSafeState::getActivationTime)
+            .max(Instant::compareTo)
+            .orElse(null);
+    }
+    
+    /**
+     * إعادة تعيين حالة الأمان (للاختبارات)
+     */
+    public void resetFailSafeState() {
+        failSafeActive = false;
+        failSafeStates.clear();
+        System.out.println("FAIL SAFE MANAGER: Fail safe state reset");
     }
 }
