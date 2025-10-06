@@ -1,128 +1,116 @@
 package mazdady.social;
 
-import java.util.Arrays;
-import java.util.List;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.*;
+import java.util.concurrent.CompletableFuture;
 import java.util.regex.Pattern;
 
 /**
- * مُعدّل المحتوى مع دعم الكشف التلقائي
- * يتبع نمط Strategy لفصل قواعد التعديل
+ * مراقب المحتوى
+ * يدعم التصفية التلقائية واليدوية
  */
 public final class ContentModerator {
-    private final ConcurrentHashMap<String, ModerationRule> moderationRules = new ConcurrentHashMap<>();
-    private static ContentModerator instance;
+    private final Set<String> bannedWords = new HashSet<>();
+    private final Set<String> allowedUrls = new HashSet<>();
+    private final List<ContentFilter> filters = new ArrayList<>();
 
-    private ContentModerator() {
-        initializeModerationRules();
+    public ContentModerator() {
+        initializeDefaultFilters();
     }
 
-    public static synchronized ContentModerator getInstance() {
-        if (instance == null) {
-            instance = new ContentModerator();
-        }
-        return instance;
+    private void initializeDefaultFilters() {
+        bannedWords.addAll(Arrays.asList("spam", "scam", "fraud", "phishing"));
+        allowedUrls.add("mazdady.com");
+        filters.add(new ProfanityFilter(bannedWords));
+        filters.add(new UrlFilter(allowedUrls));
+        System.out.println("CONTENT MODERATOR: Default filters initialized");
     }
 
-    private void initializeModerationRules() {
-        // قاعدة الكشف عن المحتوى غير اللائق
-        moderationRules.put("inappropriate_content", new InappropriateContentRule());
-        
-        // قاعدة الكشف عن الروابط المشبوهة
-        moderationRules.put("suspicious_links", new SuspiciousLinksRule());
-        
-        // قاعدة الكشف عن البريد العشوائي
-        moderationRules.put("spam_detection", new SpamDetectionRule());
-    }
-
-    /**
-     * تعديل المحتوى
-     */
-    public ModerationResult moderateContent(String content, String userId) {
-        for (ModerationRule rule : moderationRules.values()) {
-            ModerationResult result = rule.checkContent(content, userId);
-            if (!result.isApproved()) {
-                return result;
-            }
-        }
-        return ModerationResult.approved("Content approved");
-    }
-
-    /**
-     * واجهة قاعدة التعديل
-     */
-    @FunctionalInterface
-    private interface ModerationRule {
-        ModerationResult checkContent(String content, String userId);
-    }
-
-    // --- قواعد التعديل ---
-    private static final class InappropriateContentRule implements ModerationRule {
-        private static final List<String> INAPPROPRIATE_WORDS = Arrays.asList(
-            "badword1", "badword2", "badword3" // في الإنتاج: قائمة كاملة
-        );
-
-        @Override
-        public ModerationResult checkContent(String content, String userId) {
-            String lowerContent = content.toLowerCase();
-            for (String word : INAPPROPRIATE_WORDS) {
-                if (lowerContent.contains(word)) {
-                    return ModerationResult.rejected("Inappropriate content detected");
+    public CompletableFuture<ModerationResult> moderateContentAsync(String content, String authorId) {
+        return CompletableFuture.supplyAsync(() -> {
+            for (ContentFilter filter : filters) {
+                if (!filter.isValid(content)) {
+                    return ModerationResult.flagged("Content flagged by " + filter.getName() + ": " + content);
                 }
             }
-            return ModerationResult.approved("No inappropriate content found");
-        }
+            return ModerationResult.approved("Content approved: " + content);
+        });
     }
 
-    private static final class SuspiciousLinksRule implements ModerationRule {
-        private static final Pattern URL_PATTERN = Pattern.compile(
-            "https?://[\\w.-]+\\.[\\w.-]+[/\\w.-]*"
-        );
-
-        @Override
-        public ModerationResult checkContent(String content, String userId) {
-            if (URL_PATTERN.matcher(content).find()) {
-                // في الإنتاج: التحقق من القائمة السوداء للروابط
-                if (content.contains("suspicious-domain.com")) {
-                    return ModerationResult.rejected("Suspicious link detected");
-                }
-            }
-            return ModerationResult.approved("No suspicious links found");
-        }
+    public void addBannedWord(String word) {
+        bannedWords.add(word.toLowerCase());
     }
 
-    private static final class SpamDetectionRule implements ModerationRule {
-        @Override
-        public ModerationResult checkContent(String content, String userId) {
-            // في الإنتاج: تحليل أنماط البريد العشوائي
-            if (content.length() > 1000) {
-                return ModerationResult.rejected("Content too long - potential spam");
-            }
-            return ModerationResult.approved("Content length acceptable");
-        }
+    public void removeBannedWord(String word) {
+        bannedWords.remove(word.toLowerCase());
     }
 
-    /**
-     * نتيجة التعديل
-     */
+    // --- Inner Classes ---
     public static final class ModerationResult {
         private final boolean approved;
-        private final String reason;
+        private final String message;
 
-        private ModerationResult(boolean approved, String reason) {
+        private ModerationResult(boolean approved, String message) {
             this.approved = approved;
-            this.reason = reason;
+            this.message = message;
         }
 
-        public static ModerationResult approved(String reason) {
-            return new ModerationResult(true, reason);
+        public static ModerationResult approved(String message) {
+            return new ModerationResult(true, message);
         }
 
-        public static ModerationResult rejected(String reason) {
-            return new ModerationResult(false, reason);
+        public static ModerationResult flagged(String message) {
+            return new ModerationResult(false, message);
         }
 
         public boolean isApproved() { return approved; }
-        public String getReason() { return reason; }
+        public String getMessage() { return message; }
+    }
+
+    public interface ContentFilter {
+        boolean isValid(String content);
+        String getName();
+    }
+
+    public static final class ProfanityFilter implements ContentFilter {
+        private final Set<String> bannedWords;
+
+        public ProfanityFilter(Set<String> bannedWords) {
+            this.bannedWords = bannedWords;
+        }
+
+        @Override
+        public boolean isValid(String content) {
+            String lowerContent = content.toLowerCase();
+            for (String word : bannedWords) {
+                if (lowerContent.contains(word)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        @Override
+        public String getName() {
+            return "Profanity Filter";
+        }
+    }
+
+    public static final class UrlFilter implements ContentFilter {
+        private final Set<String> allowedUrls;
+
+        public UrlFilter(Set<String> allowedUrls) {
+            this.allowedUrls = allowedUrls;
+        }
+
+        @Override
+        public boolean isValid(String content) {
+            // في الإنتاج: تحقق من الروابط باستخدام Regex أو مكتبة URL
+            return true; // مثال بسيط
+        }
+
+        @Override
+        public String getName() {
+            return "URL Filter";
+        }
     }
 }
