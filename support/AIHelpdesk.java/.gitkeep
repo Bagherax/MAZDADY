@@ -1,65 +1,207 @@
 package mazdady.support;
 
-import java.util.Map;
+import java.util.*;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
 
 /**
- * روبوت الدعم الذكي مع دعم NLP المتقدم
- * يتبع نمط Strategy لفصل استراتيجيات الإجابة
+ * مكتب الدعم الذكي (AI + Human)
+ * يدعم:
+ * - الإجابات التلقائية
+ * - التحويل للدعم البشري
+ * - تتبع الطلبات
+ * - التقييم والتحسين
  */
-public final class AIHelpdesk {
-    private final Map<Pattern, String> knowledgeBase = new ConcurrentHashMap<>();
-    private static AIHelpdesk instance;
+public final class AlHelpdesk {
+    private final Map<String, Conversation> activeConversations = new ConcurrentHashMap<>();
+    private final Map<String, FaqEntry> faq = new ConcurrentHashMap<>();
+    private final List<SupportAgent> agents = new ArrayList<>();
+    private final Set<String> blockedUsers = ConcurrentHashMap.newKeySet();
 
-    private AIHelpdesk() {
-        initializeKnowledgeBase();
+    public AlHelpdesk() {
+        initializeFAQ();
+        initializeAgents();
+        System.out.println("AL HELPDESK: Initialized with AI + Human support");
     }
 
-    public static synchronized AIHelpdesk getInstance() {
-        if (instance == null) {
-            instance = new AIHelpdesk();
-        }
-        return instance;
+    private void initializeFAQ() {
+        faq.put("reset_password", new FaqEntry("reset_password", "كيف أقوم بإعادة تعيين كلمة المرور؟", "يمكنك إعادة تعيين كلمة المرور من خلال إعدادات الحساب > الأمان > إعادة تعيين كلمة المرور."));
+        faq.put("withdrawal_issues", new FaqEntry("withdrawal_issues", "مشكلة في السحب", "يرجى التأكد من ملء بيانات الحساب بشكل صحيح. في حالة استمرار المشكلة، تواصل مع الدعم."));
+        faq.put("trading_fees", new FaqEntry("trading_fees", "ما هي رسوم التداول؟", "الرسوم تختلف حسب نوع التداول. راجع صفحة الرسوم في الإعدادات."));
+        System.out.println("AL HELPDESK: FAQ initialized with " + faq.size() + " entries");
     }
 
-    private void initializeKnowledgeBase() {
-        // أسئلة شائعة حول المحفظة
-        knowledgeBase.put(Pattern.compile(".*محفظة.*"), 
-            "لربط محفظتك الخارجية، اذهب إلى المحفظة → ربط محفظة خارجية → أدخل عنوان محفظتك.");
-        
-        knowledgeBase.put(Pattern.compile(".*سحب.*أرباح.*"), 
-            "لسحب الأرباح، تأكد من: 1) توثيق هويتك، 2) الوصول للمستوى 5، 3) ربط محفظة خارجية.");
-        
-        knowledgeBase.put(Pattern.compile(".*مستوى.*"), 
-            "يمكنك رفع مستواك بالتداول. كل 100 MAZDADY تداول تزيد من مستواك.");
-        
-        knowledgeBase.put(Pattern.compile(".*إعلان.*"), 
-            "لإنشاء حملة إعلانية، اضغط على زر الإعلانات → إنشاء حملة → اختر منصتك وهدفك.");
-        
-        knowledgeBase.put(Pattern.compile(".*دعم.*"), 
-            "يمكنك التواصل مع فريق الدعم عبر الدردشة الحية أو إنشاء تذكرة دعم.");
+    private void initializeAgents() {
+        agents.add(new SupportAgent("agent_001", "Ahmed", "Arabic, English"));
+        agents.add(new SupportAgent("agent_002", "Sara", "Arabic, French"));
+        agents.add(new SupportAgent("agent_003", "Mohamed", "English, German"));
+        System.out.println("AL HELPDESK: " + agents.size() + " support agents initialized");
     }
 
-    /**
-     * الحصول على إجابة ذكية
-     */
-    public String getAnswer(String question) {
-        String normalizedQuestion = question.toLowerCase().trim();
-        
-        for (Map.Entry<Pattern, String> entry : knowledgeBase.entrySet()) {
-            if (entry.getKey().matcher(normalizedQuestion).find()) {
-                return entry.getValue();
+    public CompletableFuture<HelpdeskResponse> processQueryAsync(String userId, String query) {
+        return CompletableFuture.supplyAsync(() -> {
+            if (blockedUsers.contains(userId)) {
+                return HelpdeskResponse.blocked("User is blocked from support");
             }
-        }
-        
-        return "عذرًا، لم أفهم سؤالك. هل يمكنك طرح سؤال آخر أو التواصل مع فريق الدعم البشري؟";
+
+            // تحقق من FAQ
+            for (FaqEntry entry : faq.values()) {
+                if (query.toLowerCase().contains(entry.getKeyword())) {
+                    return HelpdeskResponse.autoReply(entry.getAnswer());
+                }
+            }
+
+            // إذا لم توجد إجابة، ابدأ محادثة
+            String conversationId = UUID.randomUUID().toString();
+            Conversation conversation = new Conversation(conversationId, userId, query);
+            activeConversations.put(conversationId, conversation);
+
+            // حدد وكيل متوفر
+            Optional<SupportAgent> availableAgent = agents.stream()
+                .filter(agent -> agent.isAvailable())
+                .findFirst();
+
+            if (availableAgent.isPresent()) {
+                SupportAgent agent = availableAgent.get();
+                agent.setAvailable(false);
+                conversation.assignAgent(agent);
+                return HelpdeskResponse.assignedToAgent(agent.getName(), conversationId);
+            } else {
+                return HelpdeskResponse.queue("All agents are busy. You are in queue. Conversation ID: " + conversationId);
+            }
+        });
     }
 
-    /**
-     * إضافة معرفة جديدة
-     */
-    public void addKnowledge(String pattern, String answer) {
-        knowledgeBase.put(Pattern.compile(pattern, Pattern.CASE_INSENSITIVE), answer);
+    public CompletableFuture<HelpdeskResponse> rateSupportAsync(String conversationId, int rating, String feedback) {
+        return CompletableFuture.supplyAsync(() -> {
+            Conversation conversation = activeConversations.get(conversationId);
+            if (conversation == null) {
+                return HelpdeskResponse.failure("Invalid conversation ID: " + conversationId);
+            }
+
+            conversation.setRating(rating);
+            conversation.setFeedback(feedback);
+            return HelpdeskResponse.success("Thank you for your feedback. Rating: " + rating);
+        });
+    }
+
+    public void blockUser(String userId) {
+        blockedUsers.add(userId);
+        System.out.println("AL HELPDESK: User blocked: " + userId);
+    }
+
+    // --- Inner Classes ---
+    public static final class HelpdeskResponse {
+        private final boolean success;
+        private final String message;
+        private final String conversationId;
+        private final String agentName;
+
+        private HelpdeskResponse(boolean success, String message, String conversationId, String agentName) {
+            this.success = success;
+            this.message = message;
+            this.conversationId = conversationId;
+            this.agentName = agentName;
+        }
+
+        public static HelpdeskResponse autoReply(String answer) {
+            return new HelpdeskResponse(true, "Auto-reply: " + answer, null, null);
+        }
+
+        public static HelpdeskResponse assignedToAgent(String agentName, String conversationId) {
+            return new HelpdeskResponse(true, "Assigned to agent: " + agentName, conversationId, agentName);
+        }
+
+        public static HelpdeskResponse queue(String message) {
+            return new HelpdeskResponse(true, message, null, null);
+        }
+
+        public static HelpdeskResponse blocked(String message) {
+            return new HelpdeskResponse(false, message, null, null);
+        }
+
+        public static HelpdeskResponse failure(String message) {
+            return new HelpdeskResponse(false, message, null, null);
+        }
+
+        public static HelpdeskResponse success(String message) {
+            return new HelpdeskResponse(true, message, null, null);
+        }
+
+        public boolean isSuccess() { return success; }
+        public String getMessage() { return message; }
+        public String getConversationId() { return conversationId; }
+        public String getAgentName() { return agentName; }
+    }
+
+    public static final class FaqEntry {
+        private final String id;
+        private final String keyword;
+        private final String question;
+        private final String answer;
+
+        public FaqEntry(String id, String question, String answer) {
+            this.id = id;
+            this.keyword = question.toLowerCase().split(" ")[0];
+            this.question = question;
+            this.answer = answer;
+        }
+
+        public String getId() { return id; }
+        public String getKeyword() { return keyword; }
+        public String getQuestion() { return question; }
+        public String getAnswer() { return answer; }
+    }
+
+    public static final class SupportAgent {
+        private final String id;
+        private final String name;
+        private final String languages;
+        private volatile boolean available = true;
+
+        public SupportAgent(String id, String name, String languages) {
+            this.id = id;
+            this.name = name;
+            this.languages = languages;
+        }
+
+        public String getId() { return id; }
+        public String getName() { return name; }
+        public String getLanguages() { return languages; }
+        public boolean isAvailable() { return available; }
+        public void setAvailable(boolean available) { this.available = available; }
+    }
+
+    public static final class Conversation {
+        private final String id;
+        private final String userId;
+        private final String initialQuery;
+        private volatile SupportAgent assignedAgent;
+        private volatile int rating = 0;
+        private volatile String feedback;
+        private final long timestamp;
+
+        public Conversation(String id, String userId, String initialQuery) {
+            this.id = id;
+            this.userId = userId;
+            this.initialQuery = initialQuery;
+            this.timestamp = System.currentTimeMillis();
+        }
+
+        public void assignAgent(SupportAgent agent) {
+            this.assignedAgent = agent;
+        }
+
+        public void setRating(int rating) { this.rating = rating; }
+        public void setFeedback(String feedback) { this.feedback = feedback; }
+
+        public String getId() { return id; }
+        public String getUserId() { return userId; }
+        public String getInitialQuery() { return initialQuery; }
+        public SupportAgent getAssignedAgent() { return assignedAgent; }
+        public int getRating() { return rating; }
+        public String getFeedback() { return feedback; }
+        public long getTimestamp() { return timestamp; }
     }
 }
