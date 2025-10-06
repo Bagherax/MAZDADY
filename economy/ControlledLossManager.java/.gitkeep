@@ -1,101 +1,365 @@
 package mazdady.economy;
 
-import mazdady.user.UserManager;
 import mazdady.user.User;
+import mazdady.user.UserManager;
+import mazdady.admin.AdminConfig;
+import mazdady.trading.PriceEngine;
 
 import java.time.Instant;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Predicate;
 
 /**
  * مدير الخسارة المُدارة مع دعم الحماية الذكية
- * يتبع نمط State لتمثيل حالات الحماية
+ * يتبع نمط State لتمثيل حالات الحماية المختلفة
  */
 public final class ControlledLossManager {
-    private final AtomicReference<ProtectionState> currentState = new AtomicReference<>(new NormalState());
-    private static final ControlledLossManager INSTANCE = new ControlledLossManager();
+    private final PriceEngine priceEngine;
+    private final Map<String, LossProtectionState> userStates = new ConcurrentHashMap<>();
+    private final AdminConfig.EconomyConfig economyConfig;
+    private static ControlledLossManager instance;
 
-    private ControlledLossManager() {}
+    private ControlledLossManager(PriceEngine priceEngine, AdminConfig.EconomyConfig economyConfig) {
+        this.priceEngine = priceEngine;
+        this.economyConfig = economyConfig;
+        initializeDefaultStates();
+    }
 
-    public static ControlledLossManager getInstance() {
-        return INSTANCE;
+    public static synchronized ControlledLossManager getInstance(
+        PriceEngine priceEngine, 
+        AdminConfig.EconomyConfig economyConfig
+    ) {
+        if (instance == null) {
+            instance = new ControlledLossManager(priceEngine, economyConfig);
+        }
+        return instance;
+    }
+
+    private void initializeDefaultStates() {
+        System.out.println("CONTROLLED LOSS MANAGER: Initialized with default states");
     }
 
     /**
-     * تطبيق خسارة مُدارة على المستخدم
+     * تفعيل حماية الخسارة للمستخدم غير متزامن
      */
-    public double applyControlledLoss(double lossAmount) {
-        ProtectionState state = currentState.get();
-        double actualLoss = state.calculateActualLoss(lossAmount);
+    public void activateLossProtectionAsync(String userId) {
+        new Thread(() -> {
+            try {
+                LossProtectionState state = userStates.computeIfAbsent(
+                    userId, 
+                    k -> new NormalState(userId, priceEngine, economyConfig)
+                );
+                
+                userStates.put(userId, new ProtectedState(state));
+                System.out.println("CONTROLLED LOSS MANAGER: Activated loss protection for " + userId);
+                
+            } catch (Exception e) {
+                System.err.println("LOSS PROTECTION ACTIVATION ERROR: " + e.getMessage());
+            }
+        }).start();
+    }
+
+    /**
+     * تعطيل حماية الخسارة للمستخدم غير متزامن
+     */
+    public void deactivateLossProtectionAsync(String userId) {
+        new Thread(() -> {
+            try {
+                LossProtectionState state = userStates.get(userId);
+                if (state != null) {
+                    userStates.put(userId, new NormalState(userId, priceEngine, economyConfig));
+                    System.out.println("CONTROLLED LOSS MANAGER: Deactivated loss protection for " + userId);
+                }
+                
+            } catch (Exception e) {
+                System.err.println("LOSS PROTECTION DEACTIVATION ERROR: " + e.getMessage());
+            }
+        }).start();
+    }
+
+    /**
+     * تطبيق خسارة مُدارة غير متزامن
+     */
+    public void applyControlledLossAsync(String userId, double lossAmount) {
+        new Thread(() -> {
+            try {
+                User user = UserManager.getInstance(null).getUserById(userId);
+                if (user == null) {
+                    System.err.println("CONTROLLED LOSS MANAGER: User not found - " + userId);
+                    return;
+                }
+                
+                LossProtectionState state = userStates.getOrDefault(
+                    userId, 
+                    new NormalState(userId, priceEngine, economyConfig)
+                );
+                
+                LossResult result = state.applyLoss(user, lossAmount);
+                
+                if (result.isSuccess()) {
+                    user.setBalance(user.getBalance() - result.getActualLoss());
+                    System.out.println("CONTROLLED LOSS MANAGER: Applied controlled loss to " + userId + 
+                                     " - Actual: " + String.format("%.2f", result.getActualLoss()) + 
+                                     " MAZDADY (Protected: " + String.format("%.2f", result.getProtectedAmount()) + 
+                                     " MAZDADY)");
+                } else {
+                    System.err.println("CONTROLLED LOSS ERROR: " + result.getMessage());
+                }
+                
+            } catch (Exception e) {
+                System.err.println("CONTROLLED LOSS APPLICATION ERROR: " + e.getMessage());
+            }
+        }).start();
+    }
+
+    /**
+     * التحقق من حالة الحماية للمستخدم
+     */
+    public ProtectionStatus getProtectionStatus(String userId) {
+        LossProtectionState state = userStates.get(userId);
+        if (state == null) {
+            return ProtectionStatus.normal("No protection active");
+        }
         
-        // تحديث حالة الحماية
-        ProtectionState newState = state.getNextState(lossAmount);
-        currentState.set(newState);
-        
-        System.out.println("CONTROLLED LOSS: Applied " + actualLoss + " MAZDADY loss at " + Instant.now() +
-                          " (State: " + newState.getName() + ")");
-        return actualLoss;
+        return state.getProtectionStatus();
     }
 
     /**
-     * التحقق من حالة الحماية الحالية
+     * تحديث إعدادات الحماية من الإعدادات الإدارية
      */
-    public String getCurrentProtectionState() {
-        return currentState.get().getName();
-    }
-
-    /**
-     * واجهة حالة الحماية
-     */
-    private interface ProtectionState {
-        String getName();
-        double calculateActualLoss(double lossAmount);
-        ProtectionState getNextState(double lossAmount);
+    public void updateProtectionConfig(AdminConfig.EconomyConfig newConfig) {
+        if (newConfig != null) {
+            // في الإنتاج: تحديث الإعدادات لجميع المستخدمين
+            System.out.println("CONTROLLED LOSS MANAGER: Updated protection config from admin");
+        }
     }
 
     // --- حالات الحماية ---
-    private static final class NormalState implements ProtectionState {
-        @Override public String getName() { return "NORMAL"; }
-        @Override public double calculateActualLoss(double lossAmount) {
-            // الخسارة الكاملة في الحالة العادية
-            return lossAmount;
+    private interface LossProtectionState {
+        LossResult applyLoss(User user, double lossAmount);
+        ProtectionStatus getProtectionStatus();
+        String getUserId();
+    }
+
+    // --- الحالة العادية ---
+    private static final class NormalState implements LossProtectionState {
+        private final String userId;
+        private final PriceEngine priceEngine;
+        private final AdminConfig.EconomyConfig economyConfig;
+
+        public NormalState(String userId, PriceEngine priceEngine, AdminConfig.EconomyConfig economyConfig) {
+            this.userId = userId;
+            this.priceEngine = priceEngine;
+            this.economyConfig = economyConfig;
         }
-        @Override public ProtectionState getNextState(double lossAmount) {
-            User user = UserManager.getInstance(null).getCurrentUser();
-            double balance = user.getBalance();
-            double lossRatio = lossAmount / (balance + lossAmount);
-            
-            if (lossRatio > 0.5) {
-                return new HighRiskState();
+
+        @Override
+        public LossResult applyLoss(User user, double lossAmount) {
+            try {
+                // في الحالة العادية: خسارة كاملة
+                return LossResult.success(lossAmount, 0.0, "Normal loss applied");
+                
+            } catch (Exception e) {
+                return LossResult.failure("Loss application failed: " + e.getMessage());
             }
-            return this;
+        }
+
+        @Override
+        public ProtectionStatus getProtectionStatus() {
+            return ProtectionStatus.normal("Normal state - no protection");
+        }
+
+        @Override
+        public String getUserId() { return userId; }
+    }
+
+    // --- الحالة المحمية ---
+    private static final class ProtectedState implements LossProtectionState {
+        private final LossProtectionState previousState;
+        private final String userId;
+        private final PriceEngine priceEngine;
+        private final AdminConfig.EconomyConfig economyConfig;
+        private volatile Instant protectionStartTime;
+        private volatile boolean isActive = true;
+
+        public ProtectedState(LossProtectionState previousState) {
+            this.previousState = previousState;
+            this.userId = previousState.getUserId();
+            this.priceEngine = previousState instanceof NormalState ? 
+                ((NormalState) previousState).priceEngine : null;
+            this.economyConfig = previousState instanceof NormalState ? 
+                ((NormalState) previousState).economyConfig : null;
+            this.protectionStartTime = Instant.now();
+        }
+
+        @Override
+        public LossResult applyLoss(User user, double lossAmount) {
+            try {
+                if (!isActive) {
+                    return previousState.applyLoss(user, lossAmount);
+                }
+                
+                // في الحالة المحمية: تقليل الخسارة بنسبة 50%
+                double protectedAmount = lossAmount * 0.5;
+                double actualLoss = lossAmount - protectedAmount;
+                
+                // التحقق من انتهاء فترة الحماية
+                if (isProtectionExpired()) {
+                    deactivateProtection();
+                    return previousState.applyLoss(user, lossAmount);
+                }
+                
+                System.out.println("PROTECTED STATE: Reduced loss from " + lossAmount + 
+                                 " to " + actualLoss + " MAZDADY for user " + userId);
+                
+                return LossResult.success(actualLoss, protectedAmount, "Loss reduced by protection");
+                
+            } catch (Exception e) {
+                return LossResult.failure("Protected loss application failed: " + e.getMessage());
+            }
+        }
+
+        private boolean isProtectionExpired() {
+            if (protectionStartTime == null) return true;
+            
+            long protectionDuration = economyConfig != null ? 
+                economyConfig.getLossProtectionDuration() : 300000; // 5 دقائق افتراضيًا
+            
+            return System.currentTimeMillis() - protectionStartTime.toEpochMilli() > protectionDuration;
+        }
+
+        private void deactivateProtection() {
+            isActive = false;
+            System.out.println("PROTECTED STATE: Protection expired for user " + userId);
+        }
+
+        @Override
+        public ProtectionStatus getProtectionStatus() {
+            if (!isActive) {
+                return ProtectionStatus.expired("Protection expired");
+            }
+            
+            long remainingTime = economyConfig != null ? 
+                economyConfig.getLossProtectionDuration() : 300000;
+            if (protectionStartTime != null) {
+                remainingTime -= (System.currentTimeMillis() - protectionStartTime.toEpochMilli());
+            }
+            
+            return ProtectionStatus.protected(
+                "Protection active", 
+                remainingTime > 0 ? remainingTime : 0
+            );
+        }
+
+        @Override
+        public String getUserId() { return userId; }
+    }
+
+    // --- نتيجة الخسارة ---
+    public static final class LossResult {
+        private final boolean success;
+        private final double actualLoss;
+        private final double protectedAmount;
+        private final String message;
+
+        private LossResult(boolean success, double actualLoss, double protectedAmount, String message) {
+            this.success = success;
+            this.actualLoss = actualLoss;
+            this.protectedAmount = protectedAmount;
+            this.message = message;
+        }
+
+        public static LossResult success(double actualLoss, double protectedAmount, String message) {
+            return new LossResult(true, actualLoss, protectedAmount, message);
+        }
+
+        public static LossResult failure(String message) {
+            return new LossResult(false, 0, 0, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public double getActualLoss() { return actualLoss; }
+        public double getProtectedAmount() { return protectedAmount; }
+        public String getMessage() { return message; }
+    }
+
+    // --- حالة الحماية ---
+    public static final class ProtectionStatus {
+        private final boolean active;
+        private final boolean expired;
+        private final String message;
+        private final long remainingTimeMs;
+
+        private ProtectionStatus(boolean active, boolean expired, String message, long remainingTimeMs) {
+            this.active = active;
+            this.expired = expired;
+            this.message = message;
+            this.remainingTimeMs = remainingTimeMs;
+        }
+
+        public static ProtectionStatus normal(String message) {
+            return new ProtectionStatus(false, false, message, 0);
+        }
+
+        public static ProtectionStatus protected(String message, long remainingTimeMs) {
+            return new ProtectionStatus(true, false, message, remainingTimeMs);
+        }
+
+        public static ProtectionStatus expired(String message) {
+            return new ProtectionStatus(false, true, message, 0);
+        }
+
+        public boolean isActive() { return active; }
+        public boolean isExpired() { return expired; }
+        public String getMessage() { return message; }
+        public long getRemainingTimeMs() { return remainingTimeMs; }
+        public String getFormattedRemainingTime() {
+            if (remainingTimeMs <= 0) return "0s";
+            
+            long seconds = remainingTimeMs / 1000;
+            long minutes = seconds / 60;
+            seconds = seconds % 60;
+            
+            if (minutes > 0) {
+                return minutes + "m " + seconds + "s";
+            } else {
+                return seconds + "s";
+            }
         }
     }
 
-    private static final class HighRiskState implements ProtectionState {
-        @Override public String getName() { return "HIGH_RISK"; }
-        @Override public double calculateActualLoss(double lossAmount) {
-            // تقليل الخسارة بنسبة 30% في حالة الخطر العالي
-            return lossAmount * 0.7;
-        }
-        @Override public ProtectionState getNextState(double lossAmount) {
-            // البقاء في حالة الخطر العالي حتى يتحسن الرصيد
-            return this;
-        }
+    // --- Getters ---
+    public int getActiveProtectionCount() {
+        return (int) userStates.values().stream()
+            .filter(state -> state.getProtectionStatus().isActive())
+            .count();
     }
-
+    
+    public int getExpiredProtectionCount() {
+        return (int) userStates.values().stream()
+            .filter(state -> state.getProtectionStatus().isExpired())
+            .count();
+    }
+    
+    public Map<String, LossProtectionState> getUserStates() {
+        return new ConcurrentHashMap<>(userStates);
+    }
+    
     /**
-     * تفعيل الحماية يدويًا
+     * إزالة حالة المستخدم (للاختبارات)
      */
-    public void activateHighRiskProtection() {
-        currentState.set(new HighRiskState());
-        System.out.println("PROTECTION ACTIVATED: High risk protection enabled");
+    public void removeUserState(String userId) {
+        userStates.remove(userId);
+        System.out.println("CONTROLLED LOSS MANAGER: Removed state for user " + userId);
     }
-
+    
     /**
-     * إلغاء تفعيل الحماية
+     * مسح جميع الحالات (للاختبارات)
      */
-    public void deactivateProtection() {
-        currentState.set(new NormalState());
-        System.out.println("PROTECTION DEACTIVATED: Normal state restored");
+    public void clearAllStates() {
+        userStates.clear();
+        System.out.println("CONTROLLED LOSS MANAGER: Cleared all user states");
     }
 }
