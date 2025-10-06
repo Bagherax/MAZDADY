@@ -3,16 +3,16 @@ package mazdady.i18n;
 import android.content.Context;
 
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * محمل اللغات مع دعم التخزين المؤقت
  * يتبع نمط Singleton مع إدارة ذكية للذاكرة
  */
 public final class LangLoader {
-    private final Map<String, CompletableFuture<DynamicLang.LanguagePack>> loadingTasks = new ConcurrentHashMap<>();
     private final Context context;
+    private final Map<String, CompletableFuture<DynamicLang.LanguagePack>> loadingTasks = new ConcurrentHashMap<>();
     private static LangLoader instance;
 
     private LangLoader(Context context) {
@@ -27,17 +27,54 @@ public final class LangLoader {
     }
 
     /**
-     * تحميل لغة مع إدارة المهام المتزامنة
+     * تحميل لغة غير متزامن مع إدارة المهام المتزامنة
      */
-    public CompletableFuture<DynamicLang.LanguagePack> loadLanguage(String languageCode) {
+    public CompletableFuture<LoadResult> loadLanguageAsync(String languageCode) {
         return loadingTasks.computeIfAbsent(languageCode, lang -> {
-            CompletableFuture<DynamicLang.LanguagePack> future = 
-                DynamicLang.getInstance(context).loadLanguageAsync(lang);
+            CompletableFuture<LoadResult> future = CompletableFuture.supplyAsync(() -> {
+                try {
+                    DynamicLang dynamicLang = DynamicLang.getInstance(context);
+                    DynamicLang.LanguageResult result = dynamicLang.loadLanguageAsync(lang).join();
+                    
+                    if (result.isSuccess()) {
+                        System.out.println("LANG LOADER: Successfully loaded language " + lang);
+                        return LoadResult.success(result.getLanguagePack(), "Language loaded successfully");
+                    } else {
+                        return LoadResult.failure("Language loading failed: " + result.getMessage());
+                    }
+                    
+                } catch (Exception e) {
+                    return LoadResult.failure("Language loading error: " + e.getMessage());
+                }
+            });
             
             // إزالة المهمة بعد الانتهاء
-            future.whenComplete((result, throwable) -> loadingTasks.remove(lang));
+            future.whenComplete((result, throwable) -> loadingTasks.remove(languageCode));
             
             return future;
+        });
+    }
+
+    /**
+     * تحميل عدة لغات متزامن
+     */
+    public CompletableFuture<LoadResult> loadMultipleLanguagesAsync(String... languageCodes) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                CompletableFuture<?>[] futures = new CompletableFuture[languageCodes.length];
+                
+                for (int i = 0; i < languageCodes.length; i++) {
+                    futures[i] = loadLanguageAsync(languageCodes[i]);
+                }
+                
+                CompletableFuture.allOf(futures).join();
+                
+                System.out.println("LANG LOADER: Loaded " + languageCodes.length + " languages successfully");
+                return LoadResult.success(null, "All languages loaded successfully");
+                
+            } catch (Exception e) {
+                return LoadResult.failure("Multiple language loading failed: " + e.getMessage());
+            }
         });
     }
 
@@ -46,25 +83,72 @@ public final class LangLoader {
      */
     public boolean isLanguageLoaded(String languageCode) {
         return loadingTasks.containsKey(languageCode) || 
-               DynamicLang.getInstance(context).languagePacks.containsKey(languageCode);
+               DynamicLang.getInstance(context).hasLanguagePack(languageCode);
     }
 
     /**
-     * تحميل عدة لغات متزامنة
+     * حذف لغة محملة
      */
-    public CompletableFuture<Map<String, DynamicLang.LanguagePack>> loadLanguages(String... languageCodes) {
-        CompletableFuture<?>[] futures = new CompletableFuture[languageCodes.length];
-        for (int i = 0; i < languageCodes.length; i++) {
-            futures[i] = loadLanguage(languageCodes[i]);
+    public void unloadLanguage(String languageCode) {
+        CompletableFuture<DynamicLang.LanguagePack> task = loadingTasks.remove(languageCode);
+        if (task != null) {
+            task.cancel(true);
         }
         
-        return CompletableFuture.allOf(futures)
-            .thenApply(v -> {
-                Map<String, DynamicLang.LanguagePack> result = new ConcurrentHashMap<>();
-                for (String lang : languageCodes) {
-                    result.put(lang, DynamicLang.getInstance(context).languagePacks.get(lang));
-                }
-                return result;
-            });
+        DynamicLang.getInstance(context).removeLanguagePack(languageCode);
+        System.out.println("LANG LOADER: Unloaded language " + languageCode);
+    }
+
+    /**
+     * حذف جميع اللغات المحملة (للاختبارات)
+     */
+    public void unloadAllLanguages() {
+        loadingTasks.clear();
+        DynamicLang.getInstance(context).clearAllLanguagePacks();
+        System.out.println("LANG LOADER: Unloaded all languages");
+    }
+
+    /**
+     * نتيجة التحميل
+     */
+    public static final class LoadResult {
+        private final boolean success;
+        private final DynamicLang.LanguagePack languagePack;
+        private final String message;
+
+        private LoadResult(boolean success, DynamicLang.LanguagePack languagePack, String message) {
+            this.success = success;
+            this.languagePack = languagePack;
+            this.message = message;
+        }
+
+        public static LoadResult success(DynamicLang.LanguagePack languagePack, String message) {
+            return new LoadResult(true, languagePack, message);
+        }
+
+        public static LoadResult failure(String message) {
+            return new LoadResult(false, null, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public DynamicLang.LanguagePack getLanguagePack() { return languagePack; }
+        public String getMessage() { return message; }
+    }
+
+    // --- Getters ---
+    public int getLoadingTaskCount() { return loadingTasks.size(); }
+    public int getLoadedLanguageCount() { 
+        return DynamicLang.getInstance(context).getLanguagePackCount(); 
+    }
+    public Map<String, CompletableFuture<DynamicLang.LanguagePack>> getLoadingTasks() { 
+        return new ConcurrentHashMap<>(loadingTasks); 
+    }
+    
+    /**
+     * إعادة تعيين المحمل (للاختبارات)
+     */
+    public void reset() {
+        loadingTasks.clear();
+        System.out.println("LANG LOADER: Reset completed");
     }
 }
