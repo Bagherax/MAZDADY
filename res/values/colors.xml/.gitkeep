@@ -27,4 +27,124 @@
     <color name="navigation_bar">#0f0f1b</color>
     <color name="white">#ffffff</color>
     <color name="black">#000000</color>
+    
+    <!-- ألوان التفاعل -->
+    <color name="touch_feedback">#37474F</color>
+    <color name="selected_item">#455A64</color>
+    <color name="focused_item">#546E7A</color>
+    
+    <!-- ألوان النجوم -->
+    <color name="star_gold">#FFD700</color>
+    <color name="star_silver">#C0C0C0</color>
+    <color name="star_bronze">#CD7F32</color>
+    
+    <!-- ألوان الإشعارات -->
+    <color name="notification_success">#4CAF50</color>
+    <color name="notification_warning">#FF9800</color>
+    <color name="notification_error">#F44336</color>
+    <color name="notification_info">#2196F3</color>
+    
+    <!-- ألوان التقدم -->
+    <color name="progress_primary">#4CAF50</color>
+    <color name="progress_secondary">#FF5722</color>
+    <color name="progress_background">#1a1a2e</color>
+    
+    <!-- ألوان الشريط الجانبي -->
+    <color name="sidebar_background">#1e1e2f</color>
+    <color name="sidebar_item">#2d2d44</color>
+    <color name="sidebar_item_selected">#3a3a5a</color>
+    
+    <!-- ألوان الأزرار -->
+    <color name="button_primary">#4CAF50</color>
+    <color name="button_secondary">#2196F3</color>
+    <color name="button_danger">#F44336</color>
+    <color name="button_warning">#FF9800</color>
+    <color name="button_info">#9C27B0</color>
+    <color name="button_disabled">#757575</color>
+    
+    <!-- ألوان الخلفيات المتحركة -->
+    <color name="gradient_start">#0f0f1b</color>
+    <color name="gradient_end">#1a1a2e</color>
+    <color name="glow_effect">#4CAF50</color>
+    <color name="pulse_effect">#FF5722</color>
+    
+    <!-- ألوان الرسوم البيانية -->
+    <color name="chart_line">#4CAF50</color>
+    <color name="chart_grid">#37474F</color>
+    <color name="chart_background">#0f0f1b</color>
+    <color name="chart_profit">#4CAF50</color>
+    <color name="chart_loss">#F44336</color>
+    
+    <!-- ألوان العناصر العائمة -->
+    <color name="floating_ad_background">#1a1a2e</color>
+    <color name="floating_ad_border">#4CAF50</color>
+    <color name="floating_ad_text">#ffffff</color>
+    
+    <!-- ألوان التحذيرات -->
+    <color name="warning_background">#33FF9800</color>
+    <color name="error_background">#33F44336</color>
+    <color name="success_background">#334CAF50</color>
+    <color name="info_background">#332196F3</color>
+    
+    <!-- ألوان الشاشة الترحيبية -->
+    <color name="splash_background">#0f0f1b</color>
+    <color name="splash_text">#ffffff</color>
+    <color name="splash_accent">#4CAF50</color>
+    
+    <!-- ألوان واجهة المستخدم الديناميكية -->
+    <color name="dynamic_ui_background">#1a1a2e</color>
+    <color name="dynamic_ui_text">#ffffff</color>
+    <color name="dynamic_ui_border">#4CAF50</color>
+    <color name="dynamic_ui_highlight">#FF5722</color>
+    
+    <!-- ألوان النظام البيئي -->
+    <color name="ecosystem_background">#0f0f1b</color>
+    <color name="ecosystem_text">#ffffff</color>
+    <color name="ecosystem_positive">#4CAF50</color>
+    <color name="ecosystem_negative">#F44336</color>
+    
+    <!-- ألوان المجتمع -->
+    <color name="community_background">#1a1a2e</color>
+    <color name="community_text">#ffffff</color>
+    <color name="community_points">#FFD700</color>
+    <color name="community_level">#2196F3</color>
+    
+    <!-- ألوان الأمان -->
+    <color name="security_background">#33000000</color>
+    <color name="security_text">#ffffff</color>
+    <color name="security_warning">#FF9800</color>
+    <color name="security_critical">#F44336</color>
+    <color name="security_ok">#4CAF50</color>
+    
+    <!-- ألوان الطوارئ -->
+    <color name="emergency_background">#33F44336</color>
+    <color name="emergency_text">#ffffff</color>
+    <color name="emergency_critical">#F44336</color>
+    <color name="emergency_warning">#FF9800</color>
+    <color name="emergency_info">#2196F3</color>
+    
+    <!-- ألوان التحديثات -->
+    <color name="update_background">#334CAF50</color>
+    <color name="update_text">#ffffff</color>
+    <color name="update_progress">#FF5722</color>
+    <color name="update_complete">#4CAF50</color>
+    
+    <!-- ألوان التفاعل الاجتماعي -->
+    <color name="social_background">#1a1a2e</color>
+    <color name="social_text">#ffffff</color>
+    <color name="social_engagement">#FFD700</color>
+    <color name="social_interaction">#2196F3</color>
+    
+    <!-- ألوان الأداء المالي -->
+    <color name="financial_background">#0f0f1b</color>
+    <color name="financial_text">#ffffff</color>
+    <color name="financial_profit">#4CAF50</color>
+    <color name="financial_loss">#F44336</color>
+    <color name="financial_neutral">#FF9800</color>
+    
+    <!-- ألوان المستقبل -->
+    <color name="future_background">#16213e</color>
+    <color name="future_text">#ffffff</color>
+    <color name="future_innovation">#9C27B0</color>
+    <color name="future_evolution">#00BCD4</color>
 </resources>
