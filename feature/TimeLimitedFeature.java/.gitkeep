@@ -1,157 +1,210 @@
 package mazdady.feature;
 
+import mazdady.user.User;
+import mazdady.user.UserManager;
+
 import java.time.Duration;
 import java.time.Instant;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 /**
- * ميزة مؤقتة مع دعم الحالات الديناميكية
- * يتبع نمط State لتمثيل حالة الميزة (نشطة، منتهية، معطلة)
+ * ميزة محدودة زمنيًا مع دعم التحكم المتقدم
+ * يتبع نمط State لتمثيل حالات الميزة
  */
 public final class TimeLimitedFeature {
     private final String featureId;
     private final Duration duration;
     private final Instant startTime;
-    private final AtomicReference<FeatureState> state;
-    private final Consumer<TimeLimitedFeature> onExpiryCallback;
+    private final AtomicReference<FeatureState> state = new AtomicReference<>(FeatureState.ACTIVE);
+    private final AtomicBoolean isExpired = new AtomicBoolean(false);
+    private final Consumer<FeatureEvent> eventListener;
 
-    private TimeLimitedFeature(Builder builder) {
-        this.featureId = builder.featureId;
-        this.duration = builder.duration;
+    public TimeLimitedFeature(String featureId, Duration duration, Consumer<FeatureEvent> eventListener) {
+        this.featureId = featureId;
+        this.duration = duration;
         this.startTime = Instant.now();
-        this.onExpiryCallback = builder.onExpiryCallback;
-        this.state = new AtomicReference<>(new ActiveState());
+        this.eventListener = eventListener;
+        
+        // جدولة انتهاء الميزة
+        scheduleExpiration();
+    }
+
+    private void scheduleExpiration() {
+        new Thread(() -> {
+            try {
+                Thread.sleep(duration.toMillis());
+                expireFeature();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }).start();
+    }
+
+    private void expireFeature() {
+        if (isExpired.compareAndSet(false, true)) {
+            state.set(FeatureState.EXPIRED);
+            
+            if (eventListener != null) {
+                eventListener.accept(new FeatureEvent(
+                    FeatureEvent.EventType.FEATURE_EXPIRED,
+                    featureId,
+                    "Feature expired after " + duration.getSeconds() + " seconds",
+                    Instant.now()
+                ));
+            }
+            
+            System.out.println("TIME LIMITED FEATURE: " + featureId + " expired");
+        }
     }
 
     /**
      * التحقق من صلاحية الميزة
      */
     public boolean isValid() {
-        return state.get().isValid(this);
-    }
-
-    /**
-     * الحصول على وقت الانتهاء
-     */
-    public Instant getExpiryTime() {
-        return startTime.plus(duration);
-    }
-
-    /**
-     * الحصول على الوقت المتبقي
-     */
-    public Duration getRemainingTime() {
-        Instant now = Instant.now();
-        Instant expiry = getExpiryTime();
-        return now.isBefore(expiry) ? Duration.between(now, expiry) : Duration.ZERO;
-    }
-
-    /**
-     * تجديد الميزة
-     */
-    public TimeLimitedFeature renew(Duration additionalDuration) {
-        return new Builder(this)
-            .duration(this.duration.plus(additionalDuration))
-            .build();
+        return !isExpired.get() && state.get() == FeatureState.ACTIVE;
     }
 
     /**
      * تعطيل الميزة يدويًا
      */
     public void disable() {
-        state.set(new DisabledState());
+        if (state.compareAndSet(FeatureState.ACTIVE, FeatureState.DISABLED)) {
+            isExpired.set(true);
+            
+            if (eventListener != null) {
+                eventListener.accept(new FeatureEvent(
+                    FeatureEvent.EventType.FEATURE_DISABLED,
+                    featureId,
+                    "Feature manually disabled",
+                    Instant.now()
+                ));
+            }
+            
+            System.out.println("TIME LIMITED FEATURE: " + featureId + " manually disabled");
+        }
     }
 
     /**
      * تفعيل الميزة يدويًا
      */
     public void enable() {
-        if (getRemainingTime().toMillis() > 0) {
-            state.set(new ActiveState());
+        if (isExpired.get()) return;
+        
+        if (state.compareAndSet(FeatureState.DISABLED, FeatureState.ACTIVE)) {
+            if (eventListener != null) {
+                eventListener.accept(new FeatureEvent(
+                    FeatureEvent.EventType.FEATURE_ENABLED,
+                    featureId,
+                    "Feature manually enabled",
+                    Instant.now()
+                ));
+            }
+            
+            System.out.println("TIME LIMITED FEATURE: " + featureId + " manually enabled");
         }
+    }
+
+    /**
+     * الحصول على الوقت المتبقي
+     */
+    public Duration getRemainingTime() {
+        if (isExpired.get()) return Duration.ZERO;
+        
+        Instant now = Instant.now();
+        Instant expiryTime = startTime.plus(duration);
+        return Duration.between(now, expiryTime);
+    }
+
+    /**
+     * تجديد الميزة
+     */
+    public TimeLimitedFeature renew(Duration additionalDuration) {
+        if (isExpired.get()) {
+            // إنشاء ميزة جديدة إذا كانت منتهية
+            return new TimeLimitedFeature(featureId, additionalDuration, eventListener);
+        }
+        
+        // تمديد الميزة الحالية
+        Duration newDuration = this.duration.plus(additionalDuration);
+        return new TimeLimitedFeature(featureId, newDuration, eventListener);
     }
 
     // --- Getters ---
     public String getFeatureId() { return featureId; }
     public Duration getDuration() { return duration; }
     public Instant getStartTime() { return startTime; }
-
+    public FeatureState getState() { return state.get(); }
+    public boolean isExpired() { return isExpired.get(); }
+    
     /**
-     * معالجة انتهاء الصلاحية
+     * حالة الميزة
      */
-    void handleExpiry() {
-        state.set(new ExpiredState());
-        if (onExpiryCallback != null) {
-            onExpiryCallback.accept(this);
-        }
-    }
-
-    /**
-     * واجهة حالة الميزة
-     */
-    private interface FeatureState {
-        boolean isValid(TimeLimitedFeature feature);
-    }
-
-    // --- حالات الميزة ---
-    private static final class ActiveState implements FeatureState {
-        @Override
-        public boolean isValid(TimeLimitedFeature feature) {
-            return feature.getRemainingTime().toMillis() > 0;
-        }
-    }
-
-    private static final class ExpiredState implements FeatureState {
-        @Override
-        public boolean isValid(TimeLimitedFeature feature) {
-            return false;
-        }
-    }
-
-    private static final class DisabledState implements FeatureState {
-        @Override
-        public boolean isValid(TimeLimitedFeature feature) {
-            return false;
-        }
+    public enum FeatureState {
+        ACTIVE, DISABLED, EXPIRED
     }
 
     /**
-     * منشئ الميزة المؤقتة
+     * حدث الميزة
      */
-    public static class Builder {
-        private String featureId;
-        private Duration duration;
-        private Consumer<TimeLimitedFeature> onExpiryCallback;
+    public static final class FeatureEvent {
+        private final EventType type;
+        private final String featureId;
+        private final String message;
+        private final Instant timestamp;
 
-        public Builder() {}
-
-        private Builder(TimeLimitedFeature feature) {
-            this.featureId = feature.featureId;
-            this.duration = feature.duration;
-            this.onExpiryCallback = feature.onExpiryCallback;
-        }
-
-        public Builder featureId(String featureId) {
+        public FeatureEvent(EventType type, String featureId, String message, Instant timestamp) {
+            this.type = type;
             this.featureId = featureId;
-            return this;
+            this.message = message;
+            this.timestamp = timestamp;
         }
 
-        public Builder duration(Duration duration) {
-            this.duration = duration;
-            return this;
+        public enum EventType {
+            FEATURE_EXPIRED, FEATURE_DISABLED, FEATURE_ENABLED, FEATURE_RENEWED
         }
 
-        public Builder onExpiry(Consumer<TimeLimitedFeature> callback) {
-            this.onExpiryCallback = callback;
-            return this;
+        // Getters
+        public EventType getType() { return type; }
+        public String getFeatureId() { return featureId; }
+        public String getMessage() { return message; }
+        public Instant getTimestamp() { return timestamp; }
+    }
+
+    /**
+     * نتيجة الميزة
+     */
+    public static final class FeatureResult {
+        private final boolean success;
+        private final TimeLimitedFeature feature;
+        private final String message;
+
+        private FeatureResult(boolean success, TimeLimitedFeature feature, String message) {
+            this.success = success;
+            this.feature = feature;
+            this.message = message;
         }
 
-        public TimeLimitedFeature build() {
-            if (featureId == null || duration == null) {
-                throw new IllegalArgumentException("Feature ID and duration are required");
-            }
-            return new TimeLimitedFeature(this);
+        public static FeatureResult success(TimeLimitedFeature feature, String message) {
+            return new FeatureResult(true, feature, message);
         }
+
+        public static FeatureResult failure(String message) {
+            return new FeatureResult(false, null, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public TimeLimitedFeature getFeature() { return feature; }
+        public String getMessage() { return message; }
+    }
+
+    /**
+     * إيقاف الميزة (للاختبارات)
+     */
+    public void shutdown() {
+        isExpired.set(true);
+        state.set(FeatureState.EXPIRED);
+        System.out.println("TIME LIMITED FEATURE: " + featureId + " shutdown completed");
     }
 }
