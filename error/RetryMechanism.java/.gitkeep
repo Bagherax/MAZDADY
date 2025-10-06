@@ -2,6 +2,8 @@ package mazdady.error;
 
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 
@@ -10,71 +12,93 @@ import java.util.function.Supplier;
  * يتبع نمط Strategy لفصل استراتيجيات إعادة المحاولة
  */
 public final class RetryMechanism {
-    private static final RetryMechanism INSTANCE = new RetryMechanism();
+    private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
+    private static RetryMechanism instance;
 
     private RetryMechanism() {}
 
-    public static RetryMechanism getInstance() {
-        return INSTANCE;
+    public static synchronized RetryMechanism getInstance() {
+        if (instance == null) {
+            instance = new RetryMechanism();
+        }
+        return instance;
     }
 
     /**
-     * تنفيذ عملية مع إعادة المحاولة غير المتزامنة
+     * تنفيذ عملية مع إعادة المحاولة غير متزامن
      */
-    public <T> CompletableFuture<T> executeWithRetryAsync(
+    public <T> CompletableFuture<RetryResult<T>> executeWithRetryAsync(
         Supplier<T> operation,
         RetryStrategy strategy,
         Class<? extends Exception>... retryableExceptions
     ) {
         return CompletableFuture.supplyAsync(() -> {
-            int attempt = 0;
-            long startTime = System.currentTimeMillis();
-            
-            while (attempt < strategy.getMaxAttempts()) {
-                try {
-                    T result = operation.get();
-                    if (attempt > 0) {
-                        System.out.println("RETRY: Operation succeeded on attempt " + (attempt + 1));
-                    }
-                    return result;
-                    
-                } catch (Exception e) {
-                    attempt++;
-                    boolean shouldRetry = shouldRetry(e, retryableExceptions);
-                    
-                    if (!shouldRetry || attempt >= strategy.getMaxAttempts()) {
-                        System.err.println("RETRY: Operation failed after " + attempt + " attempts");
-                        throw new RuntimeException("Operation failed after " + attempt + " attempts", e);
-                    }
-                    
-                    long delay = strategy.getDelayMs(attempt);
-                    long elapsedTime = System.currentTimeMillis() - startTime;
-                    long remainingTime = strategy.getTimeoutMs() - elapsedTime;
-                    
-                    if (remainingTime <= 0) {
-                        System.err.println("RETRY: Timeout exceeded");
-                        throw new RuntimeException("Operation timeout exceeded", e);
-                    }
-                    
-                    if (delay > remainingTime) {
-                        delay = remainingTime;
-                    }
-                    
-                    System.out.println("RETRY: Attempt " + attempt + " failed. Retrying in " + delay + "ms...");
-                    try {
-                        Thread.sleep(delay);
-                    } catch (InterruptedException ie) {
-                        Thread.currentThread().interrupt();
-                        throw new RuntimeException("Retry interrupted", ie);
-                    }
-                }
+            try {
+                RetryResult<T> result = executeWithRetry(operation, strategy, retryableExceptions);
+                return result;
+                
+            } catch (Exception e) {
+                return RetryResult.failure("Retry mechanism failed: " + e.getMessage());
             }
-            
-            throw new RuntimeException("Unexpected state in retry mechanism");
         });
     }
 
+    private <T> RetryResult<T> executeWithRetry(
+        Supplier<T> operation,
+        RetryStrategy strategy,
+        Class<? extends Exception>... retryableExceptions
+    ) {
+        int attempt = 0;
+        long startTime = System.currentTimeMillis();
+        
+        while (attempt < strategy.getMaxAttempts()) {
+            try {
+                T result = operation.get();
+                if (attempt > 0) {
+                    System.out.println("RETRY MECHANISM: Operation succeeded on attempt " + (attempt + 1));
+                }
+                return RetryResult.success(result, "Operation completed successfully");
+                
+            } catch (Exception e) {
+                attempt++;
+                boolean shouldRetry = shouldRetry(e, retryableExceptions);
+                
+                if (!shouldRetry || attempt >= strategy.getMaxAttempts()) {
+                    System.err.println("RETRY MECHANISM: Operation failed after " + attempt + " attempts");
+                    return RetryResult.failure("Operation failed after " + attempt + " attempts: " + e.getMessage());
+                }
+                
+                long delay = strategy.getDelayMs(attempt);
+                long elapsedTime = System.currentTimeMillis() - startTime;
+                long remainingTime = strategy.getTimeoutMs() - elapsedTime;
+                
+                if (remainingTime <= 0) {
+                    System.err.println("RETRY MECHANISM: Timeout exceeded");
+                    return RetryResult.failure("Operation timeout exceeded");
+                }
+                
+                if (delay > remainingTime) {
+                    delay = remainingTime;
+                }
+                
+                System.out.println("RETRY MECHANISM: Attempt " + attempt + " failed. Retrying in " + delay + "ms...");
+                try {
+                    Thread.sleep(delay);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    return RetryResult.failure("Retry interrupted");
+                }
+            }
+        }
+        
+        return RetryResult.failure("Unexpected state in retry mechanism");
+    }
+
     private boolean shouldRetry(Exception e, Class<? extends Exception>[] retryableExceptions) {
+        if (retryableExceptions == null || retryableExceptions.length == 0) {
+            return true; // إعادة المحاولة افتراضيًا
+        }
+        
         for (Class<? extends Exception> exceptionClass : retryableExceptions) {
             if (exceptionClass.isInstance(e)) {
                 return true;
@@ -84,20 +108,57 @@ public final class RetryMechanism {
     }
 
     /**
-     * واجهة استراتيجية إعادة المحاولة
+     * إعادة المحاولة لعملية غير متزامنة
+     */
+    public <T> CompletableFuture<RetryResult<T>> retryAsyncOperation(
+        Supplier<CompletableFuture<T>> asyncOperation,
+        RetryStrategy strategy
+    ) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                int attempt = 0;
+                while (attempt < strategy.getMaxAttempts()) {
+                    try {
+                        T result = asyncOperation.get().join();
+                        return RetryResult.success(result, "Async operation completed successfully");
+                        
+                    } catch (Exception e) {
+                        attempt++;
+                        if (attempt >= strategy.getMaxAttempts()) {
+                            return RetryResult.failure("Async operation failed after " + attempt + " attempts");
+                        }
+                        
+                        long delay = strategy.getDelayMs(attempt);
+                        Thread.sleep(delay);
+                    }
+                }
+                return RetryResult.failure("Async retry limit exceeded");
+                
+            } catch (Exception e) {
+                return RetryResult.failure("Async retry failed: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * إيقاف الجدولة (للاختبارات)
+     */
+    public void shutdown() {
+        scheduler.shutdown();
+        System.out.println("RETRY MECHANISM: Shutdown completed");
+    }
+
+    /**
+     * استراتيجية إعادة المحاولة
      */
     @FunctionalInterface
     public interface RetryStrategy {
         int getMaxAttempts();
         long getDelayMs(int attempt);
         long getTimeoutMs();
-    }
-
-    /**
-     * استراتيجيات مدمجة
-     */
-    public static final class Strategies {
-        public static RetryStrategy exponentialBackoff(int maxAttempts, Duration timeout) {
+        
+        // استراتيجيات مدمجة
+        static RetryStrategy exponentialBackoff(int maxAttempts, Duration timeout) {
             return new RetryStrategy() {
                 @Override public int getMaxAttempts() { return maxAttempts; }
                 @Override public long getDelayMs(int attempt) { 
@@ -107,7 +168,7 @@ public final class RetryMechanism {
             };
         }
 
-        public static RetryStrategy fixedDelay(int maxAttempts, long delayMs, Duration timeout) {
+        static RetryStrategy fixedDelay(int maxAttempts, long delayMs, Duration timeout) {
             return new RetryStrategy() {
                 @Override public int getMaxAttempts() { return maxAttempts; }
                 @Override public long getDelayMs(int attempt) { return delayMs; }
@@ -115,12 +176,39 @@ public final class RetryMechanism {
             };
         }
 
-        public static RetryStrategy noDelay(int maxAttempts, Duration timeout) {
+        static RetryStrategy noDelay(int maxAttempts, Duration timeout) {
             return new RetryStrategy() {
                 @Override public int getMaxAttempts() { return maxAttempts; }
                 @Override public long getDelayMs(int attempt) { return 0; }
                 @Override public long getTimeoutMs() { return timeout.toMillis(); }
             };
         }
+    }
+
+    /**
+     * نتيجة إعادة المحاولة
+     */
+    public static final class RetryResult<T> {
+        private final boolean success;
+        private final T result;
+        private final String message;
+
+        private RetryResult(boolean success, T result, String message) {
+            this.success = success;
+            this.result = result;
+            this.message = message;
+        }
+
+        public static <T> RetryResult<T> success(T result, String message) {
+            return new RetryResult<>(true, result, message);
+        }
+
+        public static <T> RetryResult<T> failure(String message) {
+            return new RetryResult<>(false, null, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public T getResult() { return result; }
+        public String getMessage() { return message; }
     }
 }
