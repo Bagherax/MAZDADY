@@ -1,0 +1,18 @@
+package mazdady.social;
+
+public final class InstagramPromotion implements PromotionManager.PromotionChannel {
+    @Override
+    public String getType() {
+        return "INSTAGRAM";
+    }
+
+    @Override
+    public boolean isAvailable() {
+        return true;
+    }
+
+    @Override
+    public void execute(PromotionManager.Promotion promotion) {
+        System.out.println("INSTAGRAM PROMOTION: Launching promotion " + promotion.getId() + " for user " + promotion.getAuthorId());
+    }
+}
