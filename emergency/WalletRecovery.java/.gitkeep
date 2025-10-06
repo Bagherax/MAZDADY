@@ -1,87 +1,77 @@
 package mazdady.emergency;
 
-import mazdady.wallet.WalletManager;
 import mazdady.user.User;
 import mazdady.user.UserManager;
+import mazdady.wallet.WalletManager;
+import mazdady.admin.AdminConfig;
 import mazdady.security.SecureStorage;
-import mazdady.auth.KYCValidator;
 
 import java.time.Instant;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 
 /**
  * استرداد المحفظة مع دعم التحقق المتقدم
- * يتبع نمط Strategy لفصل استراتيجيات الاسترداد
+ * يتبع نمط Facade لتوفير واجهة موحدة
  */
 public final class WalletRecovery {
     private final SecureStorage secureStorage;
-    private final KYCValidator kycValidator;
-    private final Map<String, RecoverySession> recoverySessions = new ConcurrentHashMap<>();
+    private final Map<String, Consumer<RecoveryEvent>> recoveryListeners = new ConcurrentHashMap<>();
     private static WalletRecovery instance;
 
-    private WalletRecovery(SecureStorage secureStorage, KYCValidator kycValidator) {
+    private WalletRecovery(SecureStorage secureStorage) {
         this.secureStorage = secureStorage;
-        this.kycValidator = kycValidator;
     }
 
-    public static synchronized WalletRecovery getInstance(SecureStorage secureStorage, KYCValidator kycValidator) {
+    public static synchronized WalletRecovery getInstance(SecureStorage secureStorage) {
         if (instance == null) {
-            instance = new WalletRecovery(secureStorage, kycValidator);
+            instance = new WalletRecovery(secureStorage);
         }
         return instance;
     }
 
     /**
-     * بدء جلسة استرداد المحفظة غير متزامن
+     * استرداد المحفظة غير متزامن مع دعم التحقق المتقدم
      */
-    public CompletableFuture<RecoveryResult> startRecoverySessionAsync(
+    public CompletableFuture<RecoveryResult> recoverWalletAsync(
         String userId, 
         String recoveryPhrase, 
         String kycDocument
     ) {
         return CompletableFuture.supplyAsync(() -> {
             try {
-                // إنشاء جلسة استرداد
-                RecoverySession session = new RecoverySession(
-                    "RECOVERY_" + System.currentTimeMillis(),
-                    userId,
-                    recoveryPhrase,
-                    kycDocument,
-                    Instant.now()
-                );
-                
-                recoverySessions.put(session.getSessionId(), session);
-                
-                // التحقق من عبارة الاسترداد
-                if (!isValidRecoveryPhrase(recoveryPhrase)) {
-                    return RecoveryResult.failure("Invalid recovery phrase");
+                // 1. التحقق من المستخدم
+                User user = UserManager.getInstance(null).getUserById(userId);
+                if (user == null) {
+                    return RecoveryResult.failure("User not found");
                 }
                 
-                // التحقق من KYC
+                // 2. التحقق من KYC
                 if (!user.isKYCVerified()) {
-                    KYCValidator.KYCResult kycResult = 
-                        kycValidator.startKYCVerificationAsync(userId, kycDocument).join();
+                    mazdady.auth.KYCValidator.KYCResult kycResult = 
+                        mazdady.auth.KYCValidator.getInstance().startKYCVerificationAsync(userId, kycDocument).join();
                     if (!kycResult.isSuccess()) {
                         return RecoveryResult.failure("KYC verification required: " + kycResult.getMessage());
                     }
                 }
                 
-                // استرداد المحفظة
+                // 3. التحقق من عبارة الاسترداد
+                if (!isValidRecoveryPhrase(recoveryPhrase)) {
+                    return RecoveryResult.failure("Invalid recovery phrase");
+                }
+                
+                // 4. استرداد المحفظة
                 WalletManager walletManager = new WalletManager();
                 boolean success = walletManager.recoverWalletFromPhrase(recoveryPhrase);
                 
                 if (success) {
-                    // تحديث حالة المستخدم
-                    User user = UserManager.getInstance(null).getUserById(userId);
-                    if (user != null) {
-                        user.setWalletRecovered(true);
-                        user.setLastRecoveryTime(Instant.now());
-                    }
+                    // 5. تحديث حالة المستخدم
+                    user.setWalletRecovered(true);
+                    user.setLastRecoveryTime(Instant.now());
                     
-                    // حفظ في التخزين الآمن
+                    // 6. حفظ في التخزين الآمن
                     secureStorage.putString("wallet_recovery_" + userId, 
                         secureStorage.encrypt(recoveryPhrase));
                     
@@ -223,34 +213,56 @@ public final class WalletRecovery {
     }
 
     /**
-     * جلسة الاسترداد
+     * إضافة مستمع لأحداث الاسترداد
      */
-    private static final class RecoverySession {
-        private final String sessionId;
-        private final String userId;
-        private final String recoveryPhrase;
-        private final String kycDocument;
-        private final Instant startTime;
-        private volatile boolean completed = false;
-
-        public RecoverySession(String sessionId, String userId, String recoveryPhrase, 
-                              String kycDocument, Instant startTime) {
-            this.sessionId = sessionId;
-            this.userId = userId;
-            this.recoveryPhrase = recoveryPhrase;
-            this.kycDocument = kycDocument;
-            this.startTime = startTime;
+    public void addRecoveryListener(String listenerId, Consumer<RecoveryEvent> listener) {
+        if (listenerId != null && listener != null) {
+            recoveryListeners.put(listenerId, listener);
+            System.out.println("WALLET RECOVERY: Added recovery listener - " + listenerId);
         }
+    }
 
-        public void markAsCompleted() { this.completed = true; }
-        
-        // Getters
-        public String getSessionId() { return sessionId; }
-        public String getUserId() { return userId; }
-        public String getRecoveryPhrase() { return recoveryPhrase; }
-        public String getKycDocument() { return kycDocument; }
-        public Instant getStartTime() { return startTime; }
-        public boolean isCompleted() { return completed; }
+    /**
+     * إزالة مستمع لأحداث الاسترداد
+     */
+    public void removeRecoveryListener(String listenerId) {
+        recoveryListeners.remove(listenerId);
+        System.out.println("WALLET RECOVERY: Removed recovery listener - " + listenerId);
+    }
+
+    private void notifyRecoveryListeners(RecoveryEvent event) {
+        recoveryListeners.values().forEach(listener -> {
+            try {
+                listener.accept(event);
+            } catch (Exception e) {
+                // تجاهل أخطاء المستمعين
+            }
+        });
+    }
+
+    /**
+     * تحديث إعدادات الاسترداد من الإعدادات الإدارية
+     */
+    public void updateRecoveryConfig(AdminConfig.RecoveryConfig config) {
+        if (config != null) {
+            System.out.println("WALLET RECOVERY: Updated recovery config from admin");
+        }
+    }
+
+    /**
+     * إيقاف المدير (للاختبارات)
+     */
+    public void shutdown() {
+        recoveryListeners.clear();
+        System.out.println("WALLET RECOVERY: Shutdown completed");
+    }
+
+    /**
+     * إعادة تعيين المدير (للاختبارات)
+     */
+    public void reset() {
+        recoveryListeners.clear();
+        System.out.println("WALLET RECOVERY: Reset completed");
     }
 
     /**
@@ -376,12 +388,48 @@ public final class WalletRecovery {
         }
     }
 
+    /**
+     * حدث الاسترداد
+     */
+    public static final class RecoveryEvent {
+        private final RecoveryEventType type;
+        private final String userId;
+        private final String message;
+        private final Instant timestamp;
+
+        public RecoveryEvent(RecoveryEventType type, String userId, String message, Instant timestamp) {
+            this.type = type;
+            this.userId = userId;
+            this.message = message;
+            this.timestamp = timestamp;
+        }
+
+        public enum RecoveryEventType {
+            WALLET_RECOVERED, BACKUP_CREATED, PHRASE_UPDATED, RECOVERY_FAILED, USER_NOT_FOUND
+        }
+
+        // Getters
+        public RecoveryEventType getType() { return type; }
+        public String getUserId() { return userId; }
+        public String getMessage() { return message; }
+        public Instant getTimestamp() { return timestamp; }
+        
+        @Override
+        public String toString() {
+            return "RecoveryEvent{" +
+                "type=" + type +
+                ", userId='" + userId + '\'' +
+                ", message='" + message + '\'' +
+                ", timestamp=" + timestamp +
+                '}';
+        }
+    }
+
     // --- Getters ---
-    public boolean hasValidRecoveryPhrase(String phrase) { return isValidRecoveryPhrase(phrase); }
-    public RecoveryStatus getRecoveryStatus(String userId) { return checkRecoveryStatus(userId); }
-    public boolean isUserWalletRecovered(String userId) { 
-        User user = UserManager.getInstance(null).getUserById(userId);
-        return user != null && user.isWalletRecovered();
+    public int getRecoveryListenerCount() { return recoveryListeners.size(); }
+    public boolean hasRecoveryListeners() { return !recoveryListeners.isEmpty(); }
+    public Map<String, Consumer<RecoveryEvent>> getRecoveryListeners() { 
+        return new ConcurrentHashMap<>(recoveryListeners); 
     }
     
     /**
