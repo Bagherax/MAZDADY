@@ -3,86 +3,127 @@ package mazdady.security;
 import android.content.Context;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
+import android.content.pm.Signature;
 
 import java.security.MessageDigest;
-import java.security.cert.Certificate;
+import java.util.Arrays;
+import java.util.Base64;
 
 /**
- * التحقق من سلامة التطبيق مع دعم البصمة الرقمية
+ * محقق سلامة التطبيق مع دعم التحقق المتقدم
  * يتبع نمط Singleton مع تهيئة آمنة
  */
 public final class AppIntegrityChecker {
     private final Context context;
-    private volatile String cachedAppSignature;
+    private volatile String expectedSignature;
+    private volatile boolean integrityValidated = false;
+    private static AppIntegrityChecker instance;
 
     private AppIntegrityChecker(Context context) {
         this.context = context.getApplicationContext();
+        loadExpectedSignature();
     }
 
-    public static AppIntegrityChecker create(Context context) {
-        return new AppIntegrityChecker(context);
+    public static synchronized AppIntegrityChecker getInstance(Context context) {
+        if (instance == null) {
+            instance = new AppIntegrityChecker(context);
+        }
+        return instance;
+    }
+
+    private void loadExpectedSignature() {
+        try {
+            // في الإنتاج: تحميل البصمة من السيرفر الآمن
+            this.expectedSignature = "YOUR_APP_SIGNATURE_HERE"; // محاكاة
+            System.out.println("APP INTEGRITY CHECKER: Loaded expected signature");
+            
+        } catch (Exception e) {
+            System.err.println("APP SIGNATURE LOAD ERROR: " + e.getMessage());
+        }
     }
 
     /**
-     * التحقق من سلامة التطبيق
+     * التحقق من سلامة التطبيق غير متزامن
      */
     public boolean isAppIntegrityValid() {
+        if (integrityValidated) {
+            return true;
+        }
+        
         try {
-            String currentSignature = getAppSignature();
-            String expectedSignature = getExpectedSignature();
-            return currentSignature.equals(expectedSignature);
+            String currentSignature = getCurrentAppSignature();
+            boolean isValid = expectedSignature.equals(currentSignature);
+            
+            if (isValid) {
+                integrityValidated = true;
+                System.out.println("APP INTEGRITY CHECKER: App integrity validated");
+            } else {
+                System.err.println("APP INTEGRITY CHECKER: App integrity violated!");
+                SecurityMonitor.getInstance(context).reportSuspiciousActivity(
+                    "APP_INTEGRITY_VIOLATION", 
+                    "Modified app detected"
+                );
+            }
+            
+            return isValid;
+            
         } catch (Exception e) {
+            System.err.println("APP INTEGRITY CHECK ERROR: " + e.getMessage());
             return false;
         }
     }
 
-    private String getAppSignature() {
-        if (cachedAppSignature != null) {
-            return cachedAppSignature;
+    private String getCurrentAppSignature() throws Exception {
+        PackageManager pm = context.getPackageManager();
+        PackageInfo packageInfo = pm.getPackageInfo(
+            context.getPackageName(), 
+            PackageManager.GET_SIGNATURES
+        );
+        
+        if (packageInfo.signatures != null && packageInfo.signatures.length > 0) {
+            Signature signature = packageInfo.signatures[0];
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(signature.toByteArray());
+            return Base64.getEncoder().encodeToString(hash);
         }
         
-        synchronized (this) {
-            if (cachedAppSignature != null) {
-                return cachedAppSignature;
-            }
-            
-            try {
-                PackageInfo packageInfo = context.getPackageManager()
-                    .getPackageInfo(context.getPackageName(), PackageManager.GET_SIGNATURES);
-                
-                if (packageInfo.signatures != null && packageInfo.signatures.length > 0) {
-                    Certificate certificate = packageInfo.signatures[0];
-                    byte[] signatureBytes = certificate.getEncoded();
-                    cachedAppSignature = sha256(signatureBytes);
-                    return cachedAppSignature;
-                }
-            } catch (Exception e) {
-                // تجاهل الأخطاء واعتبار التوقيع غير صالح
-            }
-            
-            return "invalid_signature";
+        throw new SecurityException("No app signature found");
+    }
+
+    /**
+     * تحديث البصمة المتوقعة من الإعدادات الإدارية
+     */
+    public void updateExpectedSignature(String newSignature) {
+        if (newSignature != null && !newSignature.isEmpty()) {
+            this.expectedSignature = newSignature;
+            this.integrityValidated = false; // إعادة التحقق
+            System.out.println("APP INTEGRITY CHECKER: Expected signature updated");
         }
     }
 
-    private String getExpectedSignature() {
-        // في الإنتاج: تحميل البصمة من السيرفر أو التكوين الآمن
-        // هنا نستخدم قيمة افتراضية لأغراض العرض
-        return "YOUR_APP_SHA256_SIGNATURE_HERE";
+    /**
+     * إعادة تعيين التحقق (للاختبارات)
+     */
+    public void resetIntegrityCheck() {
+        integrityValidated = false;
+        System.out.println("APP INTEGRITY CHECKER: Integrity check reset");
     }
 
-    private String sha256(byte[] input) {
+    // --- Getters ---
+    public boolean isIntegrityValidated() { return integrityValidated; }
+    public String getExpectedSignature() { return expectedSignature; }
+    public String getCurrentSignature() { 
         try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] hash = digest.digest(input);
-            StringBuilder hexString = new StringBuilder();
-            for (byte b : hash) {
-                String hex = Integer.toHexString(0xff & b);
-                if (hex.length() == 1) hexString.append('0');
-                hexString.append(hex);
-            }
-            return hexString.toString();
+            return getCurrentAppSignature();
         } catch (Exception e) {
-            throw new RuntimeException(e);
+            return "ERROR_GETTING_SIGNATURE";
         }
+    }
+    
+    /**
+     * التحقق من سلامة التطبيق (للاختبارات)
+     */
+    public boolean verifyAppSignature() {
+        return isAppIntegrityValid();
     }
 }
