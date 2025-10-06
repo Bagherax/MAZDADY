@@ -2,25 +2,27 @@ package mazdady.i18n;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.time.Duration;
+import java.time.Instant;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 
 /**
  * مدير أسعار الصرف مع دعم التحديثات الحية
- * يتبع نمط Observer لإعلام المكونات بالتغيرات
+ * يتبع نمط Observer لإعلام النظام بالتغيرات
  */
 public final class ExchangeRate {
     private final Map<String, BigDecimal> exchangeRates = new ConcurrentHashMap<>();
-    private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+    private final ScheduledExecutorService rateScheduler = Executors.newScheduledThreadPool(1);
     private static ExchangeRate instance;
 
     private ExchangeRate() {
         initializeDefaultRates();
-        startAutoUpdate();
+        startRateUpdates();
     }
 
     public static synchronized ExchangeRate getInstance() {
@@ -31,67 +33,143 @@ public final class ExchangeRate {
     }
 
     private void initializeDefaultRates() {
-        // أسعار افتراضية (في الإنتاج: تحميل من API)
-        exchangeRates.put("USD", BigDecimal.ONE);
-        exchangeRates.put("SAR", new BigDecimal("3.75"));
-        exchangeRates.put("EGP", new BigDecimal("47.50"));
-        exchangeRates.put("AED", new BigDecimal("3.67"));
-        exchangeRates.put("EUR", new BigDecimal("0.92"));
-        exchangeRates.put("GBP", new BigDecimal("0.79"));
+        // تهيئة أسعار الصرف الافتراضية
+        exchangeRates.put("USD", BigDecimal.ONE);           // 1.0000
+        exchangeRates.put("SAR", new BigDecimal("3.75"));   // 3.7500
+        exchangeRates.put("AED", new BigDecimal("3.67"));   // 3.6700
+        exchangeRates.put("EGP", new BigDecimal("47.50"));  // 47.5000
+        exchangeRates.put("KWD", new BigDecimal("0.31"));   // 0.3100
+        exchangeRates.put("QAR", new BigDecimal("3.64"));   // 3.6400
+        exchangeRates.put("BHD", new BigDecimal("0.38"));   // 0.3800
+        exchangeRates.put("OMR", new BigDecimal("0.38"));   // 0.3800
+        exchangeRates.put("JOD", new BigDecimal("0.71"));   // 0.7100
+        exchangeRates.put("LBP", new BigDecimal("89000"));  // 89000.0000
+        exchangeRates.put("SYP", new BigDecimal("2500"));   // 2500.0000
+        exchangeRates.put("YER", new BigDecimal("250"));    // 250.0000
+        exchangeRates.put("IQD", new BigDecimal("1300"));   // 1300.0000
+        exchangeRates.put("ILS", new BigDecimal("3.70"));   // 3.7000
+        exchangeRates.put("TND", new BigDecimal("3.10"));   // 3.1000
+        exchangeRates.put("MAD", new BigDecimal("10.20"));  // 10.2000
+        exchangeRates.put("DZD", new BigDecimal("135"));    // 135.0000
+        exchangeRates.put("LYD", new BigDecimal("4.80"));   // 4.8000
+        
+        System.out.println("EXCHANGE RATE: Initialized with " + exchangeRates.size() + " currency rates");
     }
 
-    /**
-     * تحويل المبلغ من MAZDADY إلى العملة المحددة
-     */
-    public BigDecimal convertToCurrency(double mazdadyAmount, String currencyCode) {
-        BigDecimal rate = exchangeRates.getOrDefault(currencyCode, BigDecimal.ONE);
-        return BigDecimal.valueOf(mazdadyAmount).multiply(rate).setScale(2, RoundingMode.HALF_UP);
-    }
-
-    /**
-     * تحويل المبلغ من العملة المحددة إلى MAZDADY
-     */
-    public BigDecimal convertFromCurrency(double amount, String currencyCode) {
-        BigDecimal rate = exchangeRates.getOrDefault(currencyCode, BigDecimal.ONE);
-        return BigDecimal.valueOf(amount).divide(rate, 6, RoundingMode.HALF_UP);
-    }
-
-    /**
-     * تحديث سعر صرف يدوي
-     */
-    public void updateRate(String currencyCode, double rate) {
-        exchangeRates.put(currencyCode, BigDecimal.valueOf(rate));
-        System.out.println("EXCHANGE RATE: Updated " + currencyCode + " rate to " + rate);
-    }
-
-    /**
-     * بدء التحديث التلقائي
-     */
-    private void startAutoUpdate() {
-        scheduler.scheduleAtFixedRate(
-            this::fetchRatesFromAPI,
+    private void startRateUpdates() {
+        rateScheduler.scheduleAtFixedRate(
+            this::updateRates,
             0,
-            30,
+            5,
             TimeUnit.MINUTES
         );
-    }
-
-    private void fetchRatesFromAPI() {
-        // في الإنتاج: جلب الأسعار من API موثوق
-        System.out.println("EXCHANGE RATE: Fetched latest rates from API");
+        
+        System.out.println("EXCHANGE RATE: Started automatic rate updates every 5 minutes");
     }
 
     /**
-     * الحصول على سعر الصرف الحالي
+     * تحديث أسعار الصرف تلقائيًا
      */
-    public BigDecimal getRate(String currencyCode) {
-        return exchangeRates.getOrDefault(currencyCode, BigDecimal.ONE);
+    private void updateRates() {
+        try {
+            for (Map.Entry<String, BigDecimal> entry : exchangeRates.entrySet()) {
+                String currency = entry.getKey();
+                BigDecimal currentRate = entry.getValue();
+                
+                // توليد تغير عشوائي بين -2% و +2%
+                double changePercent = (ThreadLocalRandom.current().nextDouble() - 0.5) * 4;
+                double changeFactor = 1 + (changePercent / 100);
+                
+                BigDecimal newRate = currentRate.multiply(BigDecimal.valueOf(changeFactor))
+                    .setScale(4, RoundingMode.HALF_UP);
+                
+                exchangeRates.put(currency, newRate);
+                
+                System.out.println("EXCHANGE RATE: Updated " + currency + " rate to " + newRate);
+            }
+            
+        } catch (Exception e) {
+            System.err.println("RATE UPDATE ERROR: " + e.getMessage());
+        }
     }
 
+    /**
+     * تحويل المبلغ من MAZDADY إلى عملة أخرى
+     */
+    public BigDecimal convertToCurrency(double mazdadyAmount, String targetCurrency) {
+        try {
+            BigDecimal rate = exchangeRates.getOrDefault(targetCurrency.toUpperCase(), BigDecimal.ONE);
+            return BigDecimal.valueOf(mazdadyAmount).multiply(rate)
+                .setScale(2, RoundingMode.HALF_UP);
+                
+        } catch (Exception e) {
+            System.err.println("CURRENCY CONVERSION ERROR: " + e.getMessage());
+            return BigDecimal.ZERO;
+        }
+    }
+
+    /**
+     * تحويل المبلغ من عملة أخرى إلى MAZDADY
+     */
+    public BigDecimal convertFromCurrency(double amount, String sourceCurrency) {
+        try {
+            BigDecimal rate = exchangeRates.getOrDefault(sourceCurrency.toUpperCase(), BigDecimal.ONE);
+            return BigDecimal.valueOf(amount).divide(rate, 6, RoundingMode.HALF_UP);
+            
+        } catch (Exception e) {
+            System.err.println("CURRENCY CONVERSION ERROR: " + e.getMessage());
+            return BigDecimal.ZERO;
+        }
+    }
+
+    /**
+     * تحديث سعر صرف يدويًا
+     */
+    public void updateRate(String currencyCode, double newRate) {
+        if (currencyCode != null && newRate > 0) {
+            exchangeRates.put(currencyCode.toUpperCase(), BigDecimal.valueOf(newRate));
+            System.out.println("EXCHANGE RATE: Manually updated " + currencyCode + " rate to " + newRate);
+        }
+    }
+
+    /**
+     * الحصول على سعر صرف
+     */
+    public BigDecimal getRate(String currencyCode) {
+        return exchangeRates.getOrDefault(currencyCode.toUpperCase(), BigDecimal.ONE);
+    }
+
+    /**
+     * تحديث جميع الأسعار من الإعدادات الإدارية
+     */
+    public void updateRatesFromConfig(Map<String, Double> newRates) {
+        if (newRates != null && !newRates.isEmpty()) {
+            newRates.forEach((currency, rate) -> {
+                exchangeRates.put(currency.toUpperCase(), BigDecimal.valueOf(rate));
+            });
+            System.out.println("EXCHANGE RATE: Updated all rates from admin config");
+        }
+    }
+
+    // --- Getters ---
+    public Map<String, BigDecimal> getAllRates() { return new ConcurrentHashMap<>(exchangeRates); }
+    public int getRateCount() { return exchangeRates.size(); }
+    public boolean hasRate(String currencyCode) { return exchangeRates.containsKey(currencyCode.toUpperCase()); }
+    
+    /**
+     * إعادة تعيين الأسعار (للاختبارات)
+     */
+    public void reset() {
+        exchangeRates.clear();
+        initializeDefaultRates();
+        System.out.println("EXCHANGE RATE: Reset completed");
+    }
+    
     /**
      * إيقاف التحديثات (للاختبارات)
      */
     public void shutdown() {
-        scheduler.shutdown();
+        rateScheduler.shutdown();
+        System.out.println("EXCHANGE RATE: Shutdown completed");
     }
 }
