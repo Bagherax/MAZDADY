@@ -1,0 +1,311 @@
+package mazdady.feature;
+
+import mazdady.trading.PriceEngine;
+import mazdady.trading.TradingLineView;
+import mazdady.user.User;
+import mazdady.user.UserManager;
+
+import java.time.Instant;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.TimeUnit;
+
+/**
+ * مشغل العملات المغامرة مع دعم الحركة الدرامية
+ * يتبع نمط Observer لإعلام النظام بحركة العملات
+ */
+public final class AdventureCoinLauncher {
+    private final PriceEngine priceEngine;
+    private final TradingLineView tradingLineView;
+    private final ScheduledExecutorService adventureScheduler = Executors.newScheduledThreadPool(2);
+    private static AdventureCoinLauncher instance;
+
+    private AdventureCoinLauncher(PriceEngine priceEngine, TradingLineView tradingLineView) {
+        this.priceEngine = priceEngine;
+        this.tradingLineView = tradingLineView;
+    }
+
+    public static synchronized AdventureCoinLauncher getInstance(PriceEngine priceEngine, TradingLineView tradingLineView) {
+        if (instance == null) {
+            instance = new AdventureCoinLauncher(priceEngine, tradingLineView);
+        }
+        return instance;
+    }
+
+    /**
+     * إطلاق عملات مغامرة غير متزامن
+     */
+    public CompletableFuture<LaunchResult> launchAdventureCoinsAsync(
+        String userId, 
+        double coinAmount,
+        AdventureStrategy strategy
+    ) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                User user = UserManager.getInstance(null).getUserById(userId);
+                if (user == null) {
+                    return LaunchResult.failure("User not found");
+                }
+                
+                if (user.getBalance() < coinAmount) {
+                    return LaunchResult.failure("Insufficient balance");
+                }
+                
+                // خصم العملات من الرصيد
+                user.setBalance(user.getBalance() - coinAmount);
+                
+                // بدء المغامرة
+                AdventureCoin coin = new AdventureCoin(
+                    "AC_" + System.currentTimeMillis(),
+                    userId,
+                    coinAmount,
+                    strategy,
+                    Instant.now()
+                );
+                
+                // عرض العملة على خط التداول
+                tradingLineView.addAdventureCoin(coin);
+                
+                // بدء حركة المغامرة
+                startAdventureJourney(coin);
+                
+                System.out.println("ADVENTURE COIN LAUNCHER: Launched " + coinAmount + 
+                                 " MAZDADY coins for user " + userId + 
+                                 " with strategy " + strategy.getName());
+                
+                return LaunchResult.success(coinAmount, "Adventure coins launched successfully");
+                
+            } catch (Exception e) {
+                return LaunchResult.failure("Adventure coin launch failed: " + e.getMessage());
+            }
+        });
+    }
+
+    private void startAdventureJourney(AdventureCoin coin) {
+        adventureScheduler.scheduleAtFixedRate(
+            () -> updateCoinAdventure(coin),
+            0,
+            ThreadLocalRandom.current().nextInt(2, 6), // كل 2-5 ثواني
+            TimeUnit.SECONDS
+        );
+        
+        // جدولة انتهاء المغامرة بعد 30 ثانية
+        adventureScheduler.schedule(
+            () -> endAdventure(coin),
+            30,
+            TimeUnit.SECONDS
+        );
+    }
+
+    private void updateCoinAdventure(AdventureCoin coin) {
+        try {
+            if (!coin.isActive()) return;
+            
+            // حساب التغير السعري
+            double currentPrice = priceEngine.getCurrentPrice();
+            double priceChange = ThreadLocalRandom.current().nextDouble(-5, 5); // تغير عشوائي بين -5% و +5%
+            double newPrice = currentPrice * (1 + priceChange / 100);
+            
+            // تحديث حالة العملة
+            coin.updatePosition(newPrice);
+            
+            // عرض التأثير البصري
+            showAdventureEffect(coin, priceChange);
+            
+            // التحقق من تحقيق الهدف
+            if (coin.hasReachedGoal()) {
+                completeAdventureSuccessfully(coin);
+            }
+            
+        } catch (Exception e) {
+            System.err.println("ADVENTURE UPDATE ERROR: " + e.getMessage());
+        }
+    }
+
+    private void showAdventureEffect(AdventureCoin coin, double priceChange) {
+        String effectType = priceChange > 0 ? "profit" : "loss";
+        double intensity = Math.abs(priceChange);
+        
+        tradingLineView.showAdventureEffect(
+            coin.getCoinId(),
+            effectType,
+            intensity,
+            coin.getCurrentPosition()
+        );
+        
+        System.out.println("ADVENTURE EFFECT: " + coin.getCoinId() + 
+                         " - " + effectType + " - Intensity: " + String.format("%.2f", intensity) + "%");
+    }
+
+    private void completeAdventureSuccessfully(AdventureCoin coin) {
+        try {
+            User user = UserManager.getInstance(null).getUserById(coin.getUserId());
+            if (user != null) {
+                double reward = coin.getAmount() * 1.5; // مكافأة 50%
+                user.setBalance(user.getBalance() + reward);
+                
+                System.out.println("ADVENTURE SUCCESS: " + coin.getUserId() + 
+                                 " earned " + String.format("%.2f", reward) + " MAZDADY");
+                
+                // عرض تأثير الفوز
+                tradingLineView.showVictoryEffect(coin.getCoinId(), reward);
+            }
+            
+            coin.deactivate();
+            tradingLineView.removeAdventureCoin(coin.getCoinId());
+            
+        } catch (Exception e) {
+            System.err.println("ADVENTURE SUCCESS ERROR: " + e.getMessage());
+        }
+    }
+
+    private void endAdventure(AdventureCoin coin) {
+        try {
+            if (coin.isActive()) {
+                coin.deactivate();
+                tradingLineView.removeAdventureCoin(coin.getCoinId());
+                
+                System.out.println("ADVENTURE ENDED: " + coin.getCoinId() + " adventure completed");
+                
+                // عرض تأثير النهاية
+                tradingLineView.showEndAdventureEffect(coin.getCoinId(), coin.getAmount());
+            }
+            
+        } catch (Exception e) {
+            System.err.println("ADVENTURE END ERROR: " + e.getMessage());
+        }
+    }
+
+    /**
+     * نتيجة الإطلاق
+     */
+    public static final class LaunchResult {
+        private final boolean success;
+        private final double coinAmount;
+        private final String message;
+
+        private LaunchResult(boolean success, double coinAmount, String message) {
+            this.success = success;
+            this.coinAmount = coinAmount;
+            this.message = message;
+        }
+
+        public static LaunchResult success(double coinAmount, String message) {
+            return new LaunchResult(true, coinAmount, message);
+        }
+
+        public static LaunchResult failure(String message) {
+            return new LaunchResult(false, 0, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public double getCoinAmount() { return coinAmount; }
+        public String getMessage() { return message; }
+    }
+
+    /**
+     * عملة المغامرة
+     */
+    public static final class AdventureCoin {
+        private final String coinId;
+        private final String userId;
+        private final double amount;
+        private final AdventureStrategy strategy;
+        private final Instant launchTime;
+        private volatile double currentPosition = 100.0; // السعر الحالي
+        private volatile boolean active = true;
+        private volatile double goalPosition; // الهدف السعري
+        private volatile Instant lastUpdate = Instant.now();
+
+        public AdventureCoin(String coinId, String userId, double amount, 
+                           AdventureStrategy strategy, Instant launchTime) {
+            this.coinId = coinId;
+            this.userId = userId;
+            this.amount = amount;
+            this.strategy = strategy;
+            this.launchTime = launchTime;
+            this.goalPosition = calculateGoalPosition(strategy);
+        }
+
+        private double calculateGoalPosition(AdventureStrategy strategy) {
+            switch (strategy) {
+                case AGGRESSIVE:
+                    return 120.0; // هدف عالي
+                case CONSERVATIVE:
+                    return 105.0; // هدف متوسط
+                case BALANCED:
+                    return 110.0; // هدف متوازن
+                default:
+                    return 105.0;
+            }
+        }
+
+        public void updatePosition(double newPosition) {
+            this.currentPosition = newPosition;
+            this.lastUpdate = Instant.now();
+        }
+
+        public boolean hasReachedGoal() {
+            return currentPosition >= goalPosition;
+        }
+
+        public void deactivate() {
+            this.active = false;
+        }
+
+        // Getters
+        public String getCoinId() { return coinId; }
+        public String getUserId() { return userId; }
+        public double getAmount() { return amount; }
+        public AdventureStrategy getStrategy() { return strategy; }
+        public Instant getLaunchTime() { return launchTime; }
+        public double getCurrentPosition() { return currentPosition; }
+        public boolean isActive() { return active; }
+        public double getGoalPosition() { return goalPosition; }
+        public Instant getLastUpdate() { return lastUpdate; }
+    }
+
+    /**
+     * استراتيجيات المغامرة
+     */
+    public enum AdventureStrategy {
+        AGGRESSIVE("مغامرة عالية المخاطر"),
+        CONSERVATIVE("مغامرة منخفضة المخاطر"),
+        BALANCED("مغامرة متوازنة");
+
+        private final String displayName;
+
+        AdventureStrategy(String displayName) {
+            this.displayName = displayName;
+        }
+
+        public String getName() { return displayName; }
+    }
+
+    /**
+     * إيقاف المشغل (للاختبارات)
+     */
+    public void shutdown() {
+        adventureScheduler.shutdown();
+        System.out.println("ADVENTURE COIN LAUNCHER: Shutdown completed");
+    }
+
+    // --- Getters ---
+    public int getActiveAdventureCount() {
+        return (int) adventureScheduler.getActiveCount();
+    }
+    
+    public boolean hasActiveAdventures() {
+        return adventureScheduler.getActiveCount() > 0;
+    }
+    
+    /**
+     * إعادة تعيين المشغل (للاختبارات)
+     */
+    public void reset() {
+        shutdown();
+        System.out.println("ADVENTURE COIN LAUNCHER: Reset completed");
+    }
+}
