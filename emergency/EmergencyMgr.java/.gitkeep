@@ -52,7 +52,7 @@ public final class EmergencyMgr {
     }
 
     /**
-     * التحقق من وجود طوارئ غير متزامن
+     * التحقق من وجود أزمات غير متزامن
      */
     private void checkForEmergencies() {
         try {
@@ -126,7 +126,7 @@ public final class EmergencyMgr {
     }
 
     /**
-     * تفعيل طوارئ غير متزامن
+     * تفعيل أزمة غير متزامن
      */
     public CompletableFuture<EmergencyResult> triggerEmergencyAsync(EmergencyType emergencyType, String reason) {
         return CompletableFuture.supplyAsync(() -> {
@@ -146,7 +146,7 @@ public final class EmergencyMgr {
         EmergencyEvent event = new EmergencyEvent(emergencyType, reason, Instant.now());
         notifyEmergencyListeners(event);
         
-        // تسجيل الطوارئ في السجل الأمني
+        // تسجيل الأزمة في السجل الأمني
         securityMonitor.reportEmergency(emergencyType.name(), reason);
         
         // تطبيق إجراءات الطوارئ
@@ -258,7 +258,7 @@ public final class EmergencyMgr {
     }
 
     /**
-     * إضافة مستمع للطوارئ
+     * إضافة مستمع للأزمات
      */
     public void addEmergencyListener(String listenerId, Consumer<EmergencyEvent> listener) {
         if (listenerId != null && listener != null) {
@@ -268,17 +268,24 @@ public final class EmergencyMgr {
     }
 
     /**
-     * إزالة مستمع للطوارئ
+     * إزالة مستمع للأزمات
      */
     public void removeEmergencyListener(String listenerId) {
-        if (listenerId != null) {
-            emergencyListeners.remove(listenerId);
-            System.out.println("EMERGENCY MGR: Removed emergency listener - " + listenerId);
+        emergencyListeners.remove(listenerId);
+        System.out.println("EMERGENCY MGR: Removed emergency listener - " + listenerId);
+    }
+
+    /**
+     * تحديث إعدادات الطوارئ من الإعدادات الإدارية
+     */
+    public void updateEmergencyConfig(AdminConfig.EmergencyConfig config) {
+        if (config != null) {
+            System.out.println("EMERGENCY MGR: Updated emergency config from admin");
         }
     }
 
     /**
-     * إيقاف المراقبة (للاختبارات)
+     * إيقاف المدير (للاختبارات)
      */
     public void shutdown() {
         emergencyScheduler.shutdown();
@@ -287,14 +294,16 @@ public final class EmergencyMgr {
     }
 
     /**
-     * نوع الطوارئ
+     * إعادة تعيين المدير (للاختبارات)
      */
-    public enum EmergencyType {
-        WALLET_CRISIS, SECURITY_CRISIS, SYSTEM_CRISIS, FINANCIAL_CRISIS
+    public void reset() {
+        emergencyModeActive = false;
+        emergencyListeners.clear();
+        System.out.println("EMERGENCY MGR: Reset completed");
     }
 
     /**
-     * حدث الطوارئ
+     * حدث الأزمة
      */
     public static final class EmergencyEvent {
         private final EmergencyType type;
@@ -307,6 +316,11 @@ public final class EmergencyMgr {
             this.timestamp = timestamp;
         }
 
+        public enum EmergencyType {
+            WALLET_CRISIS, SECURITY_CRISIS, SYSTEM_CRISIS, FINANCIAL_CRISIS
+        }
+
+        // Getters
         public EmergencyType getType() { return type; }
         public String getReason() { return reason; }
         public Instant getTimestamp() { return timestamp; }
@@ -322,7 +336,7 @@ public final class EmergencyMgr {
     }
 
     /**
-     * نتيجة الطوارئ
+     * نتيجة الأزمة
      */
     public static final class EmergencyResult {
         private final boolean success;
@@ -348,16 +362,8 @@ public final class EmergencyMgr {
     // --- Getters ---
     public boolean isEmergencyModeActive() { return emergencyModeActive; }
     public int getEmergencyListenerCount() { return emergencyListeners.size(); }
-    public EmergencyType getCurrentEmergencyType() { 
-        // في الإنتاج: الحصول من حالة النظام
-        return EmergencyType.SYSTEM_CRISIS; // محاكاة
-    }
-    
-    /**
-     * إعادة تعيين حالة الطوارئ (للاختبارات)
-     */
-    public void resetEmergencyState() {
-        emergencyModeActive = false;
-        System.out.println("EMERGENCY MGR: Emergency state reset");
+    public boolean hasEmergencyListeners() { return !emergencyListeners.isEmpty(); }
+    public Map<String, Consumer<EmergencyEvent>> getEmergencyListeners() { 
+        return new ConcurrentHashMap<>(emergencyListeners); 
     }
 }
