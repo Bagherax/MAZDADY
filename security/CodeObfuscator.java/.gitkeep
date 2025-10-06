@@ -1,49 +1,166 @@
 package mazdady.security;
 
 import java.security.MessageDigest;
+import java.security.SecureRandom;
 import java.util.Base64;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * مشفر الكود مع دعم الحماية من الهندسة العكسية
- * يتبع نمط Strategy لفصل خوارزميات التشفير
+ * يتبع نمط Strategy لفصل استراتيجيات التشفير
  */
 public final class CodeObfuscator {
-    private static final String SALT = "MAZDADY_OBFUSCATION_SALT_2025";
+    private final SecureRandom secureRandom = new SecureRandom();
+    private final Map<String, String> obfuscationCache = new ConcurrentHashMap<>();
+    private static CodeObfuscator instance;
 
     private CodeObfuscator() {}
 
+    public static synchronized CodeObfuscator getInstance() {
+        if (instance == null) {
+            instance = new CodeObfuscator();
+        }
+        return instance;
+    }
+
     /**
-     * تشويش سلسلة نصية
+     * تشويش سلسلة نصية غير متزامن
      */
-    public static String obfuscate(String input) {
+    public String obfuscate(String input) {
         if (input == null || input.isEmpty()) {
             return input;
         }
         
+        // التحقق من الكاش أولاً
+        String cached = obfuscationCache.get(input);
+        if (cached != null) {
+            return cached;
+        }
+        
         try {
-            String saltedInput = input + SALT + System.currentTimeMillis();
+            // إنشاء ملح عشوائي
+            byte[] salt = new byte[16];
+            secureRandom.nextBytes(salt);
+            
+            // دمج المدخلات مع الملح
+            String saltedInput = input + Base64.getEncoder().encodeToString(salt) + 
+                               System.currentTimeMillis();
+            
+            // تشفير باستخدام SHA-256
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             byte[] hash = digest.digest(saltedInput.getBytes("UTF-8"));
-            return Base64.getEncoder().encodeToString(hash);
+            
+            // تحويل إلى سلسلة Base64
+            String obfuscated = Base64.getEncoder().encodeToString(hash);
+            
+            // حفظ في الكاش
+            obfuscationCache.put(input, obfuscated);
+            
+            System.out.println("CODE OBFUSCATOR: Obfuscated input - Length: " + 
+                             input.length() + " chars -> " + obfuscated.length() + " chars");
+            
+            return obfuscated;
+            
         } catch (Exception e) {
-            return input; // في حالة الفشل، إرجاع النص الأصلي
+            System.err.println("CODE OBFUSCATION ERROR: " + e.getMessage());
+            return input; // إرجاع النص الأصلي في حال الفشل
         }
     }
 
     /**
-     * فك تشويش سلسلة نصية (غير ممكن - للعرض فقط)
+     * تشويش مصفوفة بايتات
      */
-    public static String deobfuscate(String obfuscated) {
-        // في الواقع، التشويش أحادي الاتجاه
-        // هذا للعرض فقط
-        return "DEOBFUSCATED";
+    public byte[] obfuscateBytes(byte[] input) {
+        if (input == null || input.length == 0) {
+            return input;
+        }
+        
+        try {
+            // إنشاء مفتاح تشفير عشوائي
+            byte[] key = new byte[32];
+            secureRandom.nextBytes(key);
+            
+            // تطبيق XOR مع المفتاح
+            byte[] obfuscated = new byte[input.length];
+            for (int i = 0; i < input.length; i++) {
+                obfuscated[i] = (byte) (input[i] ^ key[i % key.length]);
+            }
+            
+            System.out.println("CODE OBFUSCATOR: Obfuscated " + input.length + " bytes");
+            return obfuscated;
+            
+        } catch (Exception e) {
+            System.err.println("BYTE OBFUSCATION ERROR: " + e.getMessage());
+            return input;
+        }
     }
 
     /**
-     * التحقق من صحة السلسلة المشوشة
+     * تشويش اسم ملف
      */
-    public static boolean verifyObfuscated(String original, String obfuscated) {
-        // في الإنتاج: مقارنة القيم المشوشة
-        return obfuscate(original).equals(obfuscated);
+    public String obfuscateFileName(String fileName) {
+        if (fileName == null || fileName.isEmpty()) {
+            return fileName;
+        }
+        
+        try {
+            String nameWithoutExt = fileName.contains(".") ? 
+                fileName.substring(0, fileName.lastIndexOf('.')) : fileName;
+            String extension = fileName.contains(".") ? 
+                fileName.substring(fileName.lastIndexOf('.')) : "";
+            
+            String obfuscatedName = obfuscate(nameWithoutExt);
+            return obfuscatedName.substring(0, Math.min(32, obfuscatedName.length())) + extension;
+            
+        } catch (Exception e) {
+            return fileName;
+        }
+    }
+
+    /**
+     * تشويش مسار ملف
+     */
+    public String obfuscateFilePath(String filePath) {
+        if (filePath == null || filePath.isEmpty()) {
+            return filePath;
+        }
+        
+        try {
+            String[] parts = filePath.split("/");
+            StringBuilder obfuscatedPath = new StringBuilder();
+            
+            for (int i = 0; i < parts.length; i++) {
+                if (i > 0) obfuscatedPath.append("/");
+                obfuscatedPath.append(obfuscateFileName(parts[i]));
+            }
+            
+            System.out.println("CODE OBFUSCATOR: Obfuscated path - " + filePath + " -> " + obfuscatedPath);
+            return obfuscatedPath.toString();
+            
+        } catch (Exception e) {
+            return filePath;
+        }
+    }
+
+    /**
+     * مسح الكاش (للاختبارات)
+     */
+    public void clearCache() {
+        obfuscationCache.clear();
+        System.out.println("CODE OBFUSCATOR: Cache cleared");
+    }
+
+    // --- Getters ---
+    public int getCacheSize() { return obfuscationCache.size(); }
+    public boolean hasCachedObfuscation(String input) { return obfuscationCache.containsKey(input); }
+    public Map<String, String> getObfuscationCache() { return new ConcurrentHashMap<>(obfuscationCache); }
+    
+    /**
+     * إعادة تعيين المشفر (للاختبارات)
+     */
+    public void reset() {
+        clearCache();
+        System.out.println("CODE OBFUSCATOR: Reset completed");
     }
 }
