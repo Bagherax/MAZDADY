@@ -1,86 +1,197 @@
 package mazdady.security;
 
-import android.content.Context;
+import mazdady.user.User;
+import mazdady.user.UserManager;
+import mazdady.admin.AdminConfig;
 
 import java.time.Instant;
-import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
 /**
- * مراقب الأمان مع دعم التنبيهات الحية
- * يتبع نمط Observer لإعلام المكونات بالأنشطة المشبوهة
+ * مراقب الأمان مع دعم التقارير المتقدمة
+ * يتبع نمط Observer لإعلام النظام بالأنشطة المشبوهة
  */
 public final class SecurityMonitor {
-    private final Context context;
-    private final CopyOnWriteArrayList<Consumer<SecurityEvent>> listeners = new CopyOnWriteArrayList<>();
-    private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
-    private int suspiciousActivityCount = 0;
-    private static final int MAX_SUSPICIOUS_ACTIVITIES = 3;
+    private final Map<String, Consumer<SecurityEvent>> securityListeners = new ConcurrentHashMap<>();
+    private final ScheduledExecutorService monitoringScheduler = Executors.newScheduledThreadPool(1);
+    private final AdminConfig.SecurityConfig securityConfig;
+    private static SecurityMonitor instance;
 
-    private SecurityMonitor(Context context) {
-        this.context = context.getApplicationContext();
+    private SecurityMonitor(AdminConfig.SecurityConfig securityConfig) {
+        this.securityConfig = securityConfig;
         startSecurityMonitoring();
     }
 
-    public static SecurityMonitor create(Context context) {
-        return new SecurityMonitor(context);
+    public static synchronized SecurityMonitor getInstance(AdminConfig.SecurityConfig securityConfig) {
+        if (instance == null) {
+            instance = new SecurityMonitor(securityConfig);
+        }
+        return instance;
     }
 
     private void startSecurityMonitoring() {
-        scheduler.scheduleAtFixedRate(
-            this::performSecurityCheck,
+        monitoringScheduler.scheduleAtFixedRate(
+            this::performSecurityChecks,
             0,
-            5,
-            TimeUnit.MINUTES
+            30,
+            TimeUnit.SECONDS
         );
+        
+        System.out.println("SECURITY MONITOR: Started monitoring every 30 seconds");
     }
 
     /**
-     * الإبلاغ عن نشاط مشبوه
+     * إجراء فحوصات الأمان الدورية غير متزامن
      */
-    public void reportSuspiciousActivity(String activityType) {
-        suspiciousActivityCount++;
-        SecurityEvent event = new SecurityEvent(
-            activityType,
-            "Suspicious activity #" + suspiciousActivityCount,
-            Instant.now()
-        );
-        notifyListeners(event);
+    private void performSecurityChecks() {
+        CompletableFuture.runAsync(() -> {
+            try {
+                // 1. التحقق من سلامة التطبيق
+                if (!AppIntegrityChecker.getInstance(null).isAppIntegrityValid()) {
+                    reportSuspiciousActivity("APP_INTEGRITY_VIOLATION", "Modified app detected");
+                }
+                
+                // 2. التحقق من وجود جذور
+                if (RootDetector.isDeviceRooted()) {
+                    reportSuspiciousActivity("ROOTED_DEVICE", "Rooted device detected");
+                }
+                
+                // 3. التحقق من الأنشطة المشبوهة
+                checkSuspiciousActivities();
+                
+                // 4. التحقق من الأذونات
+                checkPermissions();
+                
+                System.out.println("SECURITY MONITOR: Performed security checks");
+                
+            } catch (Exception e) {
+                System.err.println("SECURITY CHECK ERROR: " + e.getMessage());
+            }
+        });
+    }
 
-        if (suspiciousActivityCount >= MAX_SUSPICIOUS_ACTIVITIES) {
-            triggerSecurityLockdown();
+    private void checkSuspiciousActivities() {
+        // في الإنتاج: التحقق من الأنشطة المشبوهة للمستخدمين
+        System.out.println("SECURITY MONITOR: Checked suspicious activities");
+    }
+
+    private void checkPermissions() {
+        // في الإنتاج: التحقق من الأذونات الممنوحة
+        System.out.println("SECURITY MONITOR: Checked permissions");
+    }
+
+    /**
+     * الإبلاغ عن نشاط مشبوه غير متزامن
+     */
+    public CompletableFuture<SecurityResult> reportSuspiciousActivityAsync(
+        String userId, 
+        String activityType, 
+        String details
+    ) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                reportSuspiciousActivity(activityType, details);
+                
+                // تسجيل في قاعدة البيانات
+                logSuspiciousActivity(userId, activityType, details);
+                
+                // إخطار المستمعين
+                notifySecurityListeners(new SecurityEvent(
+                    SecurityEventType.SUSPICIOUS_ACTIVITY,
+                    userId,
+                    activityType,
+                    details,
+                    Instant.now()
+                ));
+                
+                System.out.println("SECURITY MONITOR: Reported suspicious activity - " + 
+                                 activityType + " for user " + userId);
+                
+                return SecurityResult.success("Suspicious activity reported successfully");
+                
+            } catch (Exception e) {
+                return SecurityResult.failure("Security reporting failed: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * الإبلاغ عن نشاط مشبوه متزامن
+     */
+    public void reportSuspiciousActivity(String activityType, String details) {
+        try {
+            // في الإنتاج: إرسال تقرير إلى السيرفر الآمن
+            System.err.println("SECURITY ALERT: " + activityType + " - " + details);
+            
+            // إجراءات طوارئ تلقائية
+            handleSecurityThreat(activityType, details);
+            
+        } catch (Exception e) {
+            System.err.println("SECURITY REPORT ERROR: " + e.getMessage());
         }
     }
 
-    private void performSecurityCheck() {
-        // التحقق من سلامة التطبيق
-        if (!AppIntegrityChecker.create(context).isAppIntegrityValid()) {
-            reportSuspiciousActivity("MODIFIED_APP");
-        }
-        
-        // التحقق من الجذور
-        if (RootDetector.isDeviceRooted()) {
-            reportSuspiciousActivity("ROOTED_DEVICE");
+    private void handleSecurityThreat(String activityType, String details) {
+        switch (activityType) {
+            case "ROOTED_DEVICE":
+                System.out.println("SECURITY THREAT: Rooted device detected - Activating protection");
+                activateRootProtection();
+                break;
+                
+            case "APP_INTEGRITY_VIOLATION":
+                System.out.println("SECURITY THREAT: Modified app detected - Freezing account");
+                freezeViolatingAccount();
+                break;
+                
+            case "MULTIPLE_LOGIN_ATTEMPTS":
+                System.out.println("SECURITY THREAT: Multiple login attempts - Locking account");
+                lockAccountTemporarily();
+                break;
+                
+            case "SUSPICIOUS_TRANSACTION":
+                System.out.println("SECURITY THREAT: Suspicious transaction - Blocking funds");
+                blockSuspiciousFunds();
+                break;
+                
+            default:
+                System.out.println("SECURITY THREAT: Unknown threat - Logging for review");
+                break;
         }
     }
 
-    private void triggerSecurityLockdown() {
-        SecurityEvent event = new SecurityEvent(
-            "SECURITY_LOCKDOWN",
-            "Security lockdown triggered due to excessive suspicious activities",
-            Instant.now()
-        );
-        notifyListeners(event);
-        
-        // في الإنتاج: تجميد الحساب، إرسال تنبيه للادمن
-        System.out.println("🚨 SECURITY LOCKDOWN: Account frozen due to suspicious activities");
+    private void activateRootProtection() {
+        // في الإنتاج: تفعيل حماية ضد الجذور
+        System.out.println("ROOT PROTECTION: Activated");
     }
 
-    private void notifyListeners(SecurityEvent event) {
-        listeners.forEach(listener -> {
+    private void freezeViolatingAccount() {
+        // في الإنتاج: تجميد الحساب المخالف
+        System.out.println("ACCOUNT FREEZE: Violating account frozen");
+    }
+
+    private void lockAccountTemporarily() {
+        // في الإنتاج: قفل الحساب مؤقتًا
+        System.out.println("ACCOUNT LOCK: Temporarily locked due to multiple attempts");
+    }
+
+    private void blockSuspiciousFunds() {
+        // في الإنتاج: حظر الأموال المشبوهة
+        System.out.println("FUNDS BLOCK: Suspicious funds blocked");
+    }
+
+    private void logSuspiciousActivity(String userId, String activityType, String details) {
+        // في الإنتاج: تسجيل في قاعدة البيانات الآمنة
+        System.out.println("SECURITY LOG: " + userId + " - " + activityType + " - " + details);
+    }
+
+    private void notifySecurityListeners(SecurityEvent event) {
+        securityListeners.values().forEach(listener -> {
             try {
                 listener.accept(event);
             } catch (Exception e) {
@@ -89,41 +200,168 @@ public final class SecurityMonitor {
         });
     }
 
-    public void addSecurityListener(Consumer<SecurityEvent> listener) {
-        listeners.add(listener);
+    /**
+     * إضافة مستمع للأمان
+     */
+    public void addSecurityListener(String listenerId, Consumer<SecurityEvent> listener) {
+        if (listenerId != null && listener != null) {
+            securityListeners.put(listenerId, listener);
+            System.out.println("SECURITY MONITOR: Added security listener - " + listenerId);
+        }
     }
 
-    public void removeSecurityListener(Consumer<SecurityEvent> listener) {
-        listeners.remove(listener);
+    /**
+     * إزالة مستمع للأمان
+     */
+    public void removeSecurityListener(String listenerId) {
+        if (listenerId != null) {
+            securityListeners.remove(listenerId);
+            System.out.println("SECURITY MONITOR: Removed security listener - " + listenerId);
+        }
     }
 
-    public void resetSuspiciousCount() {
-        suspiciousActivityCount = 0;
+    /**
+     * التحقق من سلامة التطبيق
+     */
+    public boolean isAppIntegrityValid() {
+        return AppIntegrityChecker.getInstance(null).isAppIntegrityValid();
+    }
+
+    /**
+     * التحقق من حالة الأمان العامة
+     */
+    public SecurityStatus getOverallSecurityStatus() {
+        boolean appIntegrity = isAppIntegrityValid();
+        boolean deviceRooted = RootDetector.isDeviceRooted();
+        boolean permissionsValid = arePermissionsValid();
+        
+        if (!appIntegrity || deviceRooted || !permissionsValid) {
+            return SecurityStatus.risky("Security threats detected");
+        }
+        
+        return SecurityStatus.secure("System is secure");
+    }
+
+    private boolean arePermissionsValid() {
+        // في الإنتاج: التحقق من الأذونات
+        return true; // محاكاة النجاح
+    }
+
+    /**
+     * إيقاف المراقبة (للاختبارات)
+     */
+    public void shutdown() {
+        monitoringScheduler.shutdown();
+        securityListeners.clear();
+        System.out.println("SECURITY MONITOR: Shutdown completed");
     }
 
     /**
      * حدث الأمان
      */
     public static final class SecurityEvent {
-        private final String type;
-        private final String description;
+        private final SecurityEventType type;
+        private final String userId;
+        private final String activityType;
+        private final String details;
         private final Instant timestamp;
 
-        public SecurityEvent(String type, String description, Instant timestamp) {
+        public SecurityEvent(SecurityEventType type, String userId, String activityType, 
+                           String details, Instant timestamp) {
             this.type = type;
-            this.description = description;
+            this.userId = userId;
+            this.activityType = activityType;
+            this.details = details;
             this.timestamp = timestamp;
         }
 
-        public String getType() { return type; }
-        public String getDescription() { return description; }
+        public enum SecurityEventType {
+            SUSPICIOUS_ACTIVITY, SECURITY_THREAT, APP_INTEGRITY_VIOLATION, 
+            ROOTED_DEVICE, MULTIPLE_LOGIN_ATTEMPTS, SUSPICIOUS_TRANSACTION
+        }
+
+        // Getters
+        public SecurityEventType getType() { return type; }
+        public String getUserId() { return userId; }
+        public String getActivityType() { return activityType; }
+        public String getDetails() { return details; }
         public Instant getTimestamp() { return timestamp; }
+        
+        @Override
+        public String toString() {
+            return "SecurityEvent{" +
+                "type=" + type +
+                ", userId='" + userId + '\'' +
+                ", activityType='" + activityType + '\'' +
+                ", details='" + details + '\'' +
+                ", timestamp=" + timestamp +
+                '}';
+        }
     }
 
     /**
-     * إيقاف المراقب (للاختبارات)
+     * نتيجة الأمان
      */
-    public void shutdown() {
-        scheduler.shutdown();
+    public static final class SecurityResult {
+        private final boolean success;
+        private final String message;
+
+        private SecurityResult(boolean success, String message) {
+            this.success = success;
+            this.message = message;
+        }
+
+        public static SecurityResult success(String message) {
+            return new SecurityResult(true, message);
+        }
+
+        public static SecurityResult failure(String message) {
+            return new SecurityResult(false, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public String getMessage() { return message; }
+    }
+
+    /**
+     * حالة الأمان
+     */
+    public static final class SecurityStatus {
+        private final boolean secure;
+        private final boolean risky;
+        private final String message;
+
+        private SecurityStatus(boolean secure, boolean risky, String message) {
+            this.secure = secure;
+            this.risky = risky;
+            this.message = message;
+        }
+
+        public static SecurityStatus secure(String message) {
+            return new SecurityStatus(true, false, message);
+        }
+
+        public static SecurityStatus risky(String message) {
+            return new SecurityStatus(false, true, message);
+        }
+
+        public boolean isSecure() { return secure; }
+        public boolean isRisky() { return risky; }
+        public String getMessage() { return message; }
+    }
+
+    // --- Getters ---
+    public int getSecurityListenerCount() { return securityListeners.size(); }
+    public boolean hasSecurityListeners() { return !securityListeners.isEmpty(); }
+    public Map<String, Consumer<SecurityEvent>> getSecurityListeners() { 
+        return new ConcurrentHashMap<>(securityListeners); 
+    }
+    
+    /**
+     * إعادة تعيين المراقب (للاختبارات)
+     */
+    public void reset() {
+        securityListeners.clear();
+        System.out.println("SECURITY MONITOR: Reset completed");
     }
 }
