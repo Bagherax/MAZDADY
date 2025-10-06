@@ -1,19 +1,27 @@
 package mazdady.sec;
 
 import mazdady.user.User;
+import mazdady.user.UserManager;
+import mazdady.trading.TradingHistory;
 
+import java.time.Duration;
 import java.time.Instant;
+import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.BiFunction;
 
 /**
- * تحليل السلوك مع دعم الأنماط الذكية
- * يتبع نمط Strategy لفصل أنماط السلوك
+ * تحليل السلوك مع دعم الكشف الذكي
+ * يتبع نمط Strategy لفصل استراتيجيات التحليل
  */
 public final class BehavioralAnalysis {
-    private final ConcurrentHashMap<String, BehavioralProfile> profiles = new ConcurrentHashMap<>();
+    private final Map<String, BiFunction<User, BehaviorPattern, BehaviorResult>> analysisStrategies = new ConcurrentHashMap<>();
     private static BehavioralAnalysis instance;
 
-    private BehavioralAnalysis() {}
+    private BehavioralAnalysis() {
+        initializeAnalysisStrategies();
+    }
 
     public static synchronized BehavioralAnalysis getInstance() {
         if (instance == null) {
@@ -22,96 +30,313 @@ public final class BehavioralAnalysis {
         return instance;
     }
 
-    /**
-     * تسجيل نشاط المستخدم
-     */
-    public void recordActivity(String userId, String activityType, double amount) {
-        BehavioralProfile profile = profiles.computeIfAbsent(
-            userId,
-            k -> new BehavioralProfile(userId)
-        );
-        profile.recordActivity(activityType, amount);
+    private void initializeAnalysisStrategies() {
+        analysisStrategies.put("trading_pattern", this::analyzeTradingPattern);
+        analysisStrategies.put("login_behavior", this::analyzeLoginBehavior);
+        analysisStrategies.put("withdrawal_pattern", this::analyzeWithdrawalPattern);
+        analysisStrategies.put("social_activity", this::analyzeSocialActivity);
+        analysisStrategies.put("feature_usage", this::analyzeFeatureUsage);
+        analysisStrategies.put("device_usage", this::analyzeDeviceUsage);
+        analysisStrategies.put("time_based_behavior", this::analyzeTimeBasedBehavior);
+        analysisStrategies.put("geolocation_pattern", this::analyzeGeolocationPattern);
+        
+        System.out.println("BEHAVIORAL ANALYSIS: Initialized " + analysisStrategies.size() + " analysis strategies");
     }
 
     /**
-     * التحقق من السلوك غير الطبيعي
+     * تحليل سلوك المستخدم غير متزامن
      */
-    public boolean isBehaviorAbnormal(String userId) {
-        BehavioralProfile profile = profiles.get(userId);
-        return profile != null && profile.isAbnormal();
-    }
-
-    /**
-     * الحصول على نمط السلوك
-     */
-    public BehaviorPattern getBehaviorPattern(String userId) {
-        BehavioralProfile profile = profiles.get(userId);
-        return profile != null ? profile.getPattern() : BehaviorPattern.NORMAL;
-    }
-
-    /**
-     * ملف السلوك
-     */
-    private static final class BehavioralProfile {
-        private final String userId;
-        private final java.util.Queue<UserActivity> recentActivities = 
-            new java.util.concurrent.ConcurrentLinkedQueue<>();
-
-        public BehavioralProfile(String userId) {
-            this.userId = userId;
-        }
-
-        public void recordActivity(String type, double amount) {
-            recentActivities.offer(new UserActivity(type, amount, System.currentTimeMillis()));
-            
-            // الاحتفاظ بآخر 100 نشاط فقط
-            if (recentActivities.size() > 100) {
-                recentActivities.poll();
-            }
-        }
-
-        public boolean isAbnormal() {
-            // في الإنتاج: استخدام خوارزميات ML للكشف عن الأنماط غير الطبيعية
-            return recentActivities.size() > 50 && 
-                   recentActivities.stream().filter(a -> "WITHDRAWAL".equals(a.type)).count() > 20;
-        }
-
-        public BehaviorPattern getPattern() {
-            if (isAbnormal()) {
-                return BehaviorPattern.SUSPICIOUS;
-            }
-            
-            long tradingCount = recentActivities.stream()
-                .filter(a -> "TRADE".equals(a.type))
-                .count();
+    public CompletableFuture<BehaviorResult> analyzeUserBehaviorAsync(String userId) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                User user = UserManager.getInstance(null).getUserById(userId);
+                if (user == null) {
+                    return BehaviorResult.failure("User not found");
+                }
                 
-            if (tradingCount > recentActivities.size() * 0.7) {
-                return BehaviorPattern.TRADER;
+                // جمع أنماط السلوك
+                BehaviorPattern pattern = collectBehaviorPattern(user);
+                
+                // تطبيق استراتيجيات التحليل
+                BehaviorResult finalResult = BehaviorResult.normal("User behavior is normal");
+                
+                for (Map.Entry<String, BiFunction<User, BehaviorPattern, BehaviorResult>> strategy : 
+                     analysisStrategies.entrySet()) {
+                    BehaviorResult result = strategy.getValue().apply(user, pattern);
+                    if (result.isAbnormal()) {
+                        finalResult = BehaviorResult.abnormal(
+                            result.getRiskLevel(), 
+                            "Abnormal behavior detected: " + strategy.getKey() + " - " + result.getMessage()
+                        );
+                        
+                        // إبلاغ النظام الأمني
+                        SecurityMonitor.getInstance(null).reportSuspiciousActivity(
+                            userId, 
+                            "Behavioral anomaly: " + strategy.getKey()
+                        );
+                        
+                        System.out.println("BEHAVIORAL ANALYSIS: Abnormal behavior detected for " + 
+                                         userId + " - Strategy: " + strategy.getKey());
+                    }
+                }
+                
+                return finalResult;
+                
+            } catch (Exception e) {
+                return BehaviorResult.failure("Behavioral analysis failed: " + e.getMessage());
+            }
+        });
+    }
+
+    private BehaviorPattern collectBehaviorPattern(User user) {
+        try {
+            // في الإنتاج: جمع البيانات من قاعدة البيانات
+            TradingHistory tradingHistory = TradingHistory.getInstance();
+            return new BehaviorPattern(
+                user.getUserId(),
+                tradingHistory.getUserTrades(user.getUserId()).size(),
+                user.getLoginCount(),
+                user.getWithdrawalCount(),
+                user.getSocialActivityCount(),
+                user.getFeatureUsageCount(),
+                user.getDeviceUsageCount(),
+                user.getTimeBasedBehaviorScore(),
+                user.getGeolocationPattern(),
+                Instant.now()
+            );
+            
+        } catch (Exception e) {
+            return BehaviorPattern.empty(user.getUserId());
+        }
+    }
+
+    // --- استراتيجيات التحليل ---
+    private BehaviorResult analyzeTradingPattern(User user, BehaviorPattern pattern) {
+        try {
+            int tradeCount = pattern.getTradingActivity();
+            double avgTradesPerDay = tradeCount / 7.0; // متوسط أسبوعي
+            
+            if (avgTradesPerDay > 100) {
+                return BehaviorResult.abnormal(
+                    RiskLevel.HIGH, 
+                    "Excessive trading activity: " + tradeCount + " trades per week"
+                );
+            } else if (avgTradesPerDay > 50) {
+                return BehaviorResult.abnormal(
+                    RiskLevel.MEDIUM, 
+                    "High trading activity: " + tradeCount + " trades per week"
+                );
             }
             
-            return BehaviorPattern.NORMAL;
+            return BehaviorResult.normal("Trading pattern is normal");
+            
+        } catch (Exception e) {
+            return BehaviorResult.failure("Trading pattern analysis failed: " + e.getMessage());
+        }
+    }
+
+    private BehaviorResult analyzeLoginBehavior(User user, BehaviorPattern pattern) {
+        try {
+            int loginCount = pattern.getLoginBehavior();
+            if (loginCount > 20) { // أكثر من 20 تسجيل دخول في الأسبوع
+                return BehaviorResult.abnormal(
+                    RiskLevel.MEDIUM, 
+                    "Frequent login activity: " + loginCount + " logins per week"
+                );
+            }
+            return BehaviorResult.normal("Login behavior is normal");
+            
+        } catch (Exception e) {
+            return BehaviorResult.failure("Login behavior analysis failed: " + e.getMessage());
+        }
+    }
+
+    private BehaviorResult analyzeWithdrawalPattern(User user, BehaviorPattern pattern) {
+        try {
+            int withdrawalCount = pattern.getWithdrawalPattern();
+            if (withdrawalCount > 5) { // أكثر من 5 سحوبات في الأسبوع
+                return BehaviorResult.abnormal(
+                    RiskLevel.HIGH, 
+                    "Frequent withdrawals: " + withdrawalCount + " withdrawals per week"
+                );
+            }
+            return BehaviorResult.normal("Withdrawal pattern is normal");
+            
+        } catch (Exception e) {
+            return BehaviorResult.failure("Withdrawal pattern analysis failed: " + e.getMessage());
+        }
+    }
+
+    private BehaviorResult analyzeSocialActivity(User user, BehaviorPattern pattern) {
+        try {
+            int socialCount = pattern.getSocialActivity();
+            if (socialCount > 50) { // أكثر من 50 تفاعل اجتماعي في الأسبوع
+                return BehaviorResult.abnormal(
+                    RiskLevel.LOW, 
+                    "High social activity: " + socialCount + " interactions per week"
+                );
+            }
+            return BehaviorResult.normal("Social activity is normal");
+            
+        } catch (Exception e) {
+            return BehaviorResult.failure("Social activity analysis failed: " + e.getMessage());
+        }
+    }
+
+    private BehaviorResult analyzeFeatureUsage(User user, BehaviorPattern pattern) {
+        try {
+            int featureCount = pattern.getFeatureUsage();
+            if (featureCount > 30) { // استخدام أكثر من 30 ميزة في الأسبوع
+                return BehaviorResult.abnormal(
+                    RiskLevel.MEDIUM, 
+                    "High feature usage: " + featureCount + " features used per week"
+                );
+            }
+            return BehaviorResult.normal("Feature usage is normal");
+            
+        } catch (Exception e) {
+            return BehaviorResult.failure("Feature usage analysis failed: " + e.getMessage());
+        }
+    }
+
+    private BehaviorResult analyzeDeviceUsage(User user, BehaviorPattern pattern) {
+        try {
+            int deviceCount = pattern.getDeviceUsage();
+            if (deviceCount > 3) { // استخدام أكثر من 3 أجهزة في الأسبوع
+                return BehaviorResult.abnormal(
+                    RiskLevel.HIGH, 
+                    "Multiple device usage: " + deviceCount + " devices used per week"
+                );
+            }
+            return BehaviorResult.normal("Device usage is normal");
+            
+        } catch (Exception e) {
+            return BehaviorResult.failure("Device usage analysis failed: " + e.getMessage());
+        }
+    }
+
+    private BehaviorResult analyzeTimeBasedBehavior(User user, BehaviorPattern pattern) {
+        try {
+            double timeScore = pattern.getTimeBasedBehavior();
+            if (timeScore > 0.8) { // سلوك غير طبيعي حسب الوقت
+                return BehaviorResult.abnormal(
+                    RiskLevel.MEDIUM, 
+                    "Abnormal time-based behavior score: " + String.format("%.2f", timeScore)
+                );
+            }
+            return BehaviorResult.normal("Time-based behavior is normal");
+            
+        } catch (Exception e) {
+            return BehaviorResult.failure("Time-based behavior analysis failed: " + e.getMessage());
+        }
+    }
+
+    private BehaviorResult analyzeGeolocationPattern(User user, BehaviorPattern pattern) {
+        try {
+            String locationPattern = pattern.getGeolocationPattern();
+            if ("multiple_countries".equals(locationPattern)) {
+                return BehaviorResult.abnormal(
+                    RiskLevel.HIGH, 
+                    "Multiple country logins detected"
+                );
+            }
+            return BehaviorResult.normal("Geolocation pattern is normal");
+            
+        } catch (Exception e) {
+            return BehaviorResult.failure("Geolocation pattern analysis failed: " + e.getMessage());
         }
     }
 
     /**
-     * نشاط المستخدم
+     * نتيجة التحليل السلوكي
      */
-    private static final class UserActivity {
-        private final String type;
-        private final double amount;
-        private final long timestamp;
+    public static final class BehaviorResult {
+        private final boolean normal;
+        private final boolean abnormal;
+        private final boolean failed;
+        private final RiskLevel riskLevel;
+        private final String message;
 
-        public UserActivity(String type, double amount, long timestamp) {
-            this.type = type;
-            this.amount = amount;
+        private BehaviorResult(boolean normal, boolean abnormal, boolean failed, 
+                             RiskLevel riskLevel, String message) {
+            this.normal = normal;
+            this.abnormal = abnormal;
+            this.failed = failed;
+            this.riskLevel = riskLevel;
+            this.message = message;
+        }
+
+        public static BehaviorResult normal(String message) {
+            return new BehaviorResult(true, false, false, RiskLevel.LOW, message);
+        }
+
+        public static BehaviorResult abnormal(RiskLevel riskLevel, String message) {
+            return new BehaviorResult(false, true, false, riskLevel, message);
+        }
+
+        public static BehaviorResult failure(String message) {
+            return new BehaviorResult(false, false, true, RiskLevel.UNKNOWN, message);
+        }
+
+        public boolean isNormal() { return normal; }
+        public boolean isAbnormal() { return abnormal; }
+        public boolean isFailed() { return failed; }
+        public RiskLevel getRiskLevel() { return riskLevel; }
+        public String getMessage() { return message; }
+    }
+
+    /**
+     * مستوى المخاطر
+     */
+    public enum RiskLevel {
+        LOW, MEDIUM, HIGH, CRITICAL, UNKNOWN
+    }
+
+    /**
+     * نمط السلوك
+     */
+    public static final class BehaviorPattern {
+        private final String userId;
+        private final int tradingActivity;
+        private final int loginBehavior;
+        private final int withdrawalPattern;
+        private final int socialActivity;
+        private final int featureUsage;
+        private final int deviceUsage;
+        private final double timeBasedBehavior;
+        private final String geolocationPattern;
+        private final Instant timestamp;
+
+        public BehaviorPattern(String userId, int tradingActivity, int loginBehavior, 
+                             int withdrawalPattern, int socialActivity, int featureUsage,
+                             int deviceUsage, double timeBasedBehavior, String geolocationPattern,
+                             Instant timestamp) {
+            this.userId = userId;
+            this.tradingActivity = tradingActivity;
+            this.loginBehavior = loginBehavior;
+            this.withdrawalPattern = withdrawalPattern;
+            this.socialActivity = socialActivity;
+            this.featureUsage = featureUsage;
+            this.deviceUsage = deviceUsage;
+            this.timeBasedBehavior = timeBasedBehavior;
+            this.geolocationPattern = geolocationPattern;
             this.timestamp = timestamp;
         }
-    }
 
-    /**
-     * أنماط السلوك
-     */
-    public enum BehaviorPattern {
-        NORMAL, TRADER, INVESTOR, SUSPICIOUS
+        public static BehaviorPattern empty(String userId) {
+            return new BehaviorPattern(userId, 0, 0, 0, 0, 0, 0, 0, "unknown", Instant.now());
+        }
+
+        // Getters
+        public String getUserId() { return userId; }
+        public int getTradingActivity() { return tradingActivity; }
+        public int getLoginBehavior() { return loginBehavior; }
+        public int getWithdrawalPattern() { return withdrawalPattern; }
+        public int getSocialActivity() { return socialActivity; }
+        public int getFeatureUsage() { return featureUsage; }
+        public int getDeviceUsage() { return deviceUsage; }
+        public double getTimeBasedBehavior() { return timeBasedBehavior; }
+        public String getGeolocationPattern() { return geolocationPattern; }
+        public Instant getTimestamp() { return timestamp; }
     }
 }
