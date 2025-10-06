@@ -1,98 +1,123 @@
 package mazdady.social;
 
-import mazdady.ad.AdCampaign;
-import mazdady.user.User;
-import mazdady.user.UserManager;
-
+import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 /**
- * مدير الترويج مع دعم الحملات المتقدمة
- * يتبع نمط Facade لتوفير واجهة موحدة
+ * مدير الترويج
+ * يدير أنواع الترويج المختلفة (TikTok, YouTube، إلخ)
  */
 public final class PromotionManager {
-    private static PromotionManager instance;
+    private final Map<String, Promotion> activePromotions = new ConcurrentHashMap<>();
+    private final List<PromotionChannel> channels = new ArrayList<>();
 
-    private PromotionManager() {}
-
-    public static synchronized PromotionManager getInstance() {
-        if (instance == null) {
-            instance = new PromotionManager();
-        }
-        return instance;
+    public PromotionManager() {
+        initializeChannels();
     }
 
-    /**
-     * إنشاء حملة ترويجية غير متزامنة
-     */
-    public CompletableFuture<PromotionResult> createPromotionAsync(
-        String platform, 
-        String contentUrl, 
-        String goal, 
-        int targetCount, 
-        double budget
-    ) {
+    private void initializeChannels() {
+        channels.add(new TikTokPromotion());
+        channels.add(new YouTubePromotion());
+        channels.add(new InstagramPromotion());
+        channels.add(new TelegramPromotion());
+        channels.add(new XPromotion());
+        channels.add(new FacebookPromotion());
+        channels.add(new DirectLinkPromotion());
+        System.out.println("PROMOTION MANAGER: All promotion channels initialized");
+    }
+
+    public CompletableFuture<PromotionResult> launchPromotionAsync(PromotionRequest request) {
         return CompletableFuture.supplyAsync(() -> {
-            try {
-                User user = UserManager.getInstance(null).getCurrentUser();
-                
-                // التحقق من الرصيد
-                if (user.getBalance() < budget) {
-                    return PromotionResult.failure("Insufficient balance");
-                }
-                
-                // إنشاء حملة إعلانية
-                AdCampaign campaign = new AdCampaign.Builder()
-                    .userId(user.getUserId())
-                    .platform(AdCampaign.Platform.valueOf(platform.toUpperCase()))
-                    .contentUrl(contentUrl)
-                    .goal(AdCampaign.Goal.valueOf(goal.toUpperCase()))
-                    .targetCount(targetCount)
-                    .budget(budget)
-                    .build();
-                
-                // خصم الميزانية
-                user.setBalance(user.getBalance() - budget);
-                
-                // تسجيل النشاط في المجتمع
-                CommunityMgr.getInstance().registerActivity(
-                    user.getUserId(), 
-                    CommunityMgr.ActivityType.AD_CAMPAIGN, 
-                    budget
-                );
-                
-                return PromotionResult.success(campaign);
-                
-            } catch (Exception e) {
-                return PromotionResult.failure("Promotion creation failed: " + e.getMessage());
+            PromotionChannel channel = channels.stream()
+                .filter(c -> c.getType().equals(request.getChannelType()))
+                .findFirst()
+                .orElse(null);
+
+            if (channel == null) {
+                return PromotionResult.failure("Unsupported channel: " + request.getChannelType());
             }
+
+            if (!channel.isAvailable()) {
+                return PromotionResult.failure("Channel not available: " + request.getChannelType());
+            }
+
+            String promotionId = UUID.randomUUID().toString();
+            Promotion promotion = new Promotion(promotionId, request);
+            activePromotions.put(promotionId, promotion);
+
+            channel.execute(promotion);
+            return PromotionResult.success("Promotion launched: " + promotionId);
         });
     }
 
-    /**
-     * نتيجة الترويج
-     */
+    public List<Promotion> getUserPromotions(String userId) {
+        return activePromotions.values().stream()
+            .filter(p -> p.getAuthorId().equals(userId))
+            .collect(Collectors.toList());
+    }
+
+    // --- Inner Classes ---
+    public static final class PromotionRequest {
+        private final String channelType;
+        private final String authorId;
+        private final String content;
+        private final String targetUrl;
+
+        public PromotionRequest(String channelType, String authorId, String content, String targetUrl) {
+            this.channelType = channelType;
+            this.authorId = authorId;
+            this.content = content;
+            this.targetUrl = targetUrl;
+        }
+
+        public String getChannelType() { return channelType; }
+        public String getAuthorId() { return authorId; }
+        public String getContent() { return content; }
+        public String getTargetUrl() { return targetUrl; }
+    }
+
     public static final class PromotionResult {
         private final boolean success;
-        private final AdCampaign campaign;
         private final String message;
 
-        private PromotionResult(boolean success, AdCampaign campaign, String message) {
+        private PromotionResult(boolean success, String message) {
             this.success = success;
-            this.campaign = campaign;
             this.message = message;
         }
 
-        public static PromotionResult success(AdCampaign campaign) {
-            return new PromotionResult(true, campaign, "Promotion created successfully");
+        public static PromotionResult success(String message) {
+            return new PromotionResult(true, message);
         }
 
         public static PromotionResult failure(String message) {
-            return new PromotionResult(false, null, message);
+            return new PromotionResult(false, message);
         }
 
         public boolean isSuccess() { return success; }
-        public AdCampaign getCampaign() { return campaign; }
         public String getMessage() { return message; }
+    }
+
+    public static final class Promotion {
+        private final String id;
+        private final PromotionRequest request;
+        private final long timestamp;
+
+        public Promotion(String id, PromotionRequest request) {
+            this.id = id;
+            this.request = request;
+            this.timestamp = System.currentTimeMillis();
+        }
+
+        public String getId() { return id; }
+        public String getAuthorId() { return request.getAuthorId(); }
+        public long getTimestamp() { return timestamp; }
+    }
+
+    public interface PromotionChannel {
+        String getType();
+        boolean isAvailable();
+        void execute(Promotion promotion);
     }
 }
