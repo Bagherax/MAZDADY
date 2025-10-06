@@ -1,0 +1,18 @@
+package mazdady.social;
+
+public final class XPromotion implements PromotionManager.PromotionChannel {
+    @Override
+    public String getType() {
+        return "X";
+    }
+
+    @Override
+    public boolean isAvailable() {
+        return true;
+    }
+
+    @Override
+    public void execute(PromotionManager.Promotion promotion) {
+        System.out.println("X PROMOTION: Launching promotion " + promotion.getId() + " for user " + promotion.getAuthorId());
+    }
+}
