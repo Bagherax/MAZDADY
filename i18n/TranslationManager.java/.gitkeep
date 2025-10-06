@@ -1,53 +1,214 @@
 package mazdady.i18n;
 
-import android.content.Context;
-import mazdady.security.EncryptedSharedPreferences;
+import mazdady.user.User;
+import mazdady.user.UserManager;
+import mazdady.admin.AdminConfig;
 
-public class TranslationManager {
-    private Context context;
-    private RealTimeTranslator translator;
-    private EncryptedSharedPreferences prefs;
+import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.BiFunction;
 
-    public TranslationManager(Context context) {
-        this.context = context;
-        this.translator = RealTimeTranslator.getInstance();
-        this.prefs = new EncryptedSharedPreferences(context);
+/**
+ * مدير الترجمة مع دعم التحديثات الديناميكية
+ * يتبع نمط Facade لتوفير واجهة موحدة
+ */
+public final class TranslationManager {
+    private final RealTimeTranslator realTimeTranslator;
+    private final DeviceLang deviceLang;
+    private final Map<String, String> localizedStrings = new ConcurrentHashMap<>();
+    private static TranslationManager instance;
+
+    private TranslationManager(
+        RealTimeTranslator realTimeTranslator,
+        DeviceLang deviceLang
+    ) {
+        this.realTimeTranslator = realTimeTranslator;
+        this.deviceLang = deviceLang;
+        loadLocalizedStrings();
     }
 
-    public String getString(String key) {
-        // في الإنتاج: تحميل من ملفات الموارد
-        String defaultText = getDefaultText(key);
-        return translator.translateToUserLanguage(defaultText);
-    }
-
-    public String getString(String key, String... args) {
-        String text = getString(key);
-        for (int i = 0; i < args.length; i++) {
-            text = text.replace("{" + i + "}", args[i]);
+    public static synchronized TranslationManager getInstance(
+        RealTimeTranslator realTimeTranslator,
+        DeviceLang deviceLang
+    ) {
+        if (instance == null) {
+            instance = new TranslationManager(realTimeTranslator, deviceLang);
         }
-        return text;
+        return instance;
     }
 
-    private String getDefaultText(String key) {
-        switch (key) {
-            case "balance_label": return "الرصيد: {0} MAZDADY";
-            case "buy_button": return "شراء";
-            case "sell_button": return "بيع";
-            case "withdraw_button": return "سحب الأرباح";
-            case "ad_campaign_title": return "إنشاء حملة إعلانية";
-            case "support_chat": return "دردشة مباشرة";
-            case "kyc_verify": return "توثيق الهوية";
-            case "level_up": return "ترقية المستوى";
-            default: return key;
+    private void loadLocalizedStrings() {
+        try {
+            // تحميل الترجمات من الإعدادات الإدارية
+            AdminConfig.I18nConfig i18nConfig = AdminConfig.getInstance().getI18nConfig();
+            Map<String, Map<String, String>> translations = i18nConfig.getTranslations();
+            
+            String currentLang = deviceLang.getCurrentLanguage();
+            Map<String, String> currentTranslations = translations.get(currentLang);
+            
+            if (currentTranslations != null) {
+                localizedStrings.putAll(currentTranslations);
+                System.out.println("TRANSLATION MANAGER: Loaded " + currentTranslations.size() + 
+                                 " strings for " + currentLang);
+            }
+            
+        } catch (Exception e) {
+            System.err.println("LOCALIZED STRINGS LOAD ERROR: " + e.getMessage());
         }
     }
 
+    /**
+     * الحصول على سلسلة مترجمة غير متزامن
+     */
+    public CompletableFuture<String> getStringAsync(String key, String... args) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                String localizedString = localizedStrings.get(key);
+                if (localizedString == null) {
+                    // في الإنتاج: استخدام سلسلة افتراضية
+                    localizedString = key.replace("_", " ").toUpperCase();
+                }
+                
+                // تطبيق المعاملات
+                if (args != null && args.length > 0) {
+                    for (int i = 0; i < args.length; i++) {
+                        localizedString = localizedString.replace("{" + i + "}", args[i]);
+                    }
+                }
+                
+                System.out.println("TRANSLATION MANAGER: Retrieved string - " + key + " = " + localizedString);
+                return localizedString;
+                
+            } catch (Exception e) {
+                return key; // إرجاع المفتاح في حال الفشل
+            }
+        });
+    }
+
+    /**
+     * ترجمة سلسلة إلى لغة المستخدم غير متزامن
+     */
+    public CompletableFuture<String> translateToUserLanguageAsync(String text, String userId) {
+        return realTimeTranslator.translateToUserLanguageAsync(text, userId);
+    }
+
+    /**
+     * ترجمة سلسلة إلى العربية غير متزامن
+     */
+    public CompletableFuture<String> translateToArabicAsync(String text, String sourceLanguage) {
+        return realTimeTranslator.translateToArabicAsync(text, sourceLanguage);
+    }
+
+    /**
+     * تغيير لغة التطبيق ديناميكيًا
+     */
     public void changeLanguage(String languageCode) {
-        translator.setUserLanguage(languageCode);
-        prefs.putString("user_language", languageCode);
+        try {
+            if (languageCode == null || languageCode.isEmpty()) {
+                System.err.println("TRANSLATION MANAGER: Invalid language code");
+                return;
+            }
+            
+            // تغيير لغة الجهاز
+            deviceLang.setLanguage(languageCode);
+            
+            // تحميل الترجمات الجديدة
+            localizedStrings.clear();
+            loadLocalizedStrings();
+            
+            // تحديث واجهة المستخدم
+            updateUIForLanguageChange(languageCode);
+            
+            System.out.println("TRANSLATION MANAGER: Language changed to " + languageCode);
+            
+        } catch (Exception e) {
+            System.err.println("LANGUAGE CHANGE ERROR: " + e.getMessage());
+        }
     }
 
-    public String getCurrentLanguage() {
-        return prefs.getString("user_language", translator.getUserLanguage());
+    private void updateUIForLanguageChange(String languageCode) {
+        try {
+            // في الإنتاج: تحديث واجهة المستخدم
+            System.out.println("TRANSLATION MANAGER: UI updated for language " + languageCode);
+            
+        } catch (Exception e) {
+            System.err.println("UI LANGUAGE UPDATE ERROR: " + e.getMessage());
+        }
+    }
+
+    /**
+     * تطبيق لغة الجهاز تلقائيًا
+     */
+    public void applyDeviceLanguage() {
+        try {
+            String deviceLanguage = deviceLang.getCurrentLanguage();
+            changeLanguage(deviceLanguage);
+            System.out.println("TRANSLATION MANAGER: Applied device language - " + deviceLanguage);
+            
+        } catch (Exception e) {
+            System.err.println("DEVICE LANGUAGE APPLY ERROR: " + e.getMessage());
+        }
+    }
+
+    /**
+     * تحديث الترجمات من الإعدادات الإدارية
+     */
+    public void updateTranslationsFromConfig(AdminConfig.I18nConfig config) {
+        if (config == null) return;
+        
+        try {
+            Map<String, Map<String, String>> translations = config.getTranslations();
+            String currentLang = deviceLang.getCurrentLanguage();
+            Map<String, String> currentTranslations = translations.get(currentLang);
+            
+            if (currentTranslations != null) {
+                localizedStrings.clear();
+                localizedStrings.putAll(currentTranslations);
+                System.out.println("TRANSLATION MANAGER: Updated translations from admin config - " + 
+                                 currentTranslations.size() + " strings");
+            }
+            
+        } catch (Exception e) {
+            System.err.println("TRANSLATIONS UPDATE ERROR: " + e.getMessage());
+        }
+    }
+
+    /**
+     * إضافة سلسلة مترجمة مخصصة
+     */
+    public void addLocalizedString(String key, String value) {
+        if (key != null && value != null) {
+            localizedStrings.put(key, value);
+            System.out.println("TRANSLATION MANAGER: Added custom string - " + key + " = " + value);
+        }
+    }
+
+    /**
+     * إزالة سلسلة مترجمة مخصصة
+     */
+    public void removeLocalizedString(String key) {
+        if (key != null) {
+            String removed = localizedStrings.remove(key);
+            if (removed != null) {
+                System.out.println("TRANSLATION MANAGER: Removed custom string - " + key);
+            }
+        }
+    }
+
+    // --- Getters ---
+    public String getCurrentLanguage() { return deviceLang.getCurrentLanguage(); }
+    public boolean isArabic() { return deviceLang.isArabic(); }
+    public int getLocalizedStringCount() { return localizedStrings.size(); }
+    public boolean hasLocalizedString(String key) { return localizedStrings.containsKey(key); }
+    public Map<String, String> getLocalizedStrings() { return new ConcurrentHashMap<>(localizedStrings); }
+    
+    /**
+     * إعادة تعيين المدير (للاختبارات)
+     */
+    public void reset() {
+        localizedStrings.clear();
+        loadLocalizedStrings();
+        System.out.println("TRANSLATION MANAGER: Reset completed");
     }
 }
