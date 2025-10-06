@@ -1,12 +1,15 @@
 package mazdady.error;
 
 import mazdady.security.SecureStorage;
+import mazdady.user.User;
+import mazdady.user.UserManager;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * مراسل الأعطال مع دعم التشفير والرفع الآمن
@@ -14,79 +17,209 @@ import java.util.concurrent.CompletableFuture;
  */
 public final class CrashReporter {
     private final SecureStorage secureStorage;
+    private final ConcurrentHashMap<String, CrashReport> crashReports = new ConcurrentHashMap<>();
     private static CrashReporter instance;
 
-    private CrashReporter() {
-        this.secureStorage = new SecureStorage();
+    private CrashReporter(SecureStorage secureStorage) {
+        this.secureStorage = secureStorage;
     }
 
-    public static synchronized CrashReporter getInstance() {
+    public static synchronized CrashReporter getInstance(SecureStorage secureStorage) {
         if (instance == null) {
-            instance = new CrashReporter();
+            instance = new CrashReporter(secureStorage);
         }
         return instance;
     }
 
     /**
-     * حفظ تقرير العطل بشكل آمن
+     * حفظ تقرير العطل بشكل آمن غير متزامن
      */
-    public void saveCrashReport(GlobalExceptionHandler.ErrorEvent event) {
-        try {
-            String report = generateCrashReport(event);
-            byte[] encryptedReport = secureStorage.encrypt(report);
-            
-            // في الإنتاج: حفظ في التخزين الآمن
-            String reportId = "CRASH_" + System.currentTimeMillis();
-            System.out.println("CRASH REPORT: Saved encrypted report " + reportId);
-            
-            // رفع التقرير إلى السيرفر (في الخلفية)
-            uploadCrashReportAsync(encryptedReport, reportId);
-            
-        } catch (Exception e) {
-            System.err.println("CRASH REPORT ERROR: " + e.getMessage());
-        }
-    }
-
-    /**
-     * رفع تقرير العطل غير المتزامن
-     */
-    private CompletableFuture<Void> uploadCrashReportAsync(byte[] encryptedReport, String reportId) {
-        return CompletableFuture.runAsync(() -> {
+    public CompletableFuture<ReportResult> saveCrashReportAsync(GlobalExceptionHandler.ErrorEvent event) {
+        return CompletableFuture.supplyAsync(() -> {
             try {
-                // في الإنتاج: رفع إلى سيرفر آمن
-                String encodedReport = Base64.getEncoder().encodeToString(encryptedReport);
-                System.out.println("CRASH UPLOAD: Uploading report " + reportId + " (" + encodedReport.length() + " chars)");
+                String reportId = "CRASH_" + System.currentTimeMillis();
+                CrashReport report = generateCrashReport(event, reportId);
                 
-                // محاكاة الرفع
-                Thread.sleep(1000);
-                System.out.println("CRASH UPLOAD: Report " + reportId + " uploaded successfully");
+                // تشفير التقرير
+                String encryptedReport = secureStorage.encrypt(report.toJson());
+                
+                // حفظ في التخزين الآمن
+                secureStorage.putString("crash_report_" + reportId, encryptedReport);
+                
+                // إضافة إلى القائمة الداخلية
+                crashReports.put(reportId, report);
+                
+                // رفع إلى السيرفر (في الإنتاج)
+                uploadCrashReportToServerAsync(reportId, encryptedReport);
+                
+                System.out.println("CRASH REPORTER: Saved crash report " + reportId);
+                return ReportResult.success(reportId, "Crash report saved successfully");
                 
             } catch (Exception e) {
-                System.err.println("CRASH UPLOAD FAILED: " + e.getMessage());
+                return ReportResult.failure("Crash report save failed: " + e.getMessage());
             }
         });
     }
 
-    private String generateCrashReport(GlobalExceptionHandler.ErrorEvent event) {
+    private CrashReport generateCrashReport(GlobalExceptionHandler.ErrorEvent event, String reportId) {
         StringWriter sw = new StringWriter();
         PrintWriter pw = new PrintWriter(sw);
         
-        pw.println("MAZDADY CRASH REPORT");
-        pw.println("====================");
-        pw.println("Timestamp: " + event.getTimestamp());
-        pw.println("Device ID: " + getDeviceFingerprint());
-        pw.println("Activity: " + (event.getActivity() != null ? 
-            event.getActivity().getClass().getSimpleName() : "None"));
-        pw.println();
-        pw.println("STACK TRACE:");
         event.getThrowable().printStackTrace(pw);
         pw.flush();
         
-        return sw.toString();
+        User user = UserManager.getInstance(null).getCurrentUser();
+        
+        return new CrashReport(
+            reportId,
+            user != null ? user.getUserId() : "UNKNOWN_USER",
+            event.getThrowable().getClass().getSimpleName(),
+            event.getThrowable().getMessage(),
+            sw.toString(),
+            event.getTimestamp(),
+            getDeviceFingerprint()
+        );
     }
 
     private String getDeviceFingerprint() {
         // في الإنتاج: استخدام DeviceFingerprint من حزمة الأمان
-        return "device_fingerprint_placeholder";
+        return "DEVICE_FINGERPRINT_" + System.currentTimeMillis();
+    }
+
+    private CompletableFuture<Void> uploadCrashReportToServerAsync(String reportId, String encryptedReport) {
+        return CompletableFuture.runAsync(() -> {
+            try {
+                // في الإنتاج: رفع إلى GitHub أو سيرفر آمن
+                String encodedReport = Base64.getEncoder().encodeToString(encryptedReport.getBytes());
+                System.out.println("CRASH REPORTER: Uploading report " + reportId + 
+                                 " (" + encodedReport.length() + " chars)");
+                
+                // محاكاة الرفع
+                Thread.sleep(1000);
+                System.out.println("CRASH REPORTER: Report " + reportId + " uploaded successfully");
+                
+            } catch (Exception e) {
+                System.err.println("CRASH UPLOAD ERROR: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * الحصول على تقرير عطل محدد
+     */
+    public CrashReport getCrashReport(String reportId) {
+        return crashReports.get(reportId);
+    }
+
+    /**
+     * الحصول على جميع التقارير
+     */
+    public ConcurrentHashMap<String, CrashReport> getAllCrashReports() {
+        return new ConcurrentHashMap<>(crashReports);
+    }
+
+    /**
+     * مسح تقرير عطل محدد
+     */
+    public boolean clearCrashReport(String reportId) {
+        CrashReport removed = crashReports.remove(reportId);
+        if (removed != null) {
+            secureStorage.remove("crash_report_" + reportId);
+            System.out.println("CRASH REPORTER: Cleared crash report " + reportId);
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * مسح جميع التقارير (للاختبارات)
+     */
+    public void clearAllCrashReports() {
+        crashReports.clear();
+        System.out.println("CRASH REPORTER: All crash reports cleared");
+    }
+
+    /**
+     * تقرير العطل
+     */
+    public static final class CrashReport {
+        private final String reportId;
+        private final String userId;
+        private final String exceptionType;
+        private final String message;
+        private final String stackTrace;
+        private final Instant timestamp;
+        private final String deviceFingerprint;
+
+        public CrashReport(String reportId, String userId, String exceptionType, 
+                          String message, String stackTrace, Instant timestamp, 
+                          String deviceFingerprint) {
+            this.reportId = reportId;
+            this.userId = userId;
+            this.exceptionType = exceptionType;
+            this.message = message;
+            this.stackTrace = stackTrace;
+            this.timestamp = timestamp;
+            this.deviceFingerprint = deviceFingerprint;
+        }
+
+        public String toJson() {
+            return "{\n" +
+                "  \"reportId\": \"" + reportId + "\",\n" +
+                "  \"userId\": \"" + userId + "\",\n" +
+                "  \"exceptionType\": \"" + exceptionType + "\",\n" +
+                "  \"message\": \"" + message + "\",\n" +
+                "  \"stackTrace\": \"" + stackTrace.replace("\n", "\\n") + "\",\n" +
+                "  \"timestamp\": " + timestamp.toEpochMilli() + ",\n" +
+                "  \"deviceFingerprint\": \"" + deviceFingerprint + "\"\n" +
+                "}";
+        }
+
+        // Getters
+        public String getReportId() { return reportId; }
+        public String getUserId() { return userId; }
+        public String getExceptionType() { return exceptionType; }
+        public String getMessage() { return message; }
+        public String getStackTrace() { return stackTrace; }
+        public Instant getTimestamp() { return timestamp; }
+        public String getDeviceFingerprint() { return deviceFingerprint; }
+        
+        @Override
+        public String toString() {
+            return "CrashReport{" +
+                "id='" + reportId + '\'' +
+                ", user='" + userId + '\'' +
+                ", type='" + exceptionType + '\'' +
+                ", message='" + message + '\'' +
+                ", timestamp=" + timestamp +
+                '}';
+        }
+    }
+
+    /**
+     * نتيجة التقرير
+     */
+    public static final class ReportResult {
+        private final boolean success;
+        private final String reportId;
+        private final String message;
+
+        private ReportResult(boolean success, String reportId, String message) {
+            this.success = success;
+            this.reportId = reportId;
+            this.message = message;
+        }
+
+        public static ReportResult success(String reportId, String message) {
+            return new ReportResult(true, reportId, message);
+        }
+
+        public static ReportResult failure(String message) {
+            return new ReportResult(false, null, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public String getReportId() { return reportId; }
+        public String getMessage() { return message; }
     }
 }
