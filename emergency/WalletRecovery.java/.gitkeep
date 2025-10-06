@@ -1,14 +1,16 @@
 package mazdady.emergency;
 
-import mazdady.wallet.WalletManager;
 import mazdady.user.User;
 import mazdady.user.UserManager;
+import mazdady.wallet.WalletManager;
 import mazdady.security.SecureStorage;
 import mazdady.auth.KYCValidator;
 
 import java.time.Instant;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Consumer;
 
 /**
  * استرداد المحفظة مع دعم التحقق المتقدم
@@ -17,6 +19,7 @@ import java.util.concurrent.atomic.AtomicReference;
 public final class WalletRecovery {
     private final SecureStorage secureStorage;
     private final KYCValidator kycValidator;
+    private final Map<String, Consumer<RecoveryEvent>> recoveryListeners = new ConcurrentHashMap<>();
     private static WalletRecovery instance;
 
     private WalletRecovery(SecureStorage secureStorage, KYCValidator kycValidator) {
@@ -289,37 +292,40 @@ public final class WalletRecovery {
     public static final class RecoveryStatus {
         private final boolean recovered;
         private final boolean pending;
+        private final boolean notFound;
         private final boolean error;
         private final String message;
         private final Instant recoveryTime;
 
-        private RecoveryStatus(boolean recovered, boolean pending, boolean error, 
+        private RecoveryStatus(boolean recovered, boolean pending, boolean notFound, boolean error, 
                              String message, Instant recoveryTime) {
             this.recovered = recovered;
             this.pending = pending;
+            this.notFound = notFound;
             this.error = error;
             this.message = message;
             this.recoveryTime = recoveryTime;
         }
 
         public static RecoveryStatus recovered(String message, Instant recoveryTime) {
-            return new RecoveryStatus(true, false, false, message, recoveryTime);
+            return new RecoveryStatus(true, false, false, false, message, recoveryTime);
         }
 
         public static RecoveryStatus pending(String message) {
-            return new RecoveryStatus(false, true, false, message, null);
+            return new RecoveryStatus(false, true, false, false, message, null);
         }
 
         public static RecoveryStatus notFound(String message) {
-            return new RecoveryStatus(false, false, false, message, null);
+            return new RecoveryStatus(false, false, true, false, message, null);
         }
 
         public static RecoveryStatus error(String message) {
-            return new RecoveryStatus(false, false, true, message, null);
+            return new RecoveryStatus(false, false, false, true, message, null);
         }
 
         public boolean isRecovered() { return recovered; }
         public boolean isPending() { return pending; }
+        public boolean isNotFound() { return notFound; }
         public boolean isError() { return error; }
         public String getMessage() { return message; }
         public Instant getRecoveryTime() { return recoveryTime; }
