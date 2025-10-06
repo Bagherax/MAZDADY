@@ -1,7 +1,9 @@
 package mazdady.economy;
 
-import mazdady.user.UserManager;
 import mazdady.user.User;
+import mazdady.user.UserManager;
+import mazdady.admin.AdminConfig;
+import mazdady.trading.PriceEngine;
 
 import java.time.Instant;
 import java.util.Map;
@@ -14,17 +16,21 @@ import java.util.function.BiFunction;
  * يتبع نمط Strategy لفصل استراتيجيات المكافآت
  */
 public final class CommunityRewardSystem {
-    private final Map<String, BiFunction<User, Double, Void>> rewardStrategies;
     private final AtomicDouble communityPool = new AtomicDouble(0.0);
-    private static final CommunityRewardSystem INSTANCE = new CommunityRewardSystem();
+    private final Map<String, BiFunction<User, Double, Void>> rewardStrategies = new ConcurrentHashMap<>();
+    private final PriceEngine priceEngine;
+    private static CommunityRewardSystem instance;
 
-    private CommunityRewardSystem() {
-        this.rewardStrategies = new ConcurrentHashMap<>();
+    private CommunityRewardSystem(PriceEngine priceEngine) {
+        this.priceEngine = priceEngine;
         initializeRewardStrategies();
     }
 
-    public static CommunityRewardSystem getInstance() {
-        return INSTANCE;
+    public static synchronized CommunityRewardSystem getInstance(PriceEngine priceEngine) {
+        if (instance == null) {
+            instance = new CommunityRewardSystem(priceEngine);
+        }
+        return instance;
     }
 
     private void initializeRewardStrategies() {
@@ -32,42 +38,86 @@ public final class CommunityRewardSystem {
         rewardStrategies.put("social_engagement", this::rewardSocialEngagement);
         rewardStrategies.put("content_creation", this::rewardContentCreation);
         rewardStrategies.put("referral", this::rewardReferral);
+        rewardStrategies.put("daily_login", this::rewardDailyLogin);
+        rewardStrategies.put("streak_bonus", this::rewardStreakBonus);
+        rewardStrategies.put("achievement_unlock", this::rewardAchievementUnlock);
+        rewardStrategies.put("team_contribution", this::rewardTeamContribution);
+        
+        System.out.println("COMMUNITY REWARD SYSTEM: Initialized " + rewardStrategies.size() + " reward strategies");
     }
 
     /**
-     * إضافة أموال إلى صندوق المجتمع
+     * إضافة أموال إلى صندوق المجتمع غير متزامن
      */
-    public void addToCommunityPool(double amount) {
+    public void addToCommunityPoolAsync(double amount) {
         communityPool.addAndGet(amount);
-        System.out.println("COMMUNITY POOL: +" + amount + " MAZDADY at " + Instant.now());
+        System.out.println("COMMUNITY REWARD SYSTEM: Added " + amount + " MAZDADY to community pool");
     }
 
     /**
-     * منح مكافأة للمستخدم
+     * منح مكافأة للمستخدم غير متزامن
      */
-    public void awardReward(String userId, String rewardType, double amount) {
-        User user = UserManager.getInstance(null).getCurrentUser();
-        if (user.getUserId().equals(userId)) {
-            BiFunction<User, Double, Void> strategy = rewardStrategies.get(rewardType);
-            if (strategy != null) {
-                strategy.apply(user, amount);
-                System.out.println("REWARD AWARDED: " + amount + " MAZDADY to " + userId + " for " + rewardType);
+    public void grantRewardAsync(String userId, String rewardType, double amount) {
+        UserManager userManager = UserManager.getInstance(null);
+        User user = userManager.getUserById(userId);
+        
+        if (user == null) {
+            System.err.println("COMMUNITY REWARD SYSTEM: User not found - " + userId);
+            return;
+        }
+        
+        BiFunction<User, Double, Void> strategy = rewardStrategies.get(rewardType);
+        if (strategy == null) {
+            System.err.println("COMMUNITY REWARD SYSTEM: Unsupported reward type - " + rewardType);
+            return;
+        }
+        
+        try {
+            strategy.apply(user, amount);
+            System.out.println("COMMUNITY REWARD SYSTEM: Granted " + amount + 
+                             " MAZDADY reward to " + userId + " for " + rewardType);
+            
+            // تسجيل المكافأة في سجل المجتمع
+            logCommunityReward(userId, rewardType, amount);
+            
+        } catch (Exception e) {
+            System.err.println("COMMUNITY REWARD ERROR: " + e.getMessage());
+        }
+    }
+
+    /**
+     * توزيع المكافآت تلقائيًا غير متزامن
+     */
+    public void distributeRewardsAutomaticallyAsync() {
+        new Thread(() -> {
+            try {
+                double pool = communityPool.get();
+                if (pool <= 0) return;
+                
+                UserManager userManager = UserManager.getInstance(null);
+                java.util.List<User> activeUsers = userManager.getAllUsers().stream()
+                    .filter(User::isActive)
+                    .filter(user -> user.getLevel() >= 3) // الحد الأدنى للمستوى
+                    .collect(java.util.stream.Collectors.toList());
+                
+                if (activeUsers.isEmpty()) return;
+                
+                // توزيع عادل حسب النشاط
+                double rewardPerUser = pool / activeUsers.size();
+                for (User user : activeUsers) {
+                    grantRewardAsync(user.getUserId(), "community_distribution", rewardPerUser);
+                }
+                
+                // إفراغ الصندوق
+                communityPool.set(0.0);
+                
+                System.out.println("COMMUNITY REWARD SYSTEM: Distributed " + pool + 
+                                 " MAZDADY among " + activeUsers.size() + " active users");
+                
+            } catch (Exception e) {
+                System.err.println("AUTOMATIC DISTRIBUTION ERROR: " + e.getMessage());
             }
-        }
-    }
-
-    /**
-     * توزيع المكافآت تلقائيًا
-     */
-    public void distributeRewardsAutomatically() {
-        double pool = communityPool.get();
-        if (pool > 0) {
-            // في الإنتاج: توزيع ذكي حسب النشاط
-            User user = UserManager.getInstance(null).getCurrentUser();
-            user.setBalance(user.getBalance() + pool * 0.1); // 10% كمكافأة
-            communityPool.addAndGet(-pool * 0.1);
-            System.out.println("AUTO REWARD: Distributed " + (pool * 0.1) + " MAZDADY from community pool");
-        }
+        }).start();
     }
 
     // --- استراتيجيات المكافآت ---
@@ -91,11 +141,70 @@ public final class CommunityRewardSystem {
 
     private Void rewardReferral(User user, Double amount) {
         user.setBalance(user.getBalance() + amount);
-        // في الإنتاج: منح مكافأة للمحيل أيضًا
+        user.incrementReferralCount();
         return null;
     }
 
-    public double getCommunityPool() {
-        return communityPool.get();
+    private Void rewardDailyLogin(User user, Double amount) {
+        user.setBalance(user.getBalance() + amount);
+        user.incrementLoginStreak();
+        return null;
+    }
+
+    private Void rewardStreakBonus(User user, Double amount) {
+        user.setBalance(user.getBalance() + amount * 2); // مكافأة مضاعفة
+        user.addCommunityPoints((int) (amount * 2));
+        return null;
+    }
+
+    private Void rewardAchievementUnlock(User user, Double amount) {
+        user.setBalance(user.getBalance() + amount);
+        user.addCommunityPoints((int) (amount * 1.5));
+        return null;
+    }
+
+    private Void rewardTeamContribution(User user, Double amount) {
+        user.setBalance(user.getBalance() + amount * 1.3);
+        user.addCommunityPoints((int) (amount * 2));
+        return null;
+    }
+
+    private void logCommunityReward(String userId, String rewardType, double amount) {
+        // في الإنتاج: تسجيل المكافأة في قاعدة البيانات
+        System.out.println("COMMUNITY REWARD LOG: " + userId + " - " + rewardType + 
+                         " - " + String.format("%.2f", amount) + " MAZDADY");
+    }
+
+    // --- Getters ---
+    public double getCommunityPool() { return communityPool.get(); }
+    public int getRewardStrategyCount() { return rewardStrategies.size(); }
+    public boolean hasRewardStrategy(String strategy) { return rewardStrategies.containsKey(strategy); }
+    
+    /**
+     * إضافة استراتيجية مكافأة مخصصة
+     */
+    public void addRewardStrategy(String strategyName, BiFunction<User, Double, Void> strategy) {
+        if (strategyName != null && strategy != null) {
+            rewardStrategies.put(strategyName, strategy);
+            System.out.println("COMMUNITY REWARD SYSTEM: Added custom reward strategy - " + strategyName);
+        }
+    }
+    
+    /**
+     * إزالة استراتيجية مكافأة
+     */
+    public void removeRewardStrategy(String strategyName) {
+        if (strategyName != null) {
+            rewardStrategies.remove(strategyName);
+            System.out.println("COMMUNITY REWARD SYSTEM: Removed reward strategy - " + strategyName);
+        }
+    }
+    
+    /**
+     * مسح صندوق المجتمع (للاختبارات)
+     */
+    public void clearCommunityPool() {
+        communityPool.set(0.0);
+        System.out.println("COMMUNITY REWARD SYSTEM: Community pool cleared");
     }
 }
