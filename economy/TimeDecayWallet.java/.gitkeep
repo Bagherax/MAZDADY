@@ -1,106 +1,278 @@
 package mazdady.economy;
 
-import mazdady.user.UserManager;
 import mazdady.user.User;
+import mazdady.user.UserManager;
+import mazdady.admin.AdminConfig;
 
+import java.time.Duration;
 import java.time.Instant;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * محفظة ذات تحلل زمني مع دعم التذكير التلقائي
- * يتبع نمط Observer لإعلام المستخدم بالتغيرات
+ * يتبع نمط Observer لإعلام النظام بالتغيرات
  */
 public final class TimeDecayWallet {
-    private final AtomicReference<Double> balance = new AtomicReference<>(0.0);
-    private final AtomicReference<Instant> lastActivity = new AtomicReference<>(Instant.now());
-    private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
-    private static final TimeDecayWallet INSTANCE = new TimeDecayWallet();
+    private final Map<String, WalletDecayState> walletStates = new ConcurrentHashMap<>();
+    private final ScheduledExecutorService decayScheduler = Executors.newScheduledThreadPool(1);
+    private final AdminConfig.EconomyConfig economyConfig;
+    private static TimeDecayWallet instance;
 
-    private TimeDecayWallet() {
-        // بدء جدولة التحلل الزمني
-        scheduler.scheduleAtFixedRate(
-            this::applyTimeDecay,
-            1,
+    private TimeDecayWallet(AdminConfig.EconomyConfig economyConfig) {
+        this.economyConfig = economyConfig;
+        startDecayMonitoring();
+    }
+
+    public static synchronized TimeDecayWallet getInstance(AdminConfig.EconomyConfig economyConfig) {
+        if (instance == null) {
+            instance = new TimeDecayWallet(economyConfig);
+        }
+        return instance;
+    }
+
+    private void startDecayMonitoring() {
+        decayScheduler.scheduleAtFixedRate(
+            this::applyDecayToInactiveWallets,
+            0,
             1,
             TimeUnit.HOURS
         );
-    }
-
-    public static TimeDecayWallet getInstance() {
-        return INSTANCE;
-    }
-
-    /**
-     * إيداع الأموال في المحفظة
-     */
-    public void deposit(double amount) {
-        balance.updateAndGet(current -> current + amount);
-        lastActivity.set(Instant.now());
-        System.out.println("TIME DECAY WALLET: Deposited " + amount + " MAZDADY");
-    }
-
-    /**
-     * سحب الأموال من المحفظة
-     */
-    public boolean withdraw(double amount) {
-        return balance.updateAndGet(current -> {
-            if (current >= amount) {
-                lastActivity.set(Instant.now());
-                return current - amount;
-            }
-            return current;
-        }) >= 0;
-    }
-
-    /**
-     * تطبيق التحلل الزمني
-     */
-    private void applyTimeDecay() {
-        Instant now = Instant.now();
-        Instant last = lastActivity.get();
-        long hoursInactive = java.time.Duration.between(last, now).toHours();
         
-        if (hoursInactive > 24) {
-            double decayRate = 0.01 * (hoursInactive - 24); // 1% لكل ساعة بعد 24 ساعة
-            double currentBalance = balance.get();
-            double decayAmount = currentBalance * Math.min(decayRate, 0.5); // الحد الأقصى 50%
-            
-            if (decayAmount > 0) {
-                balance.updateAndGet(current -> current - decayAmount);
-                System.out.println("TIME DECAY: " + decayAmount + " MAZDADY decayed after " + hoursInactive + " hours");
+        System.out.println("TIME DECAY WALLET: Started decay monitoring every hour");
+    }
+
+    /**
+     * تطبيق التحلل على المحافظ غير النشطة غير متزامن
+     */
+    private void applyDecayToInactiveWallets() {
+        new Thread(() -> {
+            try {
+                long currentTime = System.currentTimeMillis();
+                long decayThreshold = economyConfig != null ? 
+                    economyConfig.getDecayThresholdHours() : 24; // 24 ساعة افتراضيًا
                 
-                // إرسال تذكير للمستخدم
-                notifyUserOfDecay(decayAmount, hoursInactive);
+                for (Map.Entry<String, WalletDecayState> entry : walletStates.entrySet()) {
+                    String userId = entry.getKey();
+                    WalletDecayState state = entry.getValue();
+                    
+                    long inactiveTime = currentTime - state.getLastActivity().toEpochMilli();
+                    long thresholdMs = decayThreshold * 60 * 60 * 1000;
+                    
+                    if (inactiveTime > thresholdMs) {
+                        applyDecayToUserWallet(userId, state);
+                    }
+                }
+                
+            } catch (Exception e) {
+                System.err.println("DECAY MONITORING ERROR: " + e.getMessage());
             }
+        }).start();
+    }
+
+    private void applyDecayToUserWallet(String userId, WalletDecayState state) {
+        try {
+            User user = UserManager.getInstance(null).getUserById(userId);
+            if (user == null) return;
+            
+            double currentBalance = user.getBalance();
+            if (currentBalance <= 0) return;
+            
+            double decayRate = economyConfig != null ? 
+                economyConfig.getDecayRate() : 0.01; // 1% افتراضيًا
+            
+            double decayAmount = currentBalance * decayRate;
+            double newBalance = currentBalance - decayAmount;
+            
+            user.setBalance(newBalance);
+            state.updateLastActivity();
+            
+            System.out.println("TIME DECAY WALLET: Applied decay to " + userId + 
+                             " - Lost " + String.format("%.2f", decayAmount) + 
+                             " MAZDADY (New balance: " + String.format("%.2f", newBalance) + 
+                             " MAZDADY)");
+            
+            // إرسال تذكير للمستخدم
+            notifyUserOfDecay(userId, decayAmount);
+            
+        } catch (Exception e) {
+            System.err.println("WALLET DECAY ERROR: " + e.getMessage());
         }
     }
 
-    private void notifyUserOfDecay(double decayAmount, long hoursInactive) {
-        User user = UserManager.getInstance(null).getCurrentUser();
-        System.out.println("NOTIFICATION: " + decayAmount + " MAZDADY decayed! Use your balance within 24 hours to avoid decay.");
+    private void notifyUserOfDecay(String userId, double decayAmount) {
+        User user = UserManager.getInstance(null).getUserById(userId);
+        if (user != null) {
+            System.out.println("DECAY NOTIFICATION: User " + userId + 
+                             " - Balance decayed by " + String.format("%.2f", decayAmount) + 
+                             " MAZDADY. Use your balance within 24 hours to avoid decay.");
+        }
     }
 
     /**
-     * الحصول على الرصيد الحالي
+     * تحديث تاريخ آخر نشاط للمحفظة
      */
-    public double getBalance() {
-        return balance.get();
+    public void updateWalletActivity(String userId) {
+        walletStates.compute(userId, (k, v) -> {
+            if (v == null) {
+                return new WalletDecayState(userId, Instant.now());
+            } else {
+                v.updateLastActivity();
+                return v;
+            }
+        });
+        
+        System.out.println("TIME DECAY WALLET: Updated activity for user " + userId);
     }
 
     /**
-     * الحصول على وقت آخر نشاط
+     * التحقق من حالة التحلل للمحفظة
      */
-    public Instant getLastActivity() {
-        return lastActivity.get();
+    public DecayStatus getDecayStatus(String userId) {
+        WalletDecayState state = walletStates.get(userId);
+        if (state == null) {
+            return DecayStatus.noActivity("No wallet activity recorded");
+        }
+        
+        long inactiveTime = System.currentTimeMillis() - state.getLastActivity().toEpochMilli();
+        long decayThreshold = (economyConfig != null ? 
+            economyConfig.getDecayThresholdHours() : 24) * 60 * 60 * 1000;
+        
+        if (inactiveTime > decayThreshold) {
+            double hoursInactive = inactiveTime / (60.0 * 60 * 1000);
+            return DecayStatus.atRisk(
+                "Wallet at risk of decay", 
+                hoursInactive, 
+                decayThreshold / (60.0 * 60 * 1000)
+            );
+        } else {
+            double hoursRemaining = (decayThreshold - inactiveTime) / (60.0 * 60 * 1000);
+            return DecayStatus.safe(
+                "Wallet safe from decay", 
+                hoursRemaining, 
+                decayThreshold / (60.0 * 60 * 1000)
+            );
+        }
     }
 
     /**
-     * إيقاف جدولة التحلل (للاختبارات)
+     * تحديث إعدادات التحلل من الإعدادات الإدارية
+     */
+    public void updateDecayConfig(AdminConfig.EconomyConfig newConfig) {
+        if (newConfig != null) {
+            System.out.println("TIME DECAY WALLET: Updated decay config from admin");
+        }
+    }
+
+    // --- حالة التحلل ---
+    private static final class WalletDecayState {
+        private final String userId;
+        private volatile Instant lastActivity;
+
+        public WalletDecayState(String userId, Instant lastActivity) {
+            this.userId = userId;
+            this.lastActivity = lastActivity;
+        }
+
+        public void updateLastActivity() {
+            this.lastActivity = Instant.now();
+        }
+
+        // Getters
+        public String getUserId() { return userId; }
+        public Instant getLastActivity() { return lastActivity; }
+    }
+
+    // --- حالة التحلل ---
+    public static final class DecayStatus {
+        private final boolean atRisk;
+        private final String message;
+        private final double hoursInactive;
+        private final double decayThresholdHours;
+
+        private DecayStatus(boolean atRisk, String message, double hoursInactive, double decayThresholdHours) {
+            this.atRisk = atRisk;
+            this.message = message;
+            this.hoursInactive = hoursInactive;
+            this.decayThresholdHours = decayThresholdHours;
+        }
+
+        public static DecayStatus noActivity(String message) {
+            return new DecayStatus(false, message, 0, 24);
+        }
+
+        public static DecayStatus safe(String message, double hoursRemaining, double threshold) {
+            return new DecayStatus(false, message, threshold - hoursRemaining, threshold);
+        }
+
+        public static DecayStatus atRisk(String message, double hoursInactive, double threshold) {
+            return new DecayStatus(true, message, hoursInactive, threshold);
+        }
+
+        public boolean isAtRisk() { return atRisk; }
+        public String getMessage() { return message; }
+        public double getHoursInactive() { return hoursInactive; }
+        public double getDecayThresholdHours() { return decayThresholdHours; }
+        public double getHoursRemaining() { 
+            return Math.max(0, decayThresholdHours - hoursInactive); 
+        }
+        public String getFormattedHoursRemaining() {
+            double hours = getHoursRemaining();
+            return String.format("%.1f", hours) + " hours";
+        }
+    }
+
+    // --- Getters ---
+    public int getActiveWalletCount() {
+        return (int) walletStates.values().stream()
+            .filter(state -> {
+                long inactiveTime = System.currentTimeMillis() - state.getLastActivity().toEpochMilli();
+                long threshold = (economyConfig != null ? 
+                    economyConfig.getDecayThresholdHours() : 24) * 60 * 60 * 1000;
+                return inactiveTime < threshold;
+            })
+            .count();
+    }
+    
+    public int getAtRiskWalletCount() {
+        return (int) walletStates.values().stream()
+            .filter(state -> {
+                long inactiveTime = System.currentTimeMillis() - state.getLastActivity().toEpochMilli();
+                long threshold = (economyConfig != null ? 
+                    economyConfig.getDecayThresholdHours() : 24) * 60 * 60 * 1000;
+                return inactiveTime >= threshold;
+            })
+            .count();
+    }
+    
+    public Map<String, WalletDecayState> getWalletStates() {
+        return new ConcurrentHashMap<>(walletStates);
+    }
+    
+    /**
+     * إزالة حالة المحفظة (للاختبارات)
+     */
+    public void removeWalletState(String userId) {
+        walletStates.remove(userId);
+        System.out.println("TIME DECAY WALLET: Removed state for user " + userId);
+    }
+    
+    /**
+     * مسح جميع الحالات (للاختبارات)
+     */
+    public void clearAllStates() {
+        walletStates.clear();
+        System.out.println("TIME DECAY WALLET: Cleared all wallet states");
+    }
+    
+    /**
+     * إيقاف الجدولة (للاختبارات)
      */
     public void shutdown() {
-        scheduler.shutdown();
+        decayScheduler.shutdown();
+        System.out.println("TIME DECAY WALLET: Shutdown completed");
     }
 }
