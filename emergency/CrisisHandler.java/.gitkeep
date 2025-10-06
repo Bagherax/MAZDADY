@@ -1,104 +1,359 @@
 package mazdady.emergency;
 
+import mazdady.user.User;
 import mazdady.user.UserManager;
 import mazdady.wallet.WalletManager;
+import mazdady.admin.AdminConfig;
+import mazdady.security.SecurityMonitor;
 
 import java.time.Instant;
+import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 
 /**
- * معالج الأزمات مع دعم الاستجابة التلقائية
- * يتبع نمط Strategy لفصل استراتيجيات الاستجابة
+ * معالج الأزمات مع دعم الاستجابة الفورية
+ * يتبع نمط Observer لإعلام النظام بالأزمات
  */
 public final class CrisisHandler {
-    private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
-    private static final CrisisHandler INSTANCE = new CrisisHandler();
+    private final WalletManager walletManager;
+    private final SecurityMonitor securityMonitor;
+    private final ScheduledExecutorService crisisScheduler = Executors.newScheduledThreadPool(1);
+    private final Map<String, Consumer<CrisisEvent>> crisisListeners = new ConcurrentHashMap<>();
+    private static CrisisHandler instance;
 
-    private CrisisHandler() {}
-
-    public static CrisisHandler getInstance() {
-        return INSTANCE;
+    private CrisisHandler(WalletManager walletManager, SecurityMonitor securityMonitor) {
+        this.walletManager = walletManager;
+        this.securityMonitor = securityMonitor;
+        startCrisisMonitoring();
     }
 
-    /**
-     * معالجة أزمة مالية
-     */
-    public void handleFinancialCrisis(String crisisType, double impactAmount) {
-        System.out.println("CRISIS HANDLER: Financial crisis detected - " + crisisType + 
-                          " impact: " + impactAmount + " MAZDADY");
-        
-        // تفعيل حالة طوارئ
-        EmergencyMgr.getInstance().triggerEmergency(
-            EmergencyMgr.EmergencyLevel.CRITICAL,
-            "Financial crisis: " + crisisType
-        );
-        
-        // تطبيق إجراءات الحماية
-        applyFinancialProtectionMeasures(impactAmount);
-        
-        // جدولة الاسترداد التلقائي
-        scheduleAutomaticRecovery(impactAmount);
+    public static synchronized CrisisHandler getInstance(WalletManager walletManager, SecurityMonitor securityMonitor) {
+        if (instance == null) {
+            instance = new CrisisHandler(walletManager, securityMonitor);
+        }
+        return instance;
     }
 
-    /**
-     * معالجة أزمة أمنية
-     */
-    public void handleSecurityCrisis(String threatType) {
-        System.out.println("CRISIS HANDLER: Security crisis detected - " + threatType);
-        
-        // تفعيل حالة طوارئ
-        EmergencyMgr.getInstance().triggerEmergency(
-            EmergencyMgr.EmergencyLevel.CRITICAL,
-            "Security threat: " + threatType
-        );
-        
-        // تطبيق إجراءات الأمان
-        applySecurityMeasures();
-    }
-
-    private void applyFinancialProtectionMeasures(double impactAmount) {
-        // 1. تجميد عمليات السحب الكبيرة
-        System.out.println("CRISIS: Large withdrawals temporarily suspended");
-        
-        // 2. تفعيل الحماية ضد الخسارة
-        mazdady.economy.ControlledLossManager.getInstance().activateHighRiskProtection();
-        
-        // 3. إضافة سيولة طارئة
-        WalletManager wallet = new WalletManager();
-        wallet.depositMAZDADY(impactAmount * 0.1); // 10% سيولة طارئة
-        
-        System.out.println("CRISIS: Protection measures applied");
-    }
-
-    private void applySecurityMeasures() {
-        // 1. تسجيل خروج جميع الجلسات
-        UserManager.getInstance(null).getCurrentUser().setLevel(0);
-        
-        // 2. تعطيل الميزات الحساسة
-        System.out.println("CRISIS: Sensitive features disabled for security");
-        
-        // 3. بدء مراقبة مكثفة
-        System.out.println("CRISIS: Enhanced monitoring activated");
-    }
-
-    private void scheduleAutomaticRecovery(double impactAmount) {
-        scheduler.schedule(
-            () -> {
-                System.out.println("CRISIS RECOVERY: Automatic recovery initiated");
-                EmergencyMgr.getInstance().restoreNormalState();
-                System.out.println("CRISIS RECOVERY: System returned to normal operation");
-            },
+    private void startCrisisMonitoring() {
+        crisisScheduler.scheduleAtFixedRate(
+            this::monitorForCrisis,
+            0,
             30,
-            TimeUnit.MINUTES
+            TimeUnit.SECONDS
         );
+        
+        System.out.println("CRISIS HANDLER: Started monitoring for crises every 30 seconds");
     }
 
     /**
-     * إيقاف جدولة الاسترداد (للاختبارات)
+     * مراقبة وجود أزمات غير متزامن
+     */
+    private void monitorForCrisis() {
+        try {
+            // التحقق من أزمات المحفظة
+            checkWalletCrisis();
+            
+            // التحقق من أزمات الأمان
+            checkSecurityCrisis();
+            
+            // التحقق من أزمات النظام
+            checkSystemCrisis();
+            
+        } catch (Exception e) {
+            System.err.println("CRISIS MONITORING ERROR: " + e.getMessage());
+        }
+    }
+
+    private void checkWalletCrisis() {
+        try {
+            double systemTreasury = walletManager.getSystemTreasury();
+            double totalUserBalance = UserManager.getInstance(null).getAllUsers().stream()
+                .mapToDouble(User::getBalance)
+                .sum();
+            
+            // إذا كان الخزان أقل من 10% من رصيد المستخدمين
+            if (systemTreasury < totalUserBalance * 0.1) {
+                triggerCrisis(CrisisType.WALLET_CRISIS, "System treasury below 10% of user balances");
+            }
+            
+        } catch (Exception e) {
+            System.err.println("WALLET CRISIS CHECK ERROR: " + e.getMessage());
+        }
+    }
+
+    private void checkSecurityCrisis() {
+        try {
+            // التحقق من عدد المحاولات الفاشلة
+            int failedAttempts = securityMonitor.getFailedLoginAttempts();
+            if (failedAttempts > 100) {
+                triggerCrisis(CrisisType.SECURITY_CRISIS, "High number of failed login attempts detected");
+            }
+            
+            // التحقق من الأجهزة المخترقة
+            int compromisedDevices = securityMonitor.getCompromisedDevicesCount();
+            if (compromisedDevices > 10) {
+                triggerCrisis(CrisisType.SECURITY_CRISIS, "Multiple compromised devices detected");
+            }
+            
+        } catch (Exception e) {
+            System.err.println("SECURITY CRISIS CHECK ERROR: " + e.getMessage());
+        }
+    }
+
+    private void checkSystemCrisis() {
+        try {
+            // التحقق من أداء النظام
+            double cpuUsage = getSystemCPUUsage();
+            double memoryUsage = getSystemMemoryUsage();
+            
+            if (cpuUsage > 90.0 || memoryUsage > 95.0) {
+                triggerCrisis(CrisisType.SYSTEM_CRISIS, 
+                    "High system resource usage - CPU: " + String.format("%.1f", cpuUsage) + 
+                    "%, Memory: " + String.format("%.1f", memoryUsage) + "%");
+            }
+            
+        } catch (Exception e) {
+            System.err.println("SYSTEM CRISIS CHECK ERROR: " + e.getMessage());
+        }
+    }
+
+    /**
+     * تفعيل أزمة غير متزامن
+     */
+    public CompletableFuture<CrisisResult> triggerCrisisAsync(CrisisType crisisType, String reason) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                triggerCrisis(crisisType, reason);
+                return CrisisResult.success("Crisis triggered successfully: " + reason);
+                
+            } catch (Exception e) {
+                return CrisisResult.failure("Crisis trigger failed: " + e.getMessage());
+            }
+        });
+    }
+
+    private void triggerCrisis(CrisisType crisisType, String reason) {
+        System.out.println("🚨 CRISIS HANDLER: Crisis triggered - " + crisisType + " - " + reason);
+        
+        CrisisEvent event = new CrisisEvent(crisisType, reason, Instant.now());
+        notifyCrisisListeners(event);
+        
+        // تسجيل الأزمة في السجل الأمني
+        securityMonitor.reportCrisis(crisisType.name(), reason);
+        
+        // تطبيق إجراءات الأزمة
+        applyCrisisMeasures(crisisType, reason);
+    }
+
+    private void applyCrisisMeasures(CrisisType crisisType, String reason) {
+        switch (crisisType) {
+            case WALLET_CRISIS:
+                handleWalletCrisis(reason);
+                break;
+            case SECURITY_CRISIS:
+                handleSecurityCrisis(reason);
+                break;
+            case SYSTEM_CRISIS:
+                handleSystemCrisis(reason);
+                break;
+            case FINANCIAL_CRISIS:
+                handleFinancialCrisis(reason);
+                break;
+        }
+    }
+
+    private void handleWalletCrisis(String reason) {
+        System.out.println("WALLET CRISIS: Applying protective measures...");
+        
+        // تجميد السحوبات مؤقتًا
+        walletManager.freezeWithdrawals(60); // تجميد لمدة ساعة
+        
+        // تفعيل بوت الطوارئ
+        EmergencyMgr.getInstance(walletManager, securityMonitor).activateEmergencyMode();
+        
+        // إرسال تنبيه للادمن
+        AdminConfig.getInstance().notifyAdmins("WALLET_CRISIS", reason);
+    }
+
+    private void handleSecurityCrisis(String reason) {
+        System.out.println("SECURITY CRISIS: Activating security protocols...");
+        
+        // تفعيل وضع الأمان العالي
+        securityMonitor.activateHighSecurityMode();
+        
+        // تسجيل خروج جميع المستخدمين
+        UserManager.getInstance(null).logoutAllUsers();
+        
+        // إرسال تنبيه للادمن
+        AdminConfig.getInstance().notifyAdmins("SECURITY_CRISIS", reason);
+    }
+
+    private void handleSystemCrisis(String reason) {
+        System.out.println("SYSTEM CRISIS: Optimizing system resources...");
+        
+        // تقليل عدد العمليات الخلفية
+        reduceBackgroundProcesses();
+        
+        // تفعيل وضع الأداء العالي
+        activateHighPerformanceMode();
+        
+        // إرسال تنبيه للادمن
+        AdminConfig.getInstance().notifyAdmins("SYSTEM_CRISIS", reason);
+    }
+
+    private void handleFinancialCrisis(String reason) {
+        System.out.println("FINANCIAL CRISIS: Stabilizing financial system...");
+        
+        // تفعيل بوت تثبيت السوق
+        mazdady.bot.MarketStabilizerBot stabilizerBot = 
+            new mazdady.bot.MarketStabilizerBot("STAB_BOT_" + System.currentTimeMillis(), 
+                                              mazdady.trading.PriceEngine.getInstance());
+        stabilizerBot.start();
+        
+        // إرسال تنبيه للادمن
+        AdminConfig.getInstance().notifyAdmins("FINANCIAL_CRISIS", reason);
+    }
+
+    private void reduceBackgroundProcesses() {
+        // في الإنتاج: تقليل العمليات الخلفية
+        System.out.println("CRISIS HANDLER: Reduced background processes");
+    }
+
+    private void activateHighPerformanceMode() {
+        // في الإنتاج: تفعيل وضع الأداء العالي
+        System.out.println("CRISIS HANDLER: Activated high performance mode");
+    }
+
+    private double getSystemCPUUsage() {
+        // في الإنتاج: الحصول من SystemInfo
+        return ThreadLocalRandom.current().nextDouble(0, 100);
+    }
+
+    private double getSystemMemoryUsage() {
+        // في الإنتاج: الحصول من Runtime
+        Runtime runtime = Runtime.getRuntime();
+        long maxMemory = runtime.maxMemory();
+        long totalMemory = runtime.totalMemory();
+        long freeMemory = runtime.freeMemory();
+        long usedMemory = totalMemory - freeMemory;
+        return (double) usedMemory / maxMemory * 100;
+    }
+
+    private void notifyCrisisListeners(CrisisEvent event) {
+        crisisListeners.values().forEach(listener -> {
+            try {
+                listener.accept(event);
+            } catch (Exception e) {
+                // تجاهل أخطاء المستمعين
+            }
+        });
+    }
+
+    /**
+     * إضافة مستمع للأزمات
+     */
+    public void addCrisisListener(String listenerId, Consumer<CrisisEvent> listener) {
+        if (listenerId != null && listener != null) {
+            crisisListeners.put(listenerId, listener);
+            System.out.println("CRISIS HANDLER: Added crisis listener - " + listenerId);
+        }
+    }
+
+    /**
+     * إزالة مستمع للأزمات
+     */
+    public void removeCrisisListener(String listenerId) {
+        if (listenerId != null) {
+            crisisListeners.remove(listenerId);
+            System.out.println("CRISIS HANDLER: Removed crisis listener - " + listenerId);
+        }
+    }
+
+    /**
+     * إيقاف المراقبة (للاختبارات)
      */
     public void shutdown() {
-        scheduler.shutdown();
+        crisisScheduler.shutdown();
+        crisisListeners.clear();
+        System.out.println("CRISIS HANDLER: Shutdown completed");
+    }
+
+    /**
+     * نوع الأزمة
+     */
+    public enum CrisisType {
+        WALLET_CRISIS, SECURITY_CRISIS, SYSTEM_CRISIS, FINANCIAL_CRISIS
+    }
+
+    /**
+     * حدث الأزمة
+     */
+    public static final class CrisisEvent {
+        private final CrisisType type;
+        private final String reason;
+        private final Instant timestamp;
+
+        public CrisisEvent(CrisisType type, String reason, Instant timestamp) {
+            this.type = type;
+            this.reason = reason;
+            this.timestamp = timestamp;
+        }
+
+        public CrisisType getType() { return type; }
+        public String getReason() { return reason; }
+        public Instant getTimestamp() { return timestamp; }
+        
+        @Override
+        public String toString() {
+            return "CrisisEvent{" +
+                "type=" + type +
+                ", reason='" + reason + '\'' +
+                ", timestamp=" + timestamp +
+                '}';
+        }
+    }
+
+    /**
+     * نتيجة الأزمة
+     */
+    public static final class CrisisResult {
+        private final boolean success;
+        private final String message;
+
+        private CrisisResult(boolean success, String message) {
+            this.success = success;
+            this.message = message;
+        }
+
+        public static CrisisResult success(String message) {
+            return new CrisisResult(true, message);
+        }
+
+        public static CrisisResult failure(String message) {
+            return new CrisisResult(false, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public String getMessage() { return message; }
+    }
+
+    // --- Getters ---
+    public int getCrisisListenerCount() { return crisisListeners.size(); }
+    public boolean isMonitoringActive() { return !crisisScheduler.isShutdown(); }
+    public CrisisType getCurrentCrisisType() { 
+        // في الإنتاج: الحصول من حالة النظام
+        return CrisisType.SYSTEM_CRISIS; // محاكاة
+    }
+    
+    /**
+     * إعادة تعيين حالة الأزمات (للاختبارات)
+     */
+    public void resetCrisisState() {
+        System.out.println("CRISIS HANDLER: Crisis state reset");
     }
 }
