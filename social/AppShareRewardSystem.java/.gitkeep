@@ -1,0 +1,494 @@
+package mazdady.social;
+
+import mazdady.user.User;
+import mazdady.user.UserManager;
+import mazdady.wallet.WalletManager;
+import mazdady.admin.AdminConfig;
+
+import java.time.Instant;
+import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
+
+/**
+ * نظام مكافآت المشاركة مع دعم التتبع المتقدم
+ * يتبع نمط Observer لإعلام النظام بالمشاركات
+ */
+public final class AppShareRewardSystem {
+    private final Map<String, ShareRecord> shareRecords = new ConcurrentHashMap<>();
+    private final AtomicLong nextShareId = new AtomicLong(1000);
+    private final WalletManager walletManager;
+    private static AppShareRewardSystem instance;
+
+    private AppShareRewardSystem(WalletManager walletManager) {
+        this.walletManager = walletManager;
+    }
+
+    public static synchronized AppShareRewardSystem getInstance(WalletManager walletManager) {
+        if (instance == null) {
+            instance = new AppShareRewardSystem(walletManager);
+        }
+        return instance;
+    }
+
+    /**
+     * إنشاء رابط مشاركة مخصص غير متزامن
+     */
+    public CompletableFuture<ShareResult> createShareLinkAsync(String sharerUserId) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                User sharer = UserManager.getInstance(null).getUserById(sharerUserId);
+                if (sharer == null) {
+                    return ShareResult.failure("User not found");
+                }
+                
+                // إنشاء معرف فريد للمشاركة
+                String shareId = "SHARE_" + nextShareId.getAndIncrement();
+                
+                // إنشاء رابط مشاركة مخصص
+                String shareLink = generateCustomShareLink(shareId, sharerUserId);
+                
+                // تسجيل المشاركة
+                ShareRecord record = new ShareRecord(
+                    shareId,
+                    sharerUserId,
+                    shareLink,
+                    Instant.now()
+                );
+                shareRecords.put(shareId, record);
+                
+                System.out.println("APP SHARE REWARD: Created share link for " + sharerUserId + 
+                                 " - Link: " + shareLink);
+                
+                return ShareResult.success(shareId, shareLink, "Share link created successfully");
+                
+            } catch (Exception e) {
+                return ShareResult.failure("Share link creation failed: " + e.getMessage());
+            }
+        });
+    }
+
+    private String generateCustomShareLink(String shareId, String userId) {
+        // في الإنتاج: استخدام رابط قصير مخصص
+        return "https://mazdady.com/download?ref=" + shareId + "&uid=" + userId;
+    }
+
+    /**
+     * معالجة تنزيل التطبيق عبر رابط مشاركة غير متزامن
+     */
+    public CompletableFuture<DownloadResult> processAppDownloadAsync(
+        String shareId, 
+        String downloaderDeviceId
+    ) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                ShareRecord shareRecord = shareRecords.get(shareId);
+                if (shareRecord == null) {
+                    return DownloadResult.failure("Invalid share link");
+                }
+                
+                // التحقق من عدم تنزيل التطبيق مسبقًا من نفس الجهاز
+                if (shareRecord.hasDownloader(downloaderDeviceId)) {
+                    return DownloadResult.failure("App already downloaded from this device");
+                }
+                
+                // تسجيل التنزيل
+                shareRecord.addDownloader(downloaderDeviceId, Instant.now());
+                
+                System.out.println("APP SHARE REWARD: App downloaded via " + shareId + 
+                                 " from device " + downloaderDeviceId);
+                
+                return DownloadResult.success(
+                    shareRecord.getSharerUserId(), 
+                    "App download recorded successfully"
+                );
+                
+            } catch (Exception e) {
+                return DownloadResult.failure("App download processing failed: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * معالجة تفعيل التطبيق بعد التنزيل غير متزامن
+     */
+    public CompletableFuture<ActivationResult> processAppActivationAsync(
+        String shareId, 
+        String downloaderDeviceId, 
+        String downloaderUserId
+    ) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                ShareRecord shareRecord = shareRecords.get(shareId);
+                if (shareRecord == null) {
+                    return ActivationResult.failure("Invalid share link");
+                }
+                
+                // التحقق من أن الجهاز قام بالتنزيل فعلاً
+                if (!shareRecord.hasDownloader(downloaderDeviceId)) {
+                    return ActivationResult.failure("Device did not download app via this link");
+                }
+                
+                // التحقق من عدم تفعيل التطبيق مسبقًا من نفس الجهاز
+                if (shareRecord.isActivatedByDevice(downloaderDeviceId)) {
+                    return ActivationResult.failure("App already activated from this device");
+                }
+                
+                // تسجيل التفعيل
+                shareRecord.markAsActivated(downloaderDeviceId, downloaderUserId, Instant.now());
+                
+                // منح المكافآت
+                grantShareRewards(shareRecord.getSharerUserId(), downloaderUserId);
+                
+                System.out.println("APP SHARE REWARD: App activated via " + shareId + 
+                                 " - Sharer: " + shareRecord.getSharerUserId() + 
+                                 " - Downloader: " + downloaderUserId);
+                
+                return ActivationResult.success(
+                    shareRecord.getSharerUserId(), 
+                    downloaderUserId,
+                    "App activation processed and rewards granted"
+                );
+                
+            } catch (Exception e) {
+                return ActivationResult.failure("App activation processing failed: " + e.getMessage());
+            }
+        });
+    }
+
+    private void grantShareRewards(String sharerUserId, String downloaderUserId) {
+        try {
+            User sharer = UserManager.getInstance(null).getUserById(sharerUserId);
+            User downloader = UserManager.getInstance(null).getUserById(downloaderUserId);
+            
+            if (sharer != null && downloader != null) {
+                // منح مكافأة للمشارك
+                double sharerReward = AdminConfig.getInstance().getSocialConfig().getShareRewardAmount();
+                sharer.setBalance(sharer.getBalance() + sharerReward);
+                walletManager.depositMAZDADY(sharerReward);
+                
+                // منح مكافأة للمحمل
+                double downloaderReward = AdminConfig.getInstance().getSocialConfig().getDownloadRewardAmount();
+                downloader.setBalance(downloader.getBalance() + downloaderReward);
+                walletManager.depositMAZDADY(downloaderReward);
+                
+                // منح نقاط مجتمعية لكليهما
+                sharer.addCommunityPoints(50);
+                downloader.addCommunityPoints(25);
+                
+                // تسجيل المكافآت
+                System.out.println("APP SHARE REWARD: Granted " + sharerReward + " MAZDADY to sharer " + sharerUserId + 
+                                 " and " + downloaderReward + " MAZDADY to downloader " + downloaderUserId);
+                
+                // إشعار النظام بالإنجاز
+                Achievements.getInstance().checkAchievementAsync(
+                    sharerUserId, 
+                    "social_sharer", 
+                    "Shared app successfully"
+                );
+                
+                Achievements.getInstance().checkAchievementAsync(
+                    downloaderUserId, 
+                    "app_downloader", 
+                    "Downloaded app via share link"
+                );
+                
+            }
+            
+        } catch (Exception e) {
+            System.err.println("SHARE REWARD ERROR: " + e.getMessage());
+        }
+    }
+
+    /**
+     * التحقق من حالة مشاركة
+     */
+    public ShareStatus checkShareStatus(String shareId) {
+        ShareRecord record = shareRecords.get(shareId);
+        if (record == null) {
+            return ShareStatus.invalid("Share link not found");
+        }
+        
+        return ShareStatus.active(
+            record.getSharerUserId(),
+            record.getDownloadCount(),
+            record.getActivationCount(),
+            "Share link is active"
+        );
+    }
+
+    /**
+     * الحصول على سجل المشاركة
+     */
+    public ShareRecord getShareRecord(String shareId) {
+        return shareRecords.get(shareId);
+    }
+
+    /**
+     * مسح سجلات المشاركة القديمة (لإدارة الذاكرة)
+     */
+    public void cleanupOldShares() {
+        Instant cutoffTime = Instant.now().minusSeconds(
+            AdminConfig.getInstance().getSocialConfig().getShareRecordRetentionSeconds()
+        );
+        
+        shareRecords.entrySet().removeIf(entry -> 
+            entry.getValue().getCreationTime().isBefore(cutoffTime)
+        );
+        
+        System.out.println("APP SHARE REWARD: Cleaned up old share records");
+    }
+
+    // --- Getters ---
+    public int getActiveShareCount() { 
+        return (int) shareRecords.values().stream()
+            .filter(record -> record.getActivationCount() < 10) // الحد الأقصى 10 تفعيلات لكل رابط
+            .count(); 
+    }
+    public int getTotalShareCount() { return shareRecords.size(); }
+    public double getTotalRewardsDistributed() {
+        return shareRecords.values().stream()
+            .mapToDouble(ShareRecord::getTotalRewards)
+            .sum();
+    }
+    public Map<String, ShareRecord> getShareRecords() { return new ConcurrentHashMap<>(shareRecords); }
+    
+    /**
+     * إعادة تعيين النظام (للاختبارات)
+     */
+    public void reset() {
+        shareRecords.clear();
+        nextShareId.set(1000);
+        System.out.println("APP SHARE REWARD SYSTEM: Reset completed");
+    }
+
+    /**
+     * سجل المشاركة
+     */
+    public static final class ShareRecord {
+        private final String shareId;
+        private final String sharerUserId;
+        private final String shareLink;
+        private final Instant creationTime;
+        private final Map<String, DownloadInfo> downloads = new ConcurrentHashMap<>();
+        private volatile double totalRewards = 0.0;
+
+        public ShareRecord(String shareId, String sharerUserId, String shareLink, Instant creationTime) {
+            this.shareId = shareId;
+            this.sharerUserId = sharerUserId;
+            this.shareLink = shareLink;
+            this.creationTime = creationTime;
+        }
+
+        public void addDownloader(String deviceId, Instant downloadTime) {
+            downloads.put(deviceId, new DownloadInfo(deviceId, downloadTime));
+        }
+
+        public void markAsActivated(String deviceId, String userId, Instant activationTime) {
+            DownloadInfo info = downloads.get(deviceId);
+            if (info != null) {
+                info.markAsActivated(userId, activationTime);
+                totalRewards += 50.0; // مكافأة افتراضية
+            }
+        }
+
+        public boolean hasDownloader(String deviceId) {
+            return downloads.containsKey(deviceId);
+        }
+
+        public boolean isActivatedByDevice(String deviceId) {
+            DownloadInfo info = downloads.get(deviceId);
+            return info != null && info.isActivated();
+        }
+
+        // Getters
+        public String getShareId() { return shareId; }
+        public String getSharerUserId() { return sharerUserId; }
+        public String getShareLink() { return shareLink; }
+        public Instant getCreationTime() { return creationTime; }
+        public int getDownloadCount() { return downloads.size(); }
+        public int getActivationCount() {
+            return (int) downloads.values().stream()
+                .filter(DownloadInfo::isActivated)
+                .count();
+        }
+        public double getTotalRewards() { return totalRewards; }
+        public Map<String, DownloadInfo> getDownloads() { return new ConcurrentHashMap<>(downloads); }
+        
+        @Override
+        public String toString() {
+            return "ShareRecord{" +
+                "id='" + shareId + '\'' +
+                ", sharer='" + sharerUserId + '\'' +
+                ", link='" + shareLink + '\'' +
+                ", downloads=" + downloads.size() +
+                ", activations=" + getActivationCount() +
+                ", rewards=" + String.format("%.2f", totalRewards) +
+                '}';
+        }
+    }
+
+    /**
+     * معلومات التنزيل
+     */
+    private static final class DownloadInfo {
+        private final String deviceId;
+        private final Instant downloadTime;
+        private volatile String activatedUserId;
+        private volatile Instant activationTime;
+        private volatile boolean activated = false;
+
+        public DownloadInfo(String deviceId, Instant downloadTime) {
+            this.deviceId = deviceId;
+            this.downloadTime = downloadTime;
+        }
+
+        public void markAsActivated(String userId, Instant activationTime) {
+            this.activatedUserId = userId;
+            this.activationTime = activationTime;
+            this.activated = true;
+        }
+
+        // Getters
+        public String getDeviceId() { return deviceId; }
+        public Instant getDownloadTime() { return downloadTime; }
+        public String getActivatedUserId() { return activatedUserId; }
+        public Instant getActivationTime() { return activationTime; }
+        public boolean isActivated() { return activated; }
+        
+        @Override
+        public String toString() {
+            return "DownloadInfo{" +
+                "device='" + deviceId + '\'' +
+                ", activated=" + activated +
+                ", user='" + activatedUserId + '\'' +
+                '}';
+        }
+    }
+
+    /**
+     * نتيجة المشاركة
+     */
+    public static final class ShareResult {
+        private final boolean success;
+        private final String shareId;
+        private final String shareLink;
+        private final String message;
+
+        private ShareResult(boolean success, String shareId, String shareLink, String message) {
+            this.success = success;
+            this.shareId = shareId;
+            this.shareLink = shareLink;
+            this.message = message;
+        }
+
+        public static ShareResult success(String shareId, String shareLink, String message) {
+            return new ShareResult(true, shareId, shareLink, message);
+        }
+
+        public static ShareResult failure(String message) {
+            return new ShareResult(false, null, null, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public String getShareId() { return shareId; }
+        public String getShareLink() { return shareLink; }
+        public String getMessage() { return message; }
+    }
+
+    /**
+     * نتيجة التنزيل
+     */
+    public static final class DownloadResult {
+        private final boolean success;
+        private final String sharerUserId;
+        private final String message;
+
+        private DownloadResult(boolean success, String sharerUserId, String message) {
+            this.success = success;
+            this.sharerUserId = sharerUserId;
+            this.message = message;
+        }
+
+        public static DownloadResult success(String sharerUserId, String message) {
+            return new DownloadResult(true, sharerUserId, message);
+        }
+
+        public static DownloadResult failure(String message) {
+            return new DownloadResult(false, null, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public String getSharerUserId() { return sharerUserId; }
+        public String getMessage() { return message; }
+    }
+
+    /**
+     * نتيجة التفعيل
+     */
+    public static final class ActivationResult {
+        private final boolean success;
+        private final String sharerUserId;
+        private final String downloaderUserId;
+        private final String message;
+
+        private ActivationResult(boolean success, String sharerUserId, String downloaderUserId, String message) {
+            this.success = success;
+            this.sharerUserId = sharerUserId;
+            this.downloaderUserId = downloaderUserId;
+            this.message = message;
+        }
+
+        public static ActivationResult success(String sharerUserId, String downloaderUserId, String message) {
+            return new ActivationResult(true, sharerUserId, downloaderUserId, message);
+        }
+
+        public static ActivationResult failure(String message) {
+            return new ActivationResult(false, null, null, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public String getSharerUserId() { return sharerUserId; }
+        public String getDownloaderUserId() { return downloaderUserId; }
+        public String getMessage() { return message; }
+    }
+
+    /**
+     * حالة المشاركة
+     */
+    public static final class ShareStatus {
+        private final boolean valid;
+        private final boolean active;
+        private final String sharerUserId;
+        private final int downloadCount;
+        private final int activationCount;
+        private final String message;
+
+        private ShareStatus(boolean valid, boolean active, String sharerUserId, 
+                           int downloadCount, int activationCount, String message) {
+            this.valid = valid;
+            this.active = active;
+            this.sharerUserId = sharerUserId;
+            this.downloadCount = downloadCount;
+            this.activationCount = activationCount;
+            this.message = message;
+        }
+
+        public static ShareStatus active(String sharerUserId, int downloadCount, 
+                                      int activationCount, String message) {
+            return new ShareStatus(true, true, sharerUserId, downloadCount, activationCount, message);
+        }
+
+        public static ShareStatus invalid(String message) {
+            return new ShareStatus(false, false, null, 0, 0, message);
+        }
+
+        public boolean isValid() { return valid; }
+        public boolean isActive() { return active; }
+        public String getSharerUserId() { return sharerUserId; }
+        public int getDownloadCount() { return downloadCount; }
+        public int getActivationCount() { return activationCount; }
+        public String getMessage() { return message; }
+    }
+}
