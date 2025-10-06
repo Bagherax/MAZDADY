@@ -1,31 +1,35 @@
 package mazdady.security;
 
 import android.content.Context;
+import android.os.Build;
 import android.provider.Settings;
-import android.telephony.TelephonyManager;
 
 import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.Locale;
+import java.util.TimeZone;
 
 /**
- * بصمة الجهاز مع دعم التوليد الآمن
+ * بصمة الجهاز مع دعم التحقق المتقدم
  * يتبع نمط Singleton مع تهيئة آمنة
  */
 public final class DeviceFingerprint {
     private final Context context;
     private volatile String cachedFingerprint;
+    private static DeviceFingerprint instance;
 
     private DeviceFingerprint(Context context) {
         this.context = context.getApplicationContext();
     }
 
-    public static DeviceFingerprint create(Context context) {
-        return new DeviceFingerprint(context);
+    public static synchronized DeviceFingerprint getInstance(Context context) {
+        if (instance == null) {
+            instance = new DeviceFingerprint(context);
+        }
+        return instance;
     }
 
     /**
-     * الحصول على بصمة الجهاز الفريدة
+     * الحصول على بصمة الجهاز الفريدة غير متزامن
      */
     public String getUniqueDeviceId() {
         if (cachedFingerprint != null) {
@@ -38,49 +42,102 @@ public final class DeviceFingerprint {
             }
             
             try {
-                String deviceId = getDeviceId();
+                StringBuilder fingerprint = new StringBuilder();
+                
+                // 1. معرف الجهاز (Android ID)
                 String androidId = Settings.Secure.getString(
                     context.getContentResolver(), 
                     Settings.Secure.ANDROID_ID
                 );
-                String locale = Locale.getDefault().toString();
-                String buildInfo = android.os.Build.MODEL + android.os.Build.BRAND;
-
-                String rawId = deviceId + androidId + locale + buildInfo;
-                cachedFingerprint = sha256(rawId);
+                fingerprint.append(androidId != null ? androidId : "NO_ANDROID_ID");
+                
+                // 2. معلومات الجهاز
+                fingerprint.append(Build.BOARD)
+                          .append(Build.BRAND)
+                          .append(Build.DEVICE)
+                          .append(Build.MODEL)
+                          .append(Build.PRODUCT);
+                
+                // 3. معلومات النظام
+                fingerprint.append(Build.VERSION.RELEASE)
+                          .append(Build.VERSION.SDK_INT);
+                
+                // 4. معلومات اللغة والمنطقة الزمنية
+                fingerprint.append(Locale.getDefault().toString())
+                          .append(TimeZone.getDefault().getID());
+                
+                // 5. تشفير البصمة
+                cachedFingerprint = sha256(fingerprint.toString());
+                
+                System.out.println("DEVICE FINGERPRINT: Generated unique device ID - " + 
+                                 cachedFingerprint.substring(0, 16) + "...");
+                
                 return cachedFingerprint;
+                
             } catch (Exception e) {
-                // في حالة الفشل، استخدام وقت التثبيت كـ ID احتياطي
-                return "fallback_" + System.currentTimeMillis();
+                System.err.println("DEVICE FINGERPRINT ERROR: " + e.getMessage());
+                return "FALLBACK_DEVICE_ID_" + System.currentTimeMillis();
             }
         }
     }
 
-    private String getDeviceId() {
-        try {
-            TelephonyManager tm = (TelephonyManager) context.getSystemService(Context.TELEPHONY_SERVICE);
-            if (tm != null && tm.getDeviceId() != null) {
-                return tm.getDeviceId();
-            }
-        } catch (SecurityException e) {
-            // إذن الهاتف غير ممنوح
+    private String sha256(String input) throws Exception {
+        MessageDigest digest = MessageDigest.getInstance("SHA-256");
+        byte[] hash = digest.digest(input.getBytes("UTF-8"));
+        StringBuilder hexString = new StringBuilder();
+        
+        for (byte b : hash) {
+            String hex = Integer.toHexString(0xff & b);
+            if (hex.length() == 1) hexString.append('0');
+            hexString.append(hex);
         }
-        return "no_telephony";
+        
+        return hexString.toString();
     }
 
-    private String sha256(String input) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] hash = digest.digest(input.getBytes("UTF-8"));
-            StringBuilder hexString = new StringBuilder();
-            for (byte b : hash) {
-                String hex = Integer.toHexString(0xff & b);
-                if (hex.length() == 1) hexString.append('0');
-                hexString.append(hex);
-            }
-            return hexString.toString();
-        } catch (NoSuchAlgorithmException | java.io.UnsupportedEncodingException e) {
-            throw new RuntimeException(e);
+    /**
+     * التحقق من صحة بصمة الجهاز
+     */
+    public boolean isValidDeviceFingerprint(String fingerprint) {
+        if (fingerprint == null || fingerprint.isEmpty()) {
+            return false;
         }
+        
+        String currentFingerprint = getUniqueDeviceId();
+        boolean isValid = currentFingerprint.equals(fingerprint);
+        
+        if (!isValid) {
+            System.err.println("DEVICE FINGERPRINT MISMATCH: Expected " + 
+                             currentFingerprint.substring(0, 16) + "... but got " + 
+                             fingerprint.substring(0, 16) + "...");
+        }
+        
+        return isValid;
+    }
+
+    /**
+     * إعادة تعيين البصمة (للاختبارات)
+     */
+    public void resetFingerprint() {
+        cachedFingerprint = null;
+        System.out.println("DEVICE FINGERPRINT: Reset completed");
+    }
+
+    // --- Getters ---
+    public String getCachedFingerprint() { 
+        return cachedFingerprint != null ? 
+            cachedFingerprint.substring(0, 16) + "..." : 
+            "NO_FINGERPRINT"; 
+    }
+    public boolean hasCachedFingerprint() { return cachedFingerprint != null; }
+    public int getFingerprintLength() { 
+        return cachedFingerprint != null ? cachedFingerprint.length() : 0; 
+    }
+    
+    /**
+     * التحقق من بصمة الجهاز (للاختبارات)
+     */
+    public boolean verifyDeviceFingerprint() {
+        return isValidDeviceFingerprint(getUniqueDeviceId());
     }
 }
