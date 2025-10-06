@@ -8,32 +8,112 @@ import android.widget.Button;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import mazdady.i18n.TranslationManager;
 import mazdady.ui.ImageUploader;
 import mazdady.ui.ElementBackgroundManager;
+import mazdady.user.User;
+import mazdady.user.UserManager;
+
+import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Consumer;
 
 /**
- * محرر واجهة المستخدم مع دعم رفع الصور من الهاتف
- * يتبع نمط Facade لتوفير واجهة موحدة
+ * محرر واجهة المستخدم المتقدم مع دعم رفع الصور والتعديل المتقدم
+ * يدمج الواجهة الرسومية مع نظام إدارة العناصر
  */
 public final class UIEditor extends LinearLayout {
     private final Context context;
+    private final TranslationManager translationManager;
     private final ImageUploader imageUploader;
     private final ElementBackgroundManager backgroundManager;
+    private final Map<String, UIElement> uiElements = new ConcurrentHashMap<>();
     private String currentElementId;
     private static final int PICK_IMAGE_REQUEST = 1001;
+    private static UIEditor instance;
 
-    public UIEditor(Context context) {
+    public UIEditor(Context context, TranslationManager translationManager) {
         super(context);
         this.context = context.getApplicationContext();
+        this.translationManager = translationManager;
         this.imageUploader = ImageUploader.getInstance(context);
         this.backgroundManager = ElementBackgroundManager.getInstance(context);
-        initializeEditor();
+        initializeUIElements();
+        initializeEditorView();
     }
 
-    private void initializeEditor() {
+    public static synchronized UIEditor getInstance(Context context, TranslationManager translationManager) {
+        if (instance == null) {
+            instance = new UIEditor(context, translationManager);
+        }
+        return instance;
+    }
+
+    private void initializeUIElements() {
+        // تهيئة العناصر الأساسية
+        uiElements.put("buy_button", new UIElement(
+            "buy_button",
+            ElementType.BUTTON,
+            ElementPosition.BOTTOM_LEFT,
+            new ElementSize(160, 56),
+            new ElementStyle("#4CAF50", "#FFFFFF", true)
+        ));
+        
+        uiElements.put("sell_button", new UIElement(
+            "sell_button",
+            ElementType.BUTTON,
+            ElementPosition.BOTTOM_RIGHT,
+            new ElementSize(160, 56),
+            new ElementStyle("#F44336", "#FFFFFF", true)
+        ));
+        
+        uiElements.put("balance_view", new UIElement(
+            "balance_view",
+            ElementType.TEXT_VIEW,
+            ElementPosition.TOP_CENTER,
+            new ElementSize(200, 40),
+            new ElementStyle("#0f0f1b", "#FFFFFF", false)
+        ));
+        
+        uiElements.put("trading_line", new UIElement(
+            "trading_line",
+            ElementType.CUSTOM_VIEW,
+            ElementPosition.CENTER,
+            new ElementSize(1080, 640),
+            new ElementStyle("#16213e", "#FFFFFF", false)
+        ));
+        
+        uiElements.put("popup_background", new UIElement(
+            "popup_background",
+            ElementType.IMAGE_VIEW,
+            ElementPosition.CENTER,
+            new ElementSize(400, 300),
+            new ElementStyle("#1a1a2e", "#FFFFFF", false)
+        ));
+        
+        System.out.println("UI EDITOR: Initialized " + uiElements.size() + " UI elements");
+    }
+
+    private void initializeEditorView() {
         setOrientation(VERTICAL);
         setPadding(20, 20, 20, 20);
         
+        // رأس المحرر
+        TextView header = new TextView(context);
+        header.setText("محرر واجهة المستخدم المتقدم");
+        header.setTextSize(20);
+        header.setPadding(0, 0, 0, 20);
+        addView(header);
+        
+        // عرض العنصر الحالي
+        TextView currentElementView = new TextView(context);
+        currentElementView.setText("لا يوجد عنصر محدد");
+        currentElementView.setId(View.generateViewId());
+        currentElementView.setTextSize(14);
+        currentElementView.setPadding(0, 0, 0, 15);
+        addView(currentElementView);
+
         // زر رفع صورة من الهاتف
         Button uploadImageButton = new Button(context);
         uploadImageButton.setText("رفع صورة من الهاتف");
@@ -49,97 +129,315 @@ public final class UIEditor extends LinearLayout {
         setBackgroundColorButton.setText("تعيين لون الخلفية");
         setBackgroundColorButton.setOnClickListener(v -> openColorPicker());
         
+        // زر تغيير الحجم
+        Button resizeButton = new Button(context);
+        resizeButton.setText("تغيير حجم العنصر");
+        resizeButton.setOnClickListener(v -> openResizeDialog());
+        
+        // زر تغيير الموقع
+        Button moveButton = new Button(context);
+        moveButton.setText("تحريك العنصر");
+        moveButton.setOnClickListener(v -> openMoveDialog());
+        
+        // زر إضافة تفاعل
+        Button addInteractionButton = new Button(context);
+        addInteractionButton.setText("إضافة تفاعل");
+        addInteractionButton.setOnClickListener(v -> openInteractionDialog());
+        
         // إضافة العناصر إلى المحرر
-        addView(createHeader());
         addView(uploadImageButton);
         addView(removeImageButton);
         addView(setBackgroundColorButton);
+        addView(resizeButton);
+        addView(moveButton);
+        addView(addInteractionButton);
         addView(createStatusView());
         
-        System.out.println("UI EDITOR: Initialized with image upload support");
+        System.out.println("UI EDITOR: View initialized with advanced features");
     }
-
-    private TextView createHeader() {
-        TextView header = new TextView(context);
-        header.setText("محرر واجهة المستخدم");
-        header.setTextSize(20);
-        header.setPadding(0, 0, 0, 20);
-        return header;
-    }
-
     private TextView createStatusView() {
-        TextView statusView = new TextView(context);
-        statusView.setText("جاهز لتحميل الصور");
-        statusView.setTextSize(14);
-        statusView.setPadding(0, 20, 0, 0);
-        return statusView;
-    }
+    TextView statusView = new TextView(context);
+    statusView.setText("جاهز - اختر عنصراً للتحرير");
+    statusView.setTextSize(12);
+    statusView.setPadding(0, 20, 0, 0);
+    return statusView;
+}
 
-    private void openImagePicker() {
-        Intent intent = new Intent(Intent.ACTION_PICK);
-        intent.setType("image/*");
-        // في الإنتاج: startActivityForResult(intent, PICK_IMAGE_REQUEST);
-        System.out.println("UI EDITOR: Opening image picker");
+private void openImagePicker() {
+    if (currentElementId == null) {
+        updateStatus("خطأ: لم يتم اختيار عنصر");
+        return;
     }
+    
+    Intent intent = new Intent(Intent.ACTION_PICK);
+    intent.setType("image/*");
+    // في الإنتاج: startActivityForResult(intent, PICK_IMAGE_REQUEST);
+    System.out.println("UI EDITOR: Opening image picker for " + currentElementId);
+    updateStatus("فتح منتقي الصور...");
+}
 
-    private void openColorPicker() {
-        // في الإنتاج: فتح منتقي الألوان
-        System.out.println("UI EDITOR: Opening color picker");
+private void openColorPicker() {
+    if (currentElementId == null) {
+        updateStatus("خطأ: لم يتم اختيار عنصر");
+        return;
     }
+    // في الإنتاج: فتح منتقي الألوان
+    System.out.println("UI EDITOR: Opening color picker for " + currentElementId);
+    updateStatus("فتح منتقي الألوان...");
+}
 
-    private void removeCurrentImage() {
-        if (currentElementId != null) {
-            imageUploader.removeImage(currentElementId);
-            System.out.println("UI EDITOR: Removed image for element " + currentElementId);
+private void openResizeDialog() {
+    if (currentElementId == null) {
+        updateStatus("خطأ: لم يتم اختيار عنصر");
+        return;
+    }
+    // في الإنتاج: فتح نافذة تغيير الحجم
+    System.out.println("UI EDITOR: Opening resize dialog for " + currentElementId);
+    updateStatus("فتح نافذة تغيير الحجم...");
+}
+
+private void openMoveDialog() {
+    if (currentElementId == null) {
+        updateStatus("خطأ: لم يتم اختيار عنصر");
+        return;
+    }
+    // في الإنتاج: فتح نافذة التحريك
+    System.out.println("UI EDITOR: Opening move dialog for " + currentElementId);
+    updateStatus("فتح نافذة التحريك...");
+}
+
+private void openInteractionDialog() {
+    if (currentElementId == null) {
+        updateStatus("خطأ: لم يتم اختيار عنصر");
+        return;
+    }
+    // في الإنتاج: فتح نافذة إضافة التفاعل
+    System.out.println("UI EDITOR: Opening interaction dialog for " + currentElementId);
+    updateStatus("فتح نافذة إضافة التفاعل...");
+}
+
+private void removeCurrentImage() {
+    if (currentElementId != null) {
+        imageUploader.removeImage(currentElementId);
+        UIElement element = uiElements.get(currentElementId);
+        if (element != null) {
+            element.setIconUrl(null);
+            element.setWallpaperUrl(null);
+        }
+        System.out.println("UI EDITOR: Removed image for element " + currentElementId);
+        updateStatus("تم إزالة الصورة من " + currentElementId);
+    } else {
+        updateStatus("خطأ: لم يتم اختيار عنصر");
+    }
+}
+
+private void updateStatus(String message) {
+    // في الإنتاج: تحديث عرض الحالة
+    System.out.println("UI EDITOR STATUS: " + message);
+}
+
+/**
+ * معالجة نتيجة اختيار الصورة
+ */
+public void handleImagePickResult(int requestCode, int resultCode, Intent data) {
+    if (requestCode == PICK_IMAGE_REQUEST && resultCode == android.app.Activity.RESULT_OK) {
+        Uri imageUri = data.getData();
+        if (imageUri != null && currentElementId != null) {
+            uploadImageForElement(currentElementId, imageUri);
         }
     }
+}
 
-    /**
-     * معالجة نتيجة اختيار الصورة
-     */
-    public void handleImagePickResult(int requestCode, int resultCode, Intent data) {
-        if (requestCode == PICK_IMAGE_REQUEST && resultCode == android.app.Activity.RESULT_OK) {
-            Uri imageUri = data.getData();
-            if (imageUri != null && currentElementId != null) {
-                uploadImageForElement(currentElementId, imageUri);
+private void uploadImageForElement(String elementId, Uri imageUri) {
+    updateStatus("جاري رفع الصورة...");
+    
+    imageUploader.uploadImageFromPhoneAsync(elementId, imageUri)
+        .thenAccept(result -> {
+            if (result.isSuccess()) {
+                System.out.println("UI EDITOR: Image uploaded successfully for " + elementId);
+                UIElement element = uiElements.get(elementId);
+                if (element != null) {
+                    element.setIconUrl(result.getFileName());
+                }
+                updateElementBackground(elementId, result.getFileName());
+                updateStatus("تم رفع الصورة بنجاح لـ " + elementId);
+            } else {
+                System.err.println("UI EDITOR ERROR: " + result.getMessage());
+                updateStatus("خطأ في رفع الصورة: " + result.getMessage());
+            }
+        });
+}
+
+private void updateElementBackground(String elementId, String fileName) {
+    // في الإنتاج: تحديث عنصر واجهة المستخدم
+    System.out.println("UI EDITOR: Updated background for " + elementId + " with " + fileName);
+}
+
+/**
+ * تطبيق تعديل واجهة المستخدم غير متزامن
+ */
+public CompletableFuture<UIEditResult> applyUIEditAsync(UIEditRequest request) {
+    return CompletableFuture.supplyAsync(() -> {
+        try {
+            String elementId = request.getElementId();
+            UIElement element = uiElements.get(elementId);
+            
+            if (element == null) {
+                return UIEditResult.failure("Element not found: " + elementId);
+            }
+            
+            // تطبيق التعديلات
+            switch (request.getEditType()) {
+                case MOVE_ELEMENT:
+                    element.setPosition(request.getPosition());
+                    break;
+                case RESIZE_ELEMENT:
+                    element.setSize(request.getSize());
+                    break;
+                case CHANGE_STYLE:
+                    element.setStyle(request.getStyle());
+                    break;
+                case CHANGE_VISIBILITY:
+                    element.setVisible(request.isVisible());
+                    break;
+                case UPLOAD_ICON:
+                    element.setIconUrl(request.getIconUrl());
+                    break;
+                case UPLOAD_WALLPAPER:
+                    element.setWallpaperUrl(request.getWallpaperUrl());
+                    break;
+                case UPLOAD_ANIMATED_WALLPAPER:
+                    element.setAnimatedWallpaperUrl(request.getAnimatedWallpaperUrl());
+                    break;
+                case UPLOAD_SPLASH_VIDEO:
+                    element.setSplashVideoUrl(request.getSplashVideoUrl());
+                    break;
+                case ADD_INTERACTION:
+                    element.setInteractionType(request.getInteractionType());
+                    break;
+                default:
+                    return UIEditResult.failure("Unsupported edit type: " + request.getEditType());
+            }
+            
+            // حفظ التعديلات في GitHub
+            saveToGitHub(elementId, element);
+            
+            System.out.println("UI EDITOR: Applied " + request.getEditType() + 
+                             " to element " + elementId);
+            
+            return UIEditResult.success("UI edit applied successfully to " + elementId);
+            
+        } catch (Exception e) {
+            return UIEditResult.failure("UI edit failed: " + e.getMessage());
+        }
+    });
+}
+
+private void saveToGitHub(String elementId, UIElement element) {
+    try {
+        // في الإنتاج: حفظ في GitHub عبر API
+        System.out.println("UI EDITOR: Saving " + elementId + " to GitHub");
+        
+        // محاكاة الحفظ
+        String elementJson = element.toJson();
+        System.out.println("UI EDITOR: Element JSON - " + elementJson);
+        
+    } catch (Exception e) {
+        System.err.println("GITHUB SAVE ERROR: " + e.getMessage());
+    }
+}
+
+/**
+ * تعيين العنصر الحالي للتحرير
+ */
+public void setCurrentElement(String elementId) {
+    this.currentElementId = elementId;
+    UIElement element = uiElements.get(elementId);
+    if (element != null) {
+        updateCurrentElementView(elementId, element.getType().toString());
+    }
+    System.out.println("UI EDITOR: Current element set to " + elementId);
+    updateStatus("العنصر المحدد: " + elementId);
+}
+
+private void updateCurrentElementView(String elementId, String elementType) {
+    // في الإنتاج: تحديث عرض العنصر الحالي
+    TextView currentElementView = findViewById(/* معرف العرض */);
+    if (currentElementView != null) {
+        currentElementView.setText("العنصر الحالي: " + elementId + " (" + elementType + ")");
+    }
+}
+
+/**
+ * تحديث جميع عناصر الواجهة من الإعدادات الإدارية
+ */
+public void updateAllElementsFromConfig(AdminConfig.UIConfig config) {
+    if (config == null) return;
+    
+    try {
+        Map<String, AdminConfig.UIConfig.ElementConfig> elementConfigs = config.getElementConfigs();
+        
+        for (Map.Entry<String, AdminConfig.UIConfig.ElementConfig> entry : elementConfigs.entrySet()) {
+            String elementId = entry.getKey();
+            AdminConfig.UIConfig.ElementConfig elementConfig = entry.getValue();
+            
+            UIElement element = uiElements.get(elementId);
+            if (element != null) {
+                // تحديث المكان
+                if (elementConfig.getPosition() != null) {
+                    element.setPosition(ElementPosition.valueOf(elementConfig.getPosition().toUpperCase()));
+                }
+                
+                // تحديث الحجم
+                if (elementConfig.getSize() != null) {
+                    element.setSize(new ElementSize(
+                        elementConfig.getSize().getWidth(),
+                        elementConfig.getSize().getHeight()
+                    ));
+                }
+                
+                // تحديث الأسلوب
+                if (elementConfig.getStyle() != null) {
+                    element.setStyle(new ElementStyle(
+                        elementConfig.getStyle().getBackgroundColor(),
+                        elementConfig.getStyle().getTextColor(),
+                        elementConfig.getStyle().isBold()
+                    ));
+                }
+                
+                // تحديث الرؤية
+                element.setVisible(elementConfig.isVisible());
+                
+                System.out.println("UI EDITOR: Updated element " + elementId + " from admin config");
             }
         }
+        updateStatus("تم تحديث العناصر من الإعدادات الإدارية");
+    } catch (Exception e) {
+        System.err.println("ELEMENTS UPDATE ERROR: " + e.getMessage());
+        updateStatus("خطأ في تحديث العناصر: " + e.getMessage());
     }
+}
 
-    private void uploadImageForElement(String elementId, Uri imageUri) {
-        imageUploader.uploadImageFromPhoneAsync(elementId, imageUri)
-            .thenAccept(result -> {
-                if (result.isSuccess()) {
-                    System.out.println("UI EDITOR: Image uploaded successfully for " + elementId);
-                    // تحديث واجهة المستخدم
-                    updateElementBackground(elementId, result.getFileName());
-                } else {
-                    System.err.println("UI EDITOR ERROR: " + result.getMessage());
-                }
-            });
-    }
+// --- Getters ---
+public String getCurrentElementId() { return currentElementId; }
+public boolean hasCurrentElement() { return currentElementId != null; }
+public int getUIElementCount() { return uiElements.size(); }
+public boolean hasUIElement(String elementId) { return uiElements.containsKey(elementId); }
+public Map<String, UIElement> getUIElements() { return new ConcurrentHashMap<>(uiElements); }
+public UIElement getUIElement(String elementId) { return uiElements.get(elementId); }
 
-    private void updateElementBackground(String elementId, String fileName) {
-        // في الإنتاج: تحديث عنصر واجهة المستخدم
-        System.out.println("UI EDITOR: Updated background for " + elementId + " with " + fileName);
-    }
+/**
+ * إيقاف المحرر (للاختبارات)
+ */
+public void shutdown() {
+    System.out.println("UI EDITOR: Shutdown completed");
+}
 
-    /**
-     * تعيين العنصر الحالي للتحرير
-     */
-    public void setCurrentElement(String elementId) {
-        this.currentElementId = elementId;
-        System.out.println("UI EDITOR: Current element set to " + elementId);
-    }
-
-    // --- Getters ---
-    public String getCurrentElementId() { return currentElementId; }
-    public boolean hasCurrentElement() { return currentElementId != null; }
-    
-    /**
-     * إيقاف المحرر (للاختبارات)
-     */
-    public void shutdown() {
-        System.out.println("UI EDITOR: Shutdown completed");
-    }
+/**
+ * إعادة تعيين المحرر (للاختبارات)
+ */
+public void reset() {
+    uiElements.clear();
+    initializeUIElements();
+    System.out.println("UI EDITOR: Reset completed");
 }
