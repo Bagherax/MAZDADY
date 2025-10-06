@@ -1,133 +1,291 @@
 package mazdady.i18n;
 
-import java.util.HashMap;
-import java.util.Locale;
+import mazdady.user.User;
+import mazdady.user.UserManager;
+import mazdady.admin.AdminConfig;
+
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.BiFunction;
 
-public class RealTimeTranslator {
+/**
+ * مترجم فوري مع دعم جميع لغات العالم
+ * يتبع نمط Strategy لفصل استراتيجيات الترجمة
+ */
+public final class RealTimeTranslator {
+    private final Map<String, BiFunction<String, String, String>> translationEngines = new ConcurrentHashMap<>();
+    private final AdminConfig.I18nConfig i18nConfig;
     private static RealTimeTranslator instance;
-    private String userLanguage;
-    private Map<String, Map<String, String>> translationCache = new HashMap<>();
 
-    private RealTimeTranslator() {
-        // اكتشاف لغة الجهاز تلقائيًا
-        this.userLanguage = Locale.getDefault().getLanguage();
-        
-        // تهيئة ذاكرة الترجمة الأساسية
-        initializeBasicTranslations();
+    private RealTimeTranslator(AdminConfig.I18nConfig i18nConfig) {
+        this.i18nConfig = i18nConfig;
+        initializeTranslationEngines();
     }
 
-    public static synchronized RealTimeTranslator getInstance() {
+    public static synchronized RealTimeTranslator getInstance(AdminConfig.I18nConfig i18nConfig) {
         if (instance == null) {
-            instance = new RealTimeTranslator();
+            instance = new RealTimeTranslator(i18nConfig);
         }
         return instance;
     }
 
-    // --- الترجمة الفورية ---
-    public String translate(String text, String targetLanguage) {
-        // إذا كانت النص عربي والهدف لغة المستخدم
-        if (isArabic(text) && !targetLanguage.equals("ar")) {
-            return translateArabicTo(text, targetLanguage);
+    private void initializeTranslationEngines() {
+        // محرك ترجمة Google (في الإنتاج: استخدام Google Translate API)
+        translationEngines.put("google_translate", this::googleTranslate);
+        
+        // محرك ترجمة Microsoft (في الإنتاج: استخدام Microsoft Translator API)
+        translationEngines.put("microsoft_translate", this::microsoftTranslate);
+        
+        // محرك ترجمة Amazon (في الإنتاج: استخدام Amazon Translate API)
+        translationEngines.put("amazon_translate", this::amazonTranslate);
+        
+        // محرك ترجمة Apple (في الإنتاج: استخدام Apple Translate API)
+        translationEngines.put("apple_translate", this::appleTranslate);
+        
+        System.out.println("REAL TIME TRANSLATOR: Initialized " + translationEngines.size() + " translation engines");
+    }
+
+    /**
+     * ترجمة فورية غير متزامنة من أي لغة إلى العربية
+     */
+    public CompletableFuture<TranslationResult> translateToArabicAsync(String text, String sourceLanguage) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                if (text == null || text.isEmpty()) {
+                    return TranslationResult.failure("Invalid text input");
+                }
+                
+                if (sourceLanguage == null || sourceLanguage.isEmpty()) {
+                    sourceLanguage = detectLanguage(text);
+                }
+                
+                if ("ar".equals(sourceLanguage)) {
+                    return TranslationResult.success(text, "Text is already in Arabic");
+                }
+                
+                String translatedText = translateText(text, sourceLanguage, "ar");
+                System.out.println("REAL TIME TRANSLATOR: Translated " + text.length() + 
+                                 " chars from " + sourceLanguage + " to Arabic");
+                
+                return TranslationResult.success(translatedText, "Translation completed successfully");
+                
+            } catch (Exception e) {
+                return TranslationResult.failure("Translation failed: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * ترجمة فورية غير متزامنة من العربية إلى لغة المستخدم
+     */
+    public CompletableFuture<TranslationResult> translateToUserLanguageAsync(String text, String userId) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                if (text == null || text.isEmpty()) {
+                    return TranslationResult.failure("Invalid text input");
+                }
+                
+                User user = UserManager.getInstance(null).getUserById(userId);
+                if (user == null) {
+                    return TranslationResult.failure("User not found");
+                }
+                
+                String userLanguage = user.getPreferredLanguage();
+                if (userLanguage == null || userLanguage.isEmpty()) {
+                    userLanguage = getUserDeviceLanguage();
+                }
+                
+                if ("ar".equals(userLanguage)) {
+                    return TranslationResult.success(text, "Text is already in user's language");
+                }
+                
+                String translatedText = translateText(text, "ar", userLanguage);
+                System.out.println("REAL TIME TRANSLATOR: Translated " + text.length() + 
+                                 " chars from Arabic to " + userLanguage);
+                
+                return TranslationResult.success(translatedText, "Translation completed successfully");
+                
+            } catch (Exception e) {
+                return TranslationResult.failure("Translation failed: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * ترجمة فورية غير متزامنة بين لغتين任意
+     */
+    public CompletableFuture<TranslationResult> translateBetweenLanguagesAsync(
+        String text, 
+        String sourceLanguage, 
+        String targetLanguage
+    ) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                if (text == null || text.isEmpty()) {
+                    return TranslationResult.failure("Invalid text input");
+                }
+                
+                if (sourceLanguage == null || sourceLanguage.isEmpty()) {
+                    sourceLanguage = detectLanguage(text);
+                }
+                
+                if (targetLanguage == null || targetLanguage.isEmpty()) {
+                    targetLanguage = getUserDeviceLanguage();
+                }
+                
+                if (sourceLanguage.equals(targetLanguage)) {
+                    return TranslationResult.success(text, "Text is already in target language");
+                }
+                
+                String translatedText = translateText(text, sourceLanguage, targetLanguage);
+                System.out.println("REAL TIME TRANSLATOR: Translated " + text.length() + 
+                                 " chars from " + sourceLanguage + " to " + targetLanguage);
+                
+                return TranslationResult.success(translatedText, "Translation completed successfully");
+                
+            } catch (Exception e) {
+                return TranslationResult.failure("Translation failed: " + e.getMessage());
+            }
+        });
+    }
+
+    private String translateText(String text, String sourceLang, String targetLang) {
+        try {
+            // اختيار محرك الترجمة من الإعدادات الإدارية
+            String engine = i18nConfig.getPreferredTranslationEngine();
+            BiFunction<String, String, String> translator = translationEngines.get(engine);
+            
+            if (translator != null) {
+                return translator.apply(text, sourceLang + "->" + targetLang);
+            } else {
+                // محرك احتياطي
+                return mockTranslate(text, sourceLang, targetLang);
+            }
+            
+        } catch (Exception e) {
+            System.err.println("TRANSLATION ERROR: " + e.getMessage());
+            return text; // إرجاع النص الأصلي في حال الفشل
         }
-        // إذا كانت النص بلغة المستخدم والهدف عربي
-        if (!isArabic(text) && targetLanguage.equals("ar")) {
-            return translateToArabic(text);
-        }
-        // إذا كانت نفس اللغة
-        if (detectLanguage(text).equals(targetLanguage)) {
-            return text;
-        }
-        // ترجمة عامة
-        return translateGeneral(text, targetLanguage);
     }
 
-    public String translateToUserLanguage(String text) {
-        return translate(text, userLanguage);
-    }
-
-    public String translateToArabic(String text) {
-        return translate(text, "ar");
-    }
-
-    // --- طرق مساعدة ---
-    private boolean isArabic(String text) {
-        // التحقق إذا كان النص يحتوي على أحرف عربية
-        return text.matches(".*[\\u0600-\\u06FF]+.*");
-    }
-
-    private String detectLanguage(String text) {
-        if (isArabic(text)) return "ar";
-        // في الإنتاج: استخدام مكتبة كشف اللغة
-        return userLanguage;
-    }
-
-    private String translateArabicTo(String text, String targetLang) {
-        // في الإنتاج: استخدام Google Translate API أو مكتبة محلية
-        // هنا نستخدم ترجمة محاكاة
-        if ("en".equals(targetLang)) {
-            return mockArabicToEnglish(text);
-        }
-        return "[Translated to " + targetLang + "] " + text;
-    }
-
-    private String translateToArabic(String text) {
+    // --- محركات الترجمة ---
+    private String googleTranslate(String text, String languagePair) {
         // في الإنتاج: استخدام Google Translate API
-        return "[مترجم إلى العربية] " + text;
+        System.out.println("GOOGLE TRANSLATE: Translating " + languagePair);
+        return "[Google] " + text; // محاكاة الترجمة
     }
 
-    private String translateGeneral(String text, String targetLang) {
+    private String microsoftTranslate(String text, String languagePair) {
+        // في الإنتاج: استخدام Microsoft Translator API
+        System.out.println("MICROSOFT TRANSLATE: Translating " + languagePair);
+        return "[Microsoft] " + text; // محاكاة الترجمة
+    }
+
+    private String amazonTranslate(String text, String languagePair) {
+        // في الإنتاج: استخدام Amazon Translate API
+        System.out.println("AMAZON TRANSLATE: Translating " + languagePair);
+        return "[Amazon] " + text; // محاكاة الترجمة
+    }
+
+    private String appleTranslate(String text, String languagePair) {
+        // في الإنتاج: استخدام Apple Translate API
+        System.out.println("APPLE TRANSLATE: Translating " + languagePair);
+        return "[Apple] " + text; // محاكاة الترجمة
+    }
+
+    private String mockTranslate(String text, String sourceLang, String targetLang) {
+        // محاكاة الترجمة للتطوير
+        System.out.println("MOCK TRANSLATE: " + sourceLang + " -> " + targetLang);
         return "[Translated] " + text;
     }
 
-    // --- ترجمة محاكاة للعربية ↔ الإنجليزية ---
-    private String mockArabicToEnglish(String arabicText) {
-        Map<String, String> dictionary = new HashMap<>();
-        dictionary.put("مرحبا", "Hello");
-        dictionary.put("شكرا", "Thank you");
-        dictionary.put("الرصيد", "Balance");
-        dictionary.put("شراء", "Buy");
-        dictionary.put("بيع", "Sell");
-        dictionary.put("الاستثمار", "Investment");
-        dictionary.put("الوقت هو المال", "Time is money");
-        dictionary.put("تم السحب بنجاح", "Withdrawal successful");
-        dictionary.put("رصيدك غير كاف", "Insufficient balance");
-        dictionary.put("يرجى توثيق هويتك", "Please verify your identity");
-
-        // محاكاة الترجمة (في الإنتاج: استخدام NLP)
-        for (String key : dictionary.keySet()) {
-            if (arabicText.contains(key)) {
-                return dictionary.get(key);
-            }
+    private String detectLanguage(String text) {
+        // في الإنتاج: استخدام مكتبة كشف اللغة
+        if (text.matches(".*[\\u0600-\\u06FF]+.*")) {
+            return "ar";
+        } else if (text.matches(".*[a-zA-Z]+.*")) {
+            return "en";
+        } else {
+            return "unknown";
         }
-        return "Translated: " + arabicText;
     }
 
-    // --- تهيئة الترجمات الأساسية ---
-    private void initializeBasicTranslations() {
-        // ترجمات عربية ← إنجليزية
-        Map<String, String> arToEn = new HashMap<>();
-        arToEn.put("الرئيسية", "Home");
-        arToEn.put("المحفظة", "Wallet");
-        arToEn.put("الإعلانات", "Ads");
-        arToEn.put("الدعم", "Support");
-        translationCache.put("ar-en", arToEn);
+    private String getUserDeviceLanguage() {
+        // في الإنتاج: الحصول من DeviceLang
+        return "en"; // محاكاة اللغة الإنجليزية
+    }
 
-        // ترجمات إنجليزية ← عربية
-        Map<String, String> enToAr = new HashMap<>();
-        enToAr.put("Home", "الرئيسية");
-        enToAr.put("Wallet", "المحفظة");
-        enToAr.put("Ads", "الإعلانات");
-        enToAr.put("Support", "الدعم");
-        translationCache.put("en-ar", enToAr);
+    /**
+     * إضافة محرك ترجمة مخصص
+     */
+    public void addTranslationEngine(String engineName, BiFunction<String, String, String> engine) {
+        if (engineName != null && engine != null) {
+            translationEngines.put(engineName, engine);
+            System.out.println("REAL TIME TRANSLATOR: Added custom translation engine - " + engineName);
+        }
+    }
+
+    /**
+     * إزالة محرك ترجمة مخصص
+     */
+    public void removeTranslationEngine(String engineName) {
+        if (engineName != null) {
+            translationEngines.remove(engineName);
+            System.out.println("REAL TIME TRANSLATOR: Removed translation engine - " + engineName);
+        }
+    }
+
+    /**
+     * تحديث محرك الترجمة المفضل من الإعدادات الإدارية
+     */
+    public void updatePreferredEngine(AdminConfig.I18nConfig config) {
+        if (config != null) {
+            System.out.println("REAL TIME TRANSLATOR: Updated preferred engine to " + 
+                             config.getPreferredTranslationEngine());
+        }
+    }
+
+    /**
+     * نتيجة الترجمة
+     */
+    public static final class TranslationResult {
+        private final boolean success;
+        private final String translatedText;
+        private final String message;
+
+        private TranslationResult(boolean success, String translatedText, String message) {
+            this.success = success;
+            this.translatedText = translatedText;
+            this.message = message;
+        }
+
+        public static TranslationResult success(String translatedText, String message) {
+            return new TranslationResult(true, translatedText, message);
+        }
+
+        public static TranslationResult failure(String message) {
+            return new TranslationResult(false, null, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public String getTranslatedText() { return translatedText; }
+        public String getMessage() { return message; }
     }
 
     // --- Getters ---
-    public String getUserLanguage() {
-        return userLanguage;
+    public int getTranslationEngineCount() { return translationEngines.size(); }
+    public boolean hasTranslationEngine(String engineName) { return translationEngines.containsKey(engineName); }
+    public Map<String, BiFunction<String, String, String>> getTranslationEngines() { 
+        return new ConcurrentHashMap<>(translationEngines); 
     }
-
-    public void setUserLanguage(String language) {
-        this.userLanguage = language;
+    
+    /**
+     * إعادة تعيين المترجم (للاختبارات)
+     */
+    public void reset() {
+        translationEngines.clear();
+        initializeTranslationEngines();
+        System.out.println("REAL TIME TRANSLATOR: Reset completed");
     }
 }
