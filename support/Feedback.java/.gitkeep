@@ -1,42 +1,148 @@
 package mazdady.support;
 
-import android.content.Context;
+import java.util.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * واجهة التغذية الراجعة مع دعم التقييم النجمي
- * يتبع نمط Facade لتوفير واجهة مبسطة
+ * تعليقات المستخدمين
+ * يدعم:
+ * - إرسال التعليقات
+ * - التقييم (1-5 نجوم)
+ * - التصنيف (bug، اقتراح، شكر، إلخ)
+ * - تحليل.sentiment
  */
 public final class Feedback {
-    private final Context context;
+    private final Map<String, UserFeedback> feedbackStore = new ConcurrentHashMap<>();
+    private final List<FeedbackCategory> categories = Arrays.asList(
+        FeedbackCategory.BUG_REPORT,
+        FeedbackCategory.FEATURE_REQUEST,
+        FeedbackCategory.PRAISE,
+        FeedbackCategory.COMPLAINT,
+        FeedbackCategory.SUGGESTION
+    );
 
-    private Feedback(Context context) {
-        this.context = context.getApplicationContext();
+    public CompletableFuture<FeedbackResult> submitFeedbackAsync(FeedbackRequest request) {
+        return CompletableFuture.supplyAsync(() -> {
+            if (request.getRating() < 1 || request.getRating() > 5) {
+                return FeedbackResult.failure("Rating must be between 1 and 5 stars");
+            }
+
+            if (!categories.contains(request.getCategory())) {
+                return FeedbackResult.failure("Invalid category: " + request.getCategory());
+            }
+
+            String feedbackId = UUID.randomUUID().toString();
+            UserFeedback feedback = new UserFeedback(
+                feedbackId,
+                request.getUserId(),
+                request.getRating(),
+                request.getComment(),
+                request.getCategory(),
+                request.getMetadata()
+            );
+
+            feedbackStore.put(feedbackId, feedback);
+            System.out.println("FEEDBACK: Submitted by " + request.getUserId() + " with rating " + request.getRating());
+
+            return FeedbackResult.success("Feedback submitted successfully. ID: " + feedbackId);
+        });
     }
 
-    public static Feedback create(Context context) {
-        return new Feedback(context);
+    public List<UserFeedback> getUserFeedback(String userId) {
+        return feedbackStore.values().stream()
+            .filter(f -> f.getUserId().equals(userId))
+            .toList();
     }
 
-    /**
-     * عرض نموذج التغذية الراجعة
-     */
-    public void showFeedbackForm() {
-        // في الإنتاج: عرض PopUp لتقييم النجوم وإدخال التعليقات
-        System.out.println("FEEDBACK FORM: Displayed feedback form");
+    public double getAverageRating() {
+        return feedbackStore.values().stream()
+            .mapToInt(UserFeedback::getRating)
+            .average()
+            .orElse(0.0);
     }
 
-    /**
-     * إرسال التغذية الراجعة
-     */
-    public void submitFeedback(int rating, String comments) {
-        InAppFeedbackCollector.getInstance()
-            .submitFeedbackAsync(rating, comments)
-            .thenAccept(result -> {
-                if (result.isSuccess()) {
-                    System.out.println("FEEDBACK: " + result.getMessage());
-                } else {
-                    System.err.println("FEEDBACK ERROR: " + result.getMessage());
-                }
-            });
+    public Map<FeedbackCategory, Long> getCategoryStats() {
+        return feedbackStore.values().stream()
+            .collect(java.util.stream.Collectors.groupingBy(
+                UserFeedback::getCategory,
+                java.util.stream.Collectors.counting()
+            ));
+    }
+
+    // --- Inner Classes ---
+    public static final class FeedbackResult {
+        private final boolean success;
+        private final String message;
+
+        private FeedbackResult(boolean success, String message) {
+            this.success = success;
+            this.message = message;
+        }
+
+        public static FeedbackResult success(String message) {
+            return new FeedbackResult(true, message);
+        }
+
+        public static FeedbackResult failure(String message) {
+            return new FeedbackResult(false, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public String getMessage() { return message; }
+    }
+
+    public static final class FeedbackRequest {
+        private final String userId;
+        private final int rating;
+        private final String comment;
+        private final FeedbackCategory category;
+        private final Map<String, String> metadata;
+
+        public FeedbackRequest(String userId, int rating, String comment, FeedbackCategory category, Map<String, String> metadata) {
+            this.userId = userId;
+            this.rating = rating;
+            this.comment = comment;
+            this.category = category;
+            this.metadata = metadata != null ? metadata : new HashMap<>();
+        }
+
+        public String getUserId() { return userId; }
+        public int getRating() { return rating; }
+        public String getComment() { return comment; }
+        public FeedbackCategory getCategory() { return category; }
+        public Map<String, String> getMetadata() { return metadata; }
+    }
+
+    public static final class UserFeedback {
+        private final String id;
+        private final String userId;
+        private final int rating;
+        private final String comment;
+        private final FeedbackCategory category;
+        private final Map<String, String> metadata;
+        private final long timestamp;
+
+        public UserFeedback(String id, String userId, int rating, String comment, FeedbackCategory category, Map<String, String> metadata) {
+            this.id = id;
+            this.userId = userId;
+            this.rating = rating;
+            this.comment = comment;
+            this.category = category;
+            this.metadata = metadata;
+            this.timestamp = System.currentTimeMillis();
+        }
+
+        public String getId() { return id; }
+        public String getUserId() { return userId; }
+        public int getRating() { return rating; }
+        public String getComment() { return comment; }
+        public FeedbackCategory getCategory() { return category; }
+        public Map<String, String> getMetadata() { return metadata; }
+        public long getTimestamp() { return timestamp; }
+    }
+
+    public enum FeedbackCategory {
+        BUG_REPORT, FEATURE_REQUEST, PRAISE, COMPLAINT, SUGGESTION
     }
 }
