@@ -2,9 +2,9 @@
 <resources>
     <!-- عناصر الواجهة الأساسية -->
     <string name="app_name">MAZDADY</string>
-    <string name="balance_placeholder">الرصيد: 0.00 MAZDADY</string>
-    <string name="buy">شراء</string>
-    <string name="sell">بيع</string>
+    <string name="balance_label">الرصيد: {0} MAZDADY</string>
+    <string name="buy_button">شراء</string>
+    <string name="sell_button">بيع</string>
     <string name="investment_info">الاستثمار: 1 MAZDADY</string>
     <string name="menu">القائمة</string>
     <string name="close">إغلاق</string>
@@ -22,4 +22,158 @@
     <string name="kyc_required_title">توثيق الهوية مطلوب</string>
     <string name="kyc_required_message">يجب توثيق هويتك قبل استخدام هذه الميزة.</string>
     <string name="verify_button">توثيق الهوية</string>
-</resources>
+    
+    <!-- رسائل السحب -->
+    <string name="withdrawal_success">تم السحب بنجاح!</string>
+    <string name="withdrawal_failure">فشل في عملية السحب</string>
+    <string name="insufficient_balance">الرصيد غير كافٍ</string>
+    
+    <!-- رسائل التداول -->
+    <string name="trade_success">تم التداول بنجاح!</string>
+    <string name="trade_failure">فشل في عملية التداول</string>
+    <string name="invalid_trade_amount">مبلغ التداول غير صحيح</string>
+    
+    <!-- رسائل المحفظة -->
+    <string name="wallet_connected">تم ربط المحفظة بنجاح</string>
+    <string name="wallet_disconnected">تم فصل المحفظة</string>
+    <string name="wallet_connection_failed">فشل في ربط المحفظة</string>
+    
+    <!-- رسائل المجتمع -->
+    <string name="community_reward">مكافأة مجتمعية: +{0} MAZDADY</string>
+    <string name="achievement_unlocked">تم فتح إنجاز جديد!</string>
+    <string name="daily_reward">مكافأة يومية: +{0} MAZDADY</string>
+    
+    <!-- رسائل الأمان -->
+    <string name="security_alert">تنبيه أمان: {0}</string>
+    <string name="suspicious_activity">نشاط مشبوه تم اكتشافه</string>
+    <string name="account_frozen">تم تجميد الحساب مؤقتًا</string>
+    
+    <!-- رسائل الإعلانات -->
+    <string name="ad_campaign_created">تم إنشاء حملة إعلانية</string>
+    <string name="ad_campaign_completed">اكتملت حملتك الإعلانية</string>
+    <string name="ad_campaign_failed">فشل في حملة الإعلانات</string>
+    
+    <!-- رسائل الطوارئ -->
+    <string name="emergency_activated">وضع الطوارئ مفعل</string>
+    <string name="emergency_deactivated">وضع الطوارئ معطل</string>
+    <string name="crisis_detected">أزمة تم اكتشافها</string>
+    
+    <!-- رسائل التحديثات -->
+    <string name="update_available">تحديث جديد متاح</string>
+    <string name="update_downloading">جاري تحميل التحديث...</string>
+    <string name="update_installing">جاري تثبيت التحديث...</string>
+    
+    <!-- رسائل التحقق -->
+    <string name="verification_pending">قيد التحقق...</string>
+    <string name="verification_completed">اكتمل التحقق</string>
+    <string name="verification_failed">فشل في التحقق</string>
+    
+    <!-- رسائل النظام -->
+    <string name="system_ready">النظام جاهز</string>
+    <string name="system_loading">جاري تحميل النظام...</string>
+    <string name="system_error">خطأ في النظام: {0}</string>
+    
+    <!-- رسائل المستخدم -->
+    <string name="user_registered">تم تسجيل المستخدم</string>
+    <string name="user_authenticated">تم توثيق المستخدم</string>
+    <string name="user_logged_out">تم تسجيل الخروج</string>
+    
+    <!-- رسائل الإشعارات -->
+    <string name="notification_title">إشعار MAZDADY</string>
+    <string name="notification_message">لديك إشعار جديد</string>
+    <string name="notification_action">عرض الإشعار</string>
+    
+    <!-- رسائل الدعم الفني -->
+    <string name="support_ticket_created">تم إنشاء تذكرة دعم</string>
+    <string name="support_ticket_resolved">تم حل تذكرتك</string>
+    <string name="support_chat_started">بدأ الدردشة مع الدعم</string>
+    
+    <!-- رسائل المكافآت -->
+    <string name="gift_received">لقد تلقيت هدية!</string>
+    <string name="gift_sent">تم إرسال الهدية</string>
+    <string name="gift_claimed">تم استلام الهدية</string>
+    
+    <!-- رسائل البوتات -->
+    <string name="bot_activated">تم تفعيل البوت</string>
+    <string name="bot_deactivated">تم تعطيل البوت</string>
+    <string name="bot_trade_executed">تم تنفيذ صفقة البوت</string>
+    
+    <!-- رسائل التفاعل -->
+    <string name="interaction_detected">تم اكتشاف تفاعل</string>
+    <string name="engagement_increased">زاد التفاعل</string>
+    <string name="engagement_decreased">قل التفاعل</string>
+    
+    <!-- رسائل الأداء -->
+    <string name="performance_optimized">تم تحسين الأداء</string>
+    <string name="memory_cleared">تم تحرير الذاكرة</string>
+    <string name="cache_cleaned">تم مسح الكاش</string>
+    
+    <!-- رسائل التكوين -->
+    <string name="config_updated">تم تحديث الإعدادات</string>
+    <string name="config_reset">تم إعادة الإعدادات</string>
+    <string name="config_loaded">تم تحميل الإعدادات</string>
+    
+    <!-- رسائل الاختبارات -->
+    <string name="test_passed">الاختبار نجح</string>
+    <string name="test_failed">الاختبار فشل</string>
+    <string name="tests_completed">اكتملت الاختبارات</string>
+    
+    <!-- رسائل التحديث السحري -->
+    <string name="magic_update_triggered">تم تفعيل التحديث السحري</string>
+    <string name="magic_update_applied">تم تطبيق التحديث السحري</string>
+    <string name="magic_update_failed">فشل التحديث السحري</string>
+    
+    <!-- رسائل التكامل -->
+    <string name="integration_success">التكامل نجح</string>
+    <string name="integration_failure">التكامل فشل</string>
+    <string name="integration_warning">تحذير في التكامل</string>
+    
+    <!-- رسائل التحليلات -->
+    <string name="analytics_collected">تم جمع التحليلات</string>
+    <string name="analytics_processed">تم معالجة التحليلات</string>
+    <string name="analytics_reported">تم إرسال التحليلات</string>
+    
+    <!-- رسائل الذكاء الاصطناعي -->
+    <string name="ai_analysis_started">بدأ التحليل الذكي</string>
+    <string name="ai_analysis_completed">اكتمل التحليل الذكي</string>
+    <string name="ai_recommendation">توصية ذكية: {0}</string>
+    
+    <!-- رسائل البلوك تشين -->
+    <string name="blockchain_sync_started">بدأ مزامنة البلوك تشين</string>
+    <string name="blockchain_sync_completed">اكتملت مزامنة البلوك تشين</string>
+    <string name="blockchain_transaction_confirmed">تم تأكيد المعاملة</string>
+    
+    <!-- رسائل التشفير -->
+    <string name="encryption_enabled">تم تفعيل التشفير</string>
+    <string name="decryption_completed">اكتمل فك التشفير</string>
+    <string name="security_key_generated">تم توليد مفتاح الأمان</string>
+    
+    <!-- رسائل التوثيق -->
+    <string name="documentation_updated">تم تحديث التوثيق</string>
+    <string name="api_documented">تم توثيق الـ API</string>
+    <string name="guide_created">تم إنشاء الدليل</string>
+    
+    <!-- رسائل الترجمة -->
+    <string name="translation_loaded">تم تحميل الترجمة</string>
+    <string name="language_changed">تم تغيير اللغة</string>
+    <string name="rtl_applied">تم تطبيق الاتجاه من اليمين لليسار</string>
+    
+    <!-- رسائل التصميم -->
+    <string name="theme_applied">تم تطبيق الثيم</string>
+    <string name="layout_updated">تم تحديث التخطيط</string>
+    <string name="ui_customized">تم تخصيص الواجهة</string>
+    
+    <!-- رسائل التوزيع -->
+    <string name="distribution_started">بدأ التوزيع</string>
+    <string name="distribution_completed">اكتمل التوزيع</string>
+    <string name="reward_distributed">تم توزيع المكافأة</string>
+    
+    <!-- رسائل التحقق من الهوية -->
+    <string name="kyc_submitted">تم تقديم طلب KYC</string>
+    <string name="kyc_approved">تمت الموافقة على KYC</string>
+    <string name="kyc_rejected">تم رفض طلب KYC</string>
+    
+    <!-- رسائل الإحالة -->
+    <string name="referral_sent">تم إرسال الإحالة</string>
+    <string name="referral_accepted">تم قبول الإحالة</string>
+    <string name="
