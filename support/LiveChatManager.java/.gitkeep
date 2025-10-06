@@ -1,111 +1,438 @@
 package mazdady.support;
 
+import mazdady.i18n.RealTimeTranslator;
 import mazdady.user.User;
 import mazdady.user.UserManager;
 
-import java.time.Instant;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
 /**
- * مدير الدردشة الحية مع دعم الاتصال المتقدم
- * يتبع نمط Observer لإعلام المكونات بحالة الدردشة
+ * مدير الدردشة الحية مع دعم الترجمة الفورية
+ * يتبع نمط Observer لإعلام النظام بالرسائل
  */
 public final class LiveChatManager {
+    private final RealTimeTranslator realTimeTranslator;
     private final Map<String, ChatSession> activeSessions = new ConcurrentHashMap<>();
-    private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
-    private final Consumer<ChatEvent> chatListener;
+    private final Map<String, Consumer<ChatEvent>> chatListeners = new ConcurrentHashMap<>();
     private static LiveChatManager instance;
 
-    private LiveChatManager(Consumer<ChatEvent> chatListener) {
-        this.chatListener = chatListener;
-        startSessionCleanup();
+    private LiveChatManager(RealTimeTranslator realTimeTranslator) {
+        this.realTimeTranslator = realTimeTranslator;
     }
 
-    public static LiveChatManager create(Consumer<ChatEvent> chatListener) {
-        return new LiveChatManager(chatListener);
+    public static synchronized LiveChatManager getInstance(RealTimeTranslator realTimeTranslator) {
+        if (instance == null) {
+            instance = new LiveChatManager(realTimeTranslator);
+        }
+        return instance;
     }
 
     /**
-     * بدء جلسة دردشة جديدة
+     * بدء جلسة دردشة حية غير متزامن
      */
-    public ChatSession startChatSession() {
-        User user = UserManager.getInstance(null).getCurrentUser();
-        ChatSession session = new ChatSession(user.getUserId(), "agent_001");
-        activeSessions.put(session.getSessionId(), session);
-        
-        // محاكاة اتصال الوكيل
-        scheduler.schedule(() -> {
-            if (activeSessions.containsKey(session.getSessionId())) {
-                session.connectAgent();
-                notifyChatEvent(new ChatEvent(session.getSessionId(), ChatEvent.Type.AGENT_CONNECTED, 
-                    "Agent connected", Instant.now()));
-            }
-        }, 2000, TimeUnit.MILLISECONDS);
-        
-        notifyChatEvent(new ChatEvent(session.getSessionId(), ChatEvent.Type.SESSION_STARTED, 
-            "Chat session started", Instant.now()));
-        
-        return session;
-    }
-
-    /**
-     * إرسال رسالة
-     */
-    public void sendMessage(String sessionId, String message, boolean isUser) {
-        ChatSession session = activeSessions.get(sessionId);
-        if (session != null) {
-            ChatMessage chatMessage = new ChatMessage(message, isUser, Instant.now());
-            session.addMessage(chatMessage);
-            
-            // محاكاة رد الوكيل
-            if (isUser) {
-                scheduler.schedule(() -> {
-                    if (activeSessions.containsKey(sessionId)) {
-                        String agentResponse = generateAgentResponse(message);
-                        ChatMessage agentMessage = new ChatMessage(agentResponse, false, Instant.now());
-                        session.addMessage(agentMessage);
-                        notifyChatEvent(new ChatEvent(sessionId, ChatEvent.Type.MESSAGE_RECEIVED, 
-                            agentResponse, Instant.now()));
-                    }
-                }, 3000, TimeUnit.MILLISECONDS);
-            }
-            
-            notifyChatEvent(new ChatEvent(sessionId, ChatEvent.Type.MESSAGE_SENT, 
-                message, Instant.now()));
-        }
-    }
-
-    private String generateAgentResponse(String userMessage) {
-        // في الإنتاج: استخدام NLP وقاعدة معرفة
-        if (userMessage.toLowerCase().contains("سحب")) {
-            return "شكرًا لاتصالك! لسحب الأرباح، تأكد من توثيق هويتك أولاً.";
-        } else if (userMessage.toLowerCase().contains("محفظة")) {
-            return "لربط محفظتك، اذهب إلى الإعدادات → المحفظة → ربط محفظة خارجية.";
-        } else {
-            return "شكرًا لاتصالك! كيف يمكنني مساعدتك اليوم؟";
-        }
-    }
-
-    private void startSessionCleanup() {
-        scheduler.scheduleAtFixedRate(
-            () -> {
-                activeSessions.entrySet().removeIf(entry -> 
-                    Instant.now().toEpochMilli() - entry.getValue().getLastActivity().toEpochMilli() > 30 * 60 * 1000
+    public CompletableFuture<ChatResult> startChatSessionAsync(String userId) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                User user = UserManager.getInstance(null).getUserById(userId);
+                if (user == null) {
+                    return ChatResult.failure("User not found");
+                }
+                
+                ChatSession session = new ChatSession(
+                    "CHAT_" + System.currentTimeMillis(),
+                    userId,
+                    user.getPreferredLanguage(),
+                    Instant.now()
                 );
-            },
-            0,
-            5,
-            TimeUnit.MINUTES
-        );
+                
+                activeSessions.put(session.getSessionId(), session);
+                
+                System.out.println("LIVE CHAT MANAGER: Started chat session " + session.getSessionId() + 
+                                 " for user " + userId);
+                
+                return ChatResult.success(session, "Chat session started successfully");
+                
+            } catch (Exception e) {
+                return ChatResult.failure("Chat session start failed: " + e.getMessage());
+            }
+        });
     }
 
-    private void notifyChatEvent(ChatEvent event) {
-        chatListener.accept(event);
+    /**
+     * إرسال رسالة دردشة غير متزامن مع ترجمة فورية
+     */
+    public CompletableFuture<ChatResult> sendMessageAsync(
+        String sessionId, 
+        String senderId, 
+        String message
+    ) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                ChatSession session = activeSessions.get(sessionId);
+                if (session == null) {
+                    return ChatResult.failure("Chat session not found");
+                }
+                
+                // ترجمة الرسالة إلى العربية فورًا
+                String translatedMessage = realTimeTranslator.translateToArabicAsync(
+                    message, 
+                    session.getUserLanguage()
+                ).join().getTranslatedText();
+                
+                // إنشاء رسالة الدردشة
+                ChatMessage chatMessage = new ChatMessage(
+                    "MSG_" + System.currentTimeMillis(),
+                    sessionId,
+                    senderId,
+                    message,
+                    translatedMessage,
+                    session.getUserLanguage(),
+                    "ar", // اللغة المستهدفة
+                    Instant.now()
+                );
+                
+                // إضافة الرسالة إلى الجلسة
+                session.addMessage(chatMessage);
+                
+                // إشعار المستمعين
+                notifyChatListeners(new ChatEvent(
+                    ChatEventType.MESSAGE_SENT,
+                    sessionId,
+                    senderId,
+                    chatMessage,
+                    "Message sent and translated"
+                ));
+                
+                System.out.println("LIVE CHAT MANAGER: Message sent - " + message + 
+                                 " (Translated: " + translatedMessage + ")");
+                
+                return ChatResult.success(chatMessage, "Message sent successfully");
+                
+            } catch (Exception e) {
+                return ChatResult.failure("Message send failed: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * استقبال رسالة دردشة غير متزامن مع ترجمة فورية
+     */
+    public CompletableFuture<ChatResult> receiveMessageAsync(
+        String sessionId, 
+        String receiverId, 
+        String message
+    ) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                ChatSession session = activeSessions.get(sessionId);
+                if (session == null) {
+                    return ChatResult.failure("Chat session not found");
+                }
+                
+                User user = UserManager.getInstance(null).getUserById(receiverId);
+                if (user == null) {
+                    return ChatResult.failure("User not found");
+                }
+                
+                // ترجمة الرسالة إلى لغة المستلم فورًا
+                String translatedMessage = realTimeTranslator.translateToUserLanguageAsync(
+                    message, 
+                    receiverId
+                ).join().getTranslatedText();
+                
+                // إنشاء رسالة الدردشة
+                ChatMessage chatMessage = new ChatMessage(
+                    "MSG_" + System.currentTimeMillis(),
+                    sessionId,
+                    "ADMIN", // المرسل هو الادمن
+                    message,
+                    translatedMessage,
+                    "ar", // اللغة المصدر
+                    user.getPreferredLanguage(), // اللغة المستهدفة
+                    Instant.now()
+                );
+                
+                // إضافة الرسالة إلى الجلسة
+                session.addMessage(chatMessage);
+                
+                // إشعار المستمعين
+                notifyChatListeners(new ChatEvent(
+                    ChatEventType.MESSAGE_RECEIVED,
+                    sessionId,
+                    receiverId,
+                    chatMessage,
+                    "Message received and translated"
+                ));
+                
+                System.out.println("LIVE CHAT MANAGER: Message received - " + message + 
+                                 " (Translated: " + translatedMessage + ")");
+                
+                return ChatResult.success(chatMessage, "Message received successfully");
+                
+            } catch (Exception e) {
+                return ChatResult.failure("Message receive failed: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * إنهاء جلسة الدردشة غير متزامن
+     */
+    public CompletableFuture<ChatResult> endChatSessionAsync(String sessionId) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                ChatSession session = activeSessions.remove(sessionId);
+                if (session != null) {
+                    session.endSession();
+                    
+                    notifyChatListeners(new ChatEvent(
+                        ChatEventType.SESSION_ENDED,
+                        sessionId,
+                        session.getUserId(),
+                        null,
+                        "Chat session ended"
+                    ));
+                    
+                    System.out.println("LIVE CHAT MANAGER: Ended chat session " + sessionId);
+                    return ChatResult.success(session, "Chat session ended successfully");
+                } else {
+                    return ChatResult.failure("Chat session not found");
+                }
+                
+            } catch (Exception e) {
+                return ChatResult.failure("Chat session end failed: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * إضافة مستمع لأحداث الدردشة
+     */
+    public void addChatListener(String listenerId, Consumer<ChatEvent> listener) {
+        if (listenerId != null && listener != null) {
+            chatListeners.put(listenerId, listener);
+            System.out.println("LIVE CHAT MANAGER: Added chat listener - " + listenerId);
+        }
+    }
+
+    /**
+     * إزالة مستمع لأحداث الدردشة
+     */
+    public void removeChatListener(String listenerId) {
+        if (listenerId != null) {
+            chatListeners.remove(listenerId);
+            System.out.println("LIVE CHAT MANAGER: Removed chat listener - " + listenerId);
+        }
+    }
+
+    private void notifyChatListeners(ChatEvent event) {
+        chatListeners.values().forEach(listener -> {
+            try {
+                listener.accept(event);
+            } catch (Exception e) {
+                // تجاهل أخطاء المستمعين
+            }
+        });
+    }
+
+    /**
+     * التحقق من حالة جلسة الدردشة
+     */
+    public ChatSessionStatus getSessionStatus(String sessionId) {
+        ChatSession session = activeSessions.get(sessionId);
+        if (session == null) {
+            return ChatSessionStatus.notFound("Session not found");
+        }
+        
+        return session.isActive() ? 
+            ChatSessionStatus.active("Session is active") : 
+            ChatSessionStatus.inactive("Session is inactive");
+    }
+
+    /**
+     * تحديث إعدادات الدردشة من الإعدادات الإدارية
+     */
+    public void updateChatConfig(AdminConfig.ChatConfig config) {
+        if (config != null) {
+            System.out.println("LIVE CHAT MANAGER: Updated chat config from admin");
+        }
+    }
+
+    // --- Getters ---
+    public int getActiveSessionCount() { return activeSessions.size(); }
+    public boolean hasActiveSessions() { return !activeSessions.isEmpty(); }
+    public Map<String, ChatSession> getActiveSessions() { return new ConcurrentHashMap<>(activeSessions); }
+    public int getChatListenerCount() { return chatListeners.size(); }
+    public boolean hasChatListeners() { return !chatListeners.isEmpty(); }
+    public Map<String, Consumer<ChatEvent>> getChatListeners() { return new ConcurrentHashMap<>(chatListeners); }
+    
+    /**
+     * إعادة تعيين المدير (للاختبارات)
+     */
+    public void reset() {
+        activeSessions.clear();
+        chatListeners.clear();
+        System.out.println("LIVE CHAT MANAGER: Reset completed");
+    }
+
+    /**
+     * نتيجة الدردشة
+     */
+    public static final class ChatResult {
+        private final boolean success;
+        private final Object result;
+        private final String message;
+
+        private ChatResult(boolean success, Object result, String message) {
+            this.success = success;
+            this.result = result;
+            this.message = message;
+        }
+
+        public static ChatResult success(Object result, String message) {
+            return new ChatResult(true, result, message);
+        }
+
+        public static ChatResult failure(String message) {
+            return new ChatResult(false, null, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public Object getResult() { return result; }
+        public String getMessage() { return message; }
+    }
+
+    /**
+     * حالة جلسة الدردشة
+     */
+    public static final class ChatSessionStatus {
+        private final boolean active;
+        private final boolean inactive;
+        private final boolean notFound;
+        private final String message;
+
+        private ChatSessionStatus(boolean active, boolean inactive, boolean notFound, String message) {
+            this.active = active;
+            this.inactive = inactive;
+            this.notFound = notFound;
+            this.message = message;
+        }
+
+        public static ChatSessionStatus active(String message) {
+            return new ChatSessionStatus(true, false, false, message);
+        }
+
+        public static ChatSessionStatus inactive(String message) {
+            return new ChatSessionStatus(false, true, false, message);
+        }
+
+        public static ChatSessionStatus notFound(String message) {
+            return new ChatSessionStatus(false, false, true, message);
+        }
+
+        public boolean isActive() { return active; }
+        public boolean isInactive() { return inactive; }
+        public boolean isNotFound() { return notFound; }
+        public String getMessage() { return message; }
+    }
+
+    /**
+     * حدث الدردشة
+     */
+    public static final class ChatEvent {
+        private final ChatEventType type;
+        private final String sessionId;
+        private final String userId;
+        private final ChatMessage message;
+        private final String description;
+        private final Instant timestamp;
+
+        public ChatEvent(ChatEventType type, String sessionId, String userId, 
+                        ChatMessage message, String description, Instant timestamp) {
+            this.type = type;
+            this.sessionId = sessionId;
+            this.userId = userId;
+            this.message = message;
+            this.description = description;
+            this.timestamp = timestamp;
+        }
+
+        public enum ChatEventType {
+            SESSION_STARTED, MESSAGE_SENT, MESSAGE_RECEIVED, SESSION_ENDED
+        }
+
+        // Getters
+        public ChatEventType getType() { return type; }
+        public String getSessionId() { return sessionId; }
+        public String getUserId() { return userId; }
+        public ChatMessage getMessage() { return message; }
+        public String getDescription() { return description; }
+        public Instant getTimestamp() { return timestamp; }
+        
+        @Override
+        public String toString() {
+            return "ChatEvent{" +
+                "type=" + type +
+                ", sessionId='" + sessionId + '\'' +
+                ", userId='" + userId + '\'' +
+                ", message=" + message +
+                ", description='" + description + '\'' +
+                ", timestamp=" + timestamp +
+                '}';
+        }
+    }
+
+    /**
+     * رسالة الدردشة
+     */
+    public static final class ChatMessage {
+        private final String messageId;
+        private final String sessionId;
+        private final String senderId;
+        private final String originalMessage;
+        private final String translatedMessage;
+        private final String sourceLanguage;
+        private final String targetLanguage;
+        private final Instant timestamp;
+
+        public ChatMessage(String messageId, String sessionId, String senderId, 
+                          String originalMessage, String translatedMessage,
+                          String sourceLanguage, String targetLanguage, Instant timestamp) {
+            this.messageId = messageId;
+            this.sessionId = sessionId;
+            this.senderId = senderId;
+            this.originalMessage = originalMessage;
+            this.translatedMessage = translatedMessage;
+            this.sourceLanguage = sourceLanguage;
+            this.targetLanguage = targetLanguage;
+            this.timestamp = timestamp;
+        }
+
+        // Getters
+        public String getMessageId() { return messageId; }
+        public String getSessionId() { return sessionId; }
+        public String getSenderId() { return senderId; }
+        public String getOriginalMessage() { return originalMessage; }
+        public String getTranslatedMessage() { return translatedMessage; }
+        public String getSourceLanguage() { return sourceLanguage; }
+        public String getTargetLanguage() { return targetLanguage; }
+        public Instant getTimestamp() { return timestamp; }
+        
+        @Override
+        public String toString() {
+            return "ChatMessage{" +
+                "id='" + messageId + '\'' +
+                ", sender='" + senderId + '\'' +
+                ", original='" + originalMessage + '\'' +
+                ", translated='" + translatedMessage + '\'' +
+                ", from=" + sourceLanguage +
+                ", to=" + targetLanguage +
+                ", time=" + timestamp +
+                '}';
+        }
     }
 
     /**
@@ -114,80 +441,50 @@ public final class LiveChatManager {
     public static final class ChatSession {
         private final String sessionId;
         private final String userId;
-        private final String agentId;
-        private final java.util.List<ChatMessage> messages = new java.util.concurrent.CopyOnWriteArrayList<>();
-        private volatile Instant lastActivity;
-        private volatile boolean agentConnected = false;
+        private final String userLanguage;
+        private final Instant startTime;
+        private final Map<String, ChatMessage> messages = new ConcurrentHashMap<>();
+        private volatile boolean active = true;
+        private volatile Instant lastActivity = Instant.now();
 
-        public ChatSession(String userId, String agentId) {
-            this.sessionId = "chat_" + System.currentTimeMillis();
+        public ChatSession(String sessionId, String userId, String userLanguage, Instant startTime) {
+            this.sessionId = sessionId;
             this.userId = userId;
-            this.agentId = agentId;
-            this.lastActivity = Instant.now();
+            this.userLanguage = userLanguage;
+            this.startTime = startTime;
         }
 
         public void addMessage(ChatMessage message) {
-            messages.add(message);
+            messages.put(message.getMessageId(), message);
             lastActivity = Instant.now();
         }
 
-        public void connectAgent() {
-            this.agentConnected = true;
+        public void endSession() {
+            active = false;
+            lastActivity = Instant.now();
         }
 
         // Getters
         public String getSessionId() { return sessionId; }
         public String getUserId() { return userId; }
-        public String getAgentId() { return agentId; }
-        public java.util.List<ChatMessage> getMessages() { return new java.util.ArrayList<>(messages); }
+        public String getUserLanguage() { return userLanguage; }
+        public Instant getStartTime() { return startTime; }
+        public boolean isActive() { return active; }
         public Instant getLastActivity() { return lastActivity; }
-        public boolean isAgentConnected() { return agentConnected; }
-    }
-
-    /**
-     * رسالة الدردشة
-     */
-    public static final class ChatMessage {
-        private final String content;
-        private final boolean isUser;
-        private final Instant timestamp;
-
-        public ChatMessage(String content, boolean isUser, Instant timestamp) {
-            this.content = content;
-            this.isUser = isUser;
-            this.timestamp = timestamp;
-        }
-
-        // Getters
-        public String getContent() { return content; }
-        public boolean isUser() { return isUser; }
-        public Instant getTimestamp() { return timestamp; }
-    }
-
-    /**
-     * حدث الدردشة
-     */
-    public static final class ChatEvent {
-        private final String sessionId;
-        private final Type type;
-        private final String message;
-        private final Instant timestamp;
-
-        public ChatEvent(String sessionId, Type type, String message, Instant timestamp) {
-            this.sessionId = sessionId;
-            this.type = type;
-            this.message = message;
-            this.timestamp = timestamp;
-        }
-
-        // Getters
-        public String getSessionId() { return sessionId; }
-        public Type getType() { return type; }
-        public String getMessage() { return message; }
-        public Instant getTimestamp() { return timestamp; }
-
-        public enum Type {
-            SESSION_STARTED, AGENT_CONNECTED, MESSAGE_SENT, MESSAGE_RECEIVED, SESSION_ENDED
+        public Map<String, ChatMessage> getMessages() { return new ConcurrentHashMap<>(messages); }
+        public int getMessageCount() { return messages.size(); }
+        
+        @Override
+        public String toString() {
+            return "ChatSession{" +
+                "id='" + sessionId + '\'' +
+                ", user='" + userId + '\'' +
+                ", language='" + userLanguage + '\'' +
+                ", active=" + active +
+                ", messages=" + messages.size() +
+                ", start=" + startTime +
+                ", lastActivity=" + lastActivity +
+                '}';
         }
     }
 }
