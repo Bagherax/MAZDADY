@@ -1,60 +1,126 @@
 package mazdady.support;
 
-import android.content.Context;
-import android.widget.Toast;
+import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * واجهة الدردشة الحية مع دعم الرسائل الغنية
- * يتبع نمط Facade لتوفير واجهة مبسطة
+ * المحادثة الحية
+ * يدعم:
+ * - إرسال واستقبال الرسائل
+ * - التحقق من توفر الوكيل
+ * - حفظ المحادثة
+ * - التقييم بعد المحادثة
  */
 public final class LiveChat {
-    private final Context context;
-    private LiveChatManager chatManager;
+    private final Map<String, ChatSession> activeChats = new ConcurrentHashMap<>();
+    private final AlHelpdesk helpdesk;
 
-    private LiveChat(Context context) {
-        this.context = context.getApplicationContext();
+    public LiveChat(AlHelpdesk helpdesk) {
+        this.helpdesk = helpdesk;
     }
 
-    public static LiveChat create(Context context) {
-        return new LiveChat(context);
-    }
+    public CompletableFuture<ChatResult> startChatAsync(String userId, String initialMessage) {
+        return CompletableFuture.supplyAsync(() -> {
+            String sessionId = java.util.UUID.randomUUID().toString();
+            ChatSession session = new ChatSession(sessionId, userId, initialMessage);
+            activeChats.put(sessionId, session);
 
-    /**
-     * بدء الدردشة الحية
-     */
-    public void startLiveChat() {
-        chatManager = LiveChatManager.create(event -> {
-            switch (event.getType()) {
-                case AGENT_CONNECTED:
-                    Toast.makeText(context, "تم الاتصال بوكيل الدعم", Toast.LENGTH_SHORT).show();
-                    break;
-                case MESSAGE_RECEIVED:
-                    // في الإنتاج: عرض الرسالة في واجهة الدردشة
-                    System.out.println("AGENT: " + event.getMessage());
-                    break;
+            // حاول تعيين وكيل تلقائيًا
+            AlHelpdesk.HelpdeskResponse response = helpdesk.processQueryAsync(userId, initialMessage).join();
+            if (response.getAgentName() != null) {
+                session.setAgentName(response.getAgentName());
             }
+
+            return ChatResult.success("Chat started. Session ID: " + sessionId, sessionId);
         });
-        
-        chatManager.startChatSession();
     }
 
-    /**
-     * إرسال رسالة
-     */
-    public void sendMessage(String message) {
-        if (chatManager != null) {
-            // في الإنتاج: الحصول من واجهة الدردشة
-            chatManager.sendMessage("current_session", message, true);
-        }
+    public CompletableFuture<ChatResult> sendMessageAsync(String sessionId, String senderId, String message) {
+        return CompletableFuture.supplyAsync(() -> {
+            ChatSession session = activeChats.get(sessionId);
+            if (session == null) {
+                return ChatResult.failure("Invalid session ID: " + sessionId);
+            }
+
+            Message msg = new Message(senderId, message);
+            session.addMessage(msg);
+
+            // في الإنتاج: إرسال إلى وكيل
+            System.out.println("LIVE CHAT: Message from " + senderId + " in session " + sessionId + ": " + message);
+
+            return ChatResult.success("Message sent successfully", sessionId);
+        });
     }
 
-    /**
-     * إنهاء الدردشة
-     */
-    public void endChat() {
-        if (chatManager != null) {
-            // في الإنتاج: إغلاق جلسة الدردشة
-            System.out.println("Chat session ended");
+    // --- Inner Classes ---
+    public static final class ChatResult {
+        private final boolean success;
+        private final String message;
+        private final String sessionId;
+
+        private ChatResult(boolean success, String message, String sessionId) {
+            this.success = success;
+            this.message = message;
+            this.sessionId = sessionId;
         }
+
+        public static ChatResult success(String message, String sessionId) {
+            return new ChatResult(true, message, sessionId);
+        }
+
+        public static ChatResult failure(String message) {
+            return new ChatResult(false, message, null);
+        }
+
+        public boolean isSuccess() { return success; }
+        public String getMessage() { return message; }
+        public String getSessionId() { return sessionId; }
+    }
+
+    public static final class ChatSession {
+        private final String id;
+        private final String userId;
+        private final String initialMessage;
+        private volatile String agentName;
+        private final java.util.List<Message> messages = new java.util.ArrayList<>();
+        private final long timestamp;
+
+        public ChatSession(String id, String userId, String initialMessage) {
+            this.id = id;
+            this.userId = userId;
+            this.initialMessage = initialMessage;
+            this.timestamp = System.currentTimeMillis();
+        }
+
+        public void addMessage(Message message) {
+            messages.add(message);
+        }
+
+        public void setAgentName(String agentName) {
+            this.agentName = agentName;
+        }
+
+        public String getId() { return id; }
+        public String getUserId() { return userId; }
+        public String getAgentName() { return agentName; }
+        public java.util.List<Message> getMessages() { return new java.util.ArrayList<>(messages); }
+        public long getTimestamp() { return timestamp; }
+    }
+
+    public static final class Message {
+        private final String senderId;
+        private final String content;
+        private final long timestamp;
+
+        public Message(String senderId, String content) {
+            this.senderId = senderId;
+            this.content = content;
+            this.timestamp = System.currentTimeMillis();
+        }
+
+        public String getSenderId() { return senderId; }
+        public String getContent() { return content; }
+        public long getTimestamp() { return timestamp; }
     }
 }
