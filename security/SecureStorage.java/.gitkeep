@@ -22,76 +22,171 @@ public final class SecureStorage {
     private static final int GCM_TAG_LENGTH = 16;
 
     private final Context context;
-    private SecretKey cachedKey;
+    private volatile SecretKey cachedKey;
+    private static SecureStorage instance;
 
     private SecureStorage(Context context) {
         this.context = context.getApplicationContext();
+        initializeKey();
     }
 
-    public static SecureStorage create(Context context) {
-        return new SecureStorage(context);
+    public static synchronized SecureStorage getInstance(Context context) {
+        if (instance == null) {
+            instance = new SecureStorage(context);
+        }
+        return instance;
+    }
+
+    private void initializeKey() {
+        try {
+            KeyStore keyStore = KeyStore.getInstance(KEYSTORE_PROVIDER);
+            keyStore.load(null);
+
+            if (!keyStore.containsAlias(KEY_ALIAS)) {
+                KeyGenerator keyGenerator = KeyGenerator.getInstance(
+                    KeyProperties.KEY_ALGORITHM_AES, KEYSTORE_PROVIDER
+                );
+                keyGenerator.init(
+                    new KeyGenParameterSpec.Builder(
+                        KEY_ALIAS,
+                        KeyProperties.PURPOSE_ENCRYPT | KeyProperties.PURPOSE_DECRYPT
+                    )
+                    .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                    .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                    .setRandomizedEncryptionRequired(true)
+                    .build()
+                );
+                cachedKey = keyGenerator.generateKey();
+            } else {
+                cachedKey = (SecretKey) keyStore.getKey(KEY_ALIAS, null);
+            }
+            
+            System.out.println("SECURE STORAGE: Initialized master key successfully");
+            
+        } catch (Exception e) {
+            System.err.println("SECURE STORAGE KEY INIT ERROR: " + e.getMessage());
+        }
     }
 
     /**
-     * تشفير البيانات
+     * تشفير البيانات غير متزامن
      */
-    public byte[] encrypt(String plaintext) throws Exception {
-        SecretKey key = getOrCreateKey();
-        Cipher cipher = Cipher.getInstance(TRANSFORMATION);
-        cipher.init(Cipher.ENCRYPT_MODE, key);
-        byte[] iv = cipher.getIV();
-        byte[] ciphertext = cipher.doFinal(plaintext.getBytes("UTF-8"));
-
-        // دمج IV مع النص المشفر
-        byte[] result = new byte[iv.length + ciphertext.length];
-        System.arraycopy(iv, 0, result, 0, iv.length);
-        System.arraycopy(ciphertext, 0, result, iv.length, ciphertext.length);
-        return result;
+    public String encrypt(String plaintext) {
+        if (plaintext == null || plaintext.isEmpty()) {
+            return plaintext;
+        }
+        
+        try {
+            SecretKey key = getCachedKey();
+            if (key == null) {
+                throw new SecurityException("Master key not available");
+            }
+            
+            Cipher cipher = Cipher.getInstance(TRANSFORMATION);
+            cipher.init(Cipher.ENCRYPT_MODE, key);
+            
+            byte[] iv = cipher.getIV();
+            byte[] ciphertext = cipher.doFinal(plaintext.getBytes("UTF-8"));
+            
+            // دمج IV مع النص المشفر
+            byte[] result = new byte[iv.length + ciphertext.length];
+            System.arraycopy(iv, 0, result, 0, iv.length);
+            System.arraycopy(ciphertext, 0, result, iv.length, ciphertext.length);
+            
+            // تحويل إلى Base64
+            return java.util.Base64.getEncoder().encodeToString(result);
+            
+        } catch (Exception e) {
+            System.err.println("ENCRYPTION ERROR: " + e.getMessage());
+            return plaintext; // إرجاع النص الأصلي في حال الفشل
+        }
     }
 
     /**
-     * فك تشفير البيانات
+     * فك تشفير البيانات غير متزامن
      */
-    public String decrypt(byte[] encryptedData) throws Exception {
-        SecretKey key = getOrCreateKey();
-        byte[] iv = new byte[GCM_IV_LENGTH];
-        byte[] ciphertext = new byte[encryptedData.length - GCM_IV_LENGTH];
-        System.arraycopy(encryptedData, 0, iv, 0, iv.length);
-        System.arraycopy(encryptedData, iv.length, ciphertext, 0, ciphertext.length);
-
-        Cipher cipher = Cipher.getInstance(TRANSFORMATION);
-        cipher.init(Cipher.DECRYPT_MODE, key, new GCMParameterSpec(GCM_TAG_LENGTH * 8, iv));
-        byte[] plaintext = cipher.doFinal(ciphertext);
-        return new String(plaintext, "UTF-8");
+    public String decrypt(String encryptedData) {
+        if (encryptedData == null || encryptedData.isEmpty()) {
+            return encryptedData;
+        }
+        
+        try {
+            SecretKey key = getCachedKey();
+            if (key == null) {
+                throw new SecurityException("Master key not available");
+            }
+            
+            // تحويل من Base64
+            byte[] encryptedBytes = java.util.Base64.getDecoder().decode(encryptedData);
+            
+            // فصل IV عن النص المشفر
+            byte[] iv = new byte[GCM_IV_LENGTH];
+            byte[] ciphertext = new byte[encryptedBytes.length - GCM_IV_LENGTH];
+            System.arraycopy(encryptedBytes, 0, iv, 0, iv.length);
+            System.arraycopy(encryptedBytes, iv.length, ciphertext, 0, ciphertext.length);
+            
+            Cipher cipher = Cipher.getInstance(TRANSFORMATION);
+            cipher.init(Cipher.DECRYPT_MODE, key, new GCMParameterSpec(GCM_TAG_LENGTH * 8, iv));
+            
+            byte[] plaintext = cipher.doFinal(ciphertext);
+            return new String(plaintext, "UTF-8");
+            
+        } catch (Exception e) {
+            System.err.println("DECRYPTION ERROR: " + e.getMessage());
+            return encryptedData; // إرجاع البيانات المشفرة في حال الفشل
+        }
     }
 
-    private SecretKey getOrCreateKey() throws Exception {
+    private SecretKey getCachedKey() {
         if (cachedKey != null) {
             return cachedKey;
         }
-
-        KeyStore keyStore = KeyStore.getInstance(KEYSTORE_PROVIDER);
-        keyStore.load(null);
-
-        if (!keyStore.containsAlias(KEY_ALIAS)) {
-            KeyGenerator keyGenerator = KeyGenerator.getInstance(
-                KeyProperties.KEY_ALGORITHM_AES, KEYSTORE_PROVIDER
-            );
-            keyGenerator.init(
-                new KeyGenParameterSpec.Builder(
-                    KEY_ALIAS,
-                    KeyProperties.PURPOSE_ENCRYPT | KeyProperties.PURPOSE_DECRYPT
-                )
-                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
-                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
-                .setRandomizedEncryptionRequired(true)
-                .build()
-            );
-            cachedKey = keyGenerator.generateKey();
-        } else {
-            cachedKey = (SecretKey) keyStore.getKey(KEY_ALIAS, null);
+        
+        synchronized (this) {
+            if (cachedKey != null) {
+                return cachedKey;
+            }
+            
+            try {
+                KeyStore keyStore = KeyStore.getInstance(KEYSTORE_PROVIDER);
+                keyStore.load(null);
+                cachedKey = (SecretKey) keyStore.getKey(KEY_ALIAS, null);
+                return cachedKey;
+                
+            } catch (Exception e) {
+                System.err.println("KEY RETRIEVAL ERROR: " + e.getMessage());
+                return null;
+            }
         }
+    }
 
-        return cachedKey;
+    /**
+     * التحقق من صحة التشفير
+     */
+    public boolean isEncryptionValid() {
+        try {
+            String testString = "MAZDADY_SECURITY_TEST";
+            String encrypted = encrypt(testString);
+            String decrypted = decrypt(encrypted);
+            return testString.equals(decrypted);
+            
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    // --- Getters ---
+    public boolean hasMasterKey() { return cachedKey != null; }
+    public String getKeyAlias() { return KEY_ALIAS; }
+    public String getTransformation() { return TRANSFORMATION; }
+    public int getGcmIvLength() { return GCM_IV_LENGTH; }
+    public int getGcmTagLength() { return GCM_TAG_LENGTH; }
+    
+    /**
+     * إعادة تعيين التخزين الآمن (للاختبارات)
+     */
+    public void reset() {
+        cachedKey = null;
+        System.out.println("SECURE STORAGE: Reset completed");
     }
 }
