@@ -3,22 +3,23 @@ package mazdady.i18n;
 import android.content.Context;
 import android.telephony.TelephonyManager;
 
+import java.util.Currency;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * كاشف العملات مع دعم الكشف التلقائي حسب المنطقة
- * يتبع نمط Singleton مع تهيئة ذكية
+ * كاشف العملات مع دعم الكشف التلقائي
+ * يتبع نمط Singleton مع تهيئة آمنة
  */
 public final class CurrencyDetector {
     private final Context context;
-    private final Map<String, String> regionToCurrency = new ConcurrentHashMap<>();
+    private final Map<String, String> regionCurrencyMap = new ConcurrentHashMap<>();
     private static CurrencyDetector instance;
 
     private CurrencyDetector(Context context) {
         this.context = context.getApplicationContext();
-        initializeCurrencyMap();
+        initializeRegionCurrencyMap();
     }
 
     public static synchronized CurrencyDetector getInstance(Context context) {
@@ -28,59 +29,77 @@ public final class CurrencyDetector {
         return instance;
     }
 
-    private void initializeCurrencyMap() {
-        // تهيئة خريطة العملات الأساسية
-        regionToCurrency.put("US", "USD");
-        regionToCurrency.put("SA", "SAR");
-        regionToCurrency.put("EG", "EGP");
-        regionToCurrency.put("AE", "AED");
-        regionToCurrency.put("GB", "GBP");
-        regionToCurrency.put("EU", "EUR");
-        // يمكن توسيعها حسب الحاجة
+    private void initializeRegionCurrencyMap() {
+        // تهيئة خريطة العملات حسب المنطقة
+        regionCurrencyMap.put("SA", "SAR");  // السعودية
+        regionCurrencyMap.put("AE", "AED");  // الإمارات
+        regionCurrencyMap.put("EG", "EGP");  // مصر
+        regionCurrencyMap.put("KW", "KWD");  // الكويت
+        regionCurrencyMap.put("QA", "QAR");  // قطر
+        regionCurrencyMap.put("BH", "BHD");  // البحرين
+        regionCurrencyMap.put("OM", "OMR");  // عمان
+        regionCurrencyMap.put("JO", "JOD");  // الأردن
+        regionCurrencyMap.put("LB", "LBP");  // لبنان
+        regionCurrencyMap.put("SY", "SYP");  // سوريا
+        regionCurrencyMap.put("YE", "YER");  // اليمن
+        regionCurrencyMap.put("IQ", "IQD");  // العراق
+        regionCurrencyMap.put("PS", "ILS");  // فلسطين
+        regionCurrencyMap.put("TN", "TND");  // تونس
+        regionCurrencyMap.put("MA", "MAD");  // المغرب
+        regionCurrencyMap.put("DZ", "DZD");  // الجزائر
+        regionCurrencyMap.put("LY", "LYD");  // ليبيا
+        
+        System.out.println("CURRENCY DETECTOR: Initialized with " + regionCurrencyMap.size() + " region-currency mappings");
     }
 
     /**
-     * اكتشاف العملة الحالية تلقائيًا
+     * كشف العملة التلقائية للمستخدم
      */
-    public String detectCurrency() {
-        // 1. محاولة الحصول من إعدادات النظام
-        String systemCurrency = getSystemCurrency();
-        if (systemCurrency != null) {
-            return systemCurrency;
+    public String detectUserCurrency() {
+        try {
+            // 1. محاولة الكشف من إعدادات النظام
+            String systemCurrency = detectFromSystemSettings();
+            if (systemCurrency != null && !systemCurrency.isEmpty()) {
+                System.out.println("CURRENCY DETECTOR: Detected from system - " + systemCurrency);
+                return systemCurrency;
+            }
+            
+            // 2. محاولة الكشف من شبكة الهاتف
+            String networkCurrency = detectFromNetwork();
+            if (networkCurrency != null && !networkCurrency.isEmpty()) {
+                System.out.println("CURRENCY DETECTOR: Detected from network - " + networkCurrency);
+                return networkCurrency;
+            }
+            
+            // 3. استخدام العملة الافتراضية
+            String defaultCurrency = "USD";
+            System.out.println("CURRENCY DETECTOR: Using default currency - " + defaultCurrency);
+            return defaultCurrency;
+            
+        } catch (Exception e) {
+            System.err.println("CURRENCY DETECTION ERROR: " + e.getMessage());
+            return "USD"; // العملة الافتراضية
         }
-        
-        // 2. محاولة الحصول من شبكة الهاتف
-        String networkCurrency = getNetworkCurrency();
-        if (networkCurrency != null) {
-            return networkCurrency;
-        }
-        
-        // 3. استخدام العملة الافتراضية
-        return "USD";
     }
 
-    /**
-     * الحصول على العملة حسب المنطقة
-     */
-    public String getCurrencyForRegion(String regionCode) {
-        return regionToCurrency.getOrDefault(regionCode, "USD");
-    }
-
-    private String getSystemCurrency() {
+    private String detectFromSystemSettings() {
         try {
             Locale locale = context.getResources().getConfiguration().locale;
-            return locale.getCountry();
+            Currency currency = Currency.getInstance(locale);
+            return currency != null ? currency.getCurrencyCode() : null;
         } catch (Exception e) {
             return null;
         }
     }
 
-    private String getNetworkCurrency() {
+    private String detectFromNetwork() {
         try {
             TelephonyManager tm = (TelephonyManager) context.getSystemService(Context.TELEPHONY_SERVICE);
-            if (tm != null && tm.getNetworkCountryIso() != null) {
-                String countryCode = tm.getNetworkCountryIso().toUpperCase();
-                return getCurrencyForRegion(countryCode);
+            if (tm != null) {
+                String countryCode = tm.getNetworkCountryIso();
+                if (countryCode != null && !countryCode.isEmpty()) {
+                    return regionCurrencyMap.getOrDefault(countryCode.toUpperCase(), "USD");
+                }
             }
         } catch (SecurityException e) {
             // إذن الهاتف غير ممنوح
@@ -89,9 +108,55 @@ public final class CurrencyDetector {
     }
 
     /**
-     * إضافة خريطة عملة مخصصة
+     * الحصول على العملة حسب المنطقة
      */
-    public void addCurrencyMapping(String regionCode, String currencyCode) {
-        regionToCurrency.put(regionCode, currencyCode);
+    public String getCurrencyForRegion(String regionCode) {
+        return regionCurrencyMap.getOrDefault(regionCode.toUpperCase(), "USD");
+    }
+
+    /**
+     * تحديث خريطة العملات من الإعدادات الإدارية
+     */
+    public void updateRegionCurrencyMap(Map<String, String> newMappings) {
+        if (newMappings != null && !newMappings.isEmpty()) {
+            regionCurrencyMap.putAll(newMappings);
+            System.out.println("CURRENCY DETECTOR: Updated region-currency mappings from admin config");
+        }
+    }
+
+    /**
+     * إضافة تعيين منطقة-عملة جديد
+     */
+    public void addRegionCurrencyMapping(String regionCode, String currencyCode) {
+        if (regionCode != null && currencyCode != null) {
+            regionCurrencyMap.put(regionCode.toUpperCase(), currencyCode.toUpperCase());
+            System.out.println("CURRENCY DETECTOR: Added mapping " + regionCode + " -> " + currencyCode);
+        }
+    }
+
+    /**
+     * إزالة تعيين منطقة-عملة
+     */
+    public void removeRegionCurrencyMapping(String regionCode) {
+        if (regionCode != null) {
+            String removed = regionCurrencyMap.remove(regionCode.toUpperCase());
+            if (removed != null) {
+                System.out.println("CURRENCY DETECTOR: Removed mapping for " + regionCode);
+            }
+        }
+    }
+
+    // --- Getters ---
+    public int getRegionMappingCount() { return regionCurrencyMap.size(); }
+    public boolean hasRegionMapping(String regionCode) { return regionCurrencyMap.containsKey(regionCode.toUpperCase()); }
+    public Map<String, String> getRegionCurrencyMap() { return new ConcurrentHashMap<>(regionCurrencyMap); }
+    
+    /**
+     * إعادة تعيين الكاشف (للاختبارات)
+     */
+    public void reset() {
+        regionCurrencyMap.clear();
+        initializeRegionCurrencyMap();
+        System.out.println("CURRENCY DETECTOR: Reset completed");
     }
 }
