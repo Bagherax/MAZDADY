@@ -1,0 +1,366 @@
+package mazdady.user;
+
+import mazdady.admin.AdminConfig;
+import mazdady.social.Achievements;
+
+import java.time.Instant;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
+
+/**
+ * نظام المستويات الديناميكي مع دعم القوانين القابلة للتخصيص
+ * يتبع نمط Strategy لفصل استراتيجيات الترقية
+ */
+public final class LevelSystem {
+    private final Map<Integer, LevelConfig> levelConfigs = new ConcurrentHashMap<>();
+    private final Map<String, UserLevelProgress> userProgress = new ConcurrentHashMap<>();
+    private static LevelSystem instance;
+
+    private LevelSystem() {
+        initializeDefaultLevels();
+    }
+
+    public static synchronized LevelSystem getInstance() {
+        if (instance == null) {
+            instance = new LevelSystem();
+        }
+        return instance;
+    }
+
+    private void initializeDefaultLevels() {
+        // تهيئة المستويات الافتراضية
+        levelConfigs.put(1, new LevelConfig(1, 100, "مبتدئ", "🥉", "#FFD700"));
+        levelConfigs.put(2, new LevelConfig(2, 1000, "متقدم", "🥈", "#C0C0C0"));
+        levelConfigs.put(3, new LevelConfig(3, 5000, "خبير", "🥇", "#FFD700"));
+        levelConfigs.put(4, new LevelConfig(4, 10000, "ماجستير", "🏆", "#4CAF50"));
+        levelConfigs.put(5, new LevelConfig(5, 25000, "أستاذ", "👑", "#2196F3"));
+        
+        System.out.println("LEVEL SYSTEM: Initialized " + levelConfigs.size() + " default levels");
+    }
+
+    /**
+     * تحديث قوانين المستويات من الإعدادات الإدارية غير متزامن
+     */
+    public void updateLevelRulesFromAdminAsync(AdminConfig.LevelConfig adminLevelConfig) {
+        new Thread(() -> {
+            try {
+                if (adminLevelConfig == null) return;
+                
+                Map<Integer, AdminConfig.LevelConfig.LevelDefinition> definitions = 
+                    adminLevelConfig.getLevelDefinitions();
+                
+                levelConfigs.clear();
+                definitions.forEach((level, definition) -> {
+                    levelConfigs.put(level, new LevelConfig(
+                        level,
+                        definition.getRequiredWins(),
+                        definition.getLevelName(),
+                        definition.getBadgeEmoji(),
+                        definition.getBadgeColor()
+                    ));
+                });
+                
+                System.out.println("LEVEL SYSTEM: Updated level rules from admin config - " + 
+                                 levelConfigs.size() + " levels");
+                
+            } catch (Exception e) {
+                System.err.println("LEVEL RULES UPDATE ERROR: " + e.getMessage());
+            }
+        }).start();
+    }
+
+    /**
+     * حساب المستوى الحالي للمستخدم غير متزامن
+     */
+    public int calculateCurrentLevel(String userId, int winCount) {
+        try {
+            // تحديث تقدم المستخدم
+            UserLevelProgress progress = userProgress.computeIfAbsent(
+                userId, 
+                k -> new UserLevelProgress(userId)
+            );
+            progress.updateWinCount(winCount);
+            
+            // حساب المستوى الحالي
+            int currentLevel = 1;
+            for (Map.Entry<Integer, LevelConfig> entry : levelConfigs.entrySet()) {
+                LevelConfig config = entry.getValue();
+                if (winCount >= config.getRequiredWins()) {
+                    currentLevel = Math.max(currentLevel, config.getLevel());
+                }
+            }
+            
+            System.out.println("LEVEL SYSTEM: User " + userId + " - Wins: " + winCount + 
+                             " - Level: " + currentLevel);
+            
+            return currentLevel;
+            
+        } catch (Exception e) {
+            System.err.println("LEVEL CALCULATION ERROR: " + e.getMessage());
+            return 1; // المستوى الافتراضي
+        }
+    }
+
+    /**
+     * التحقق من إمكانية الترقية غير متزامن
+     */
+    public LevelUpgradeResult checkLevelUpgradeAsync(String userId, int currentWins) {
+        return new Thread(() -> {
+            try {
+                int currentLevel = calculateCurrentLevel(userId, currentWins);
+                User user = UserManager.getInstance(null).getUserById(userId);
+                
+                if (user == null) {
+                    return LevelUpgradeResult.failure("User not found");
+                }
+                
+                int userCurrentLevel = user.getLevel();
+                if (currentLevel > userCurrentLevel) {
+                    // ترقية المستخدم
+                    user.setLevel(currentLevel);
+                    
+                    // منح الشارة تلقائيًا
+                    LevelConfig newLevelConfig = levelConfigs.get(currentLevel);
+                    if (newLevelConfig != null) {
+                        grantLevelBadge(userId, newLevelConfig);
+                    }
+                    
+                    // تسجيل الترقية
+                    logLevelUpgrade(userId, userCurrentLevel, currentLevel);
+                    
+                    System.out.println("LEVEL SYSTEM: User " + userId + " upgraded from level " + 
+                                     userCurrentLevel + " to " + currentLevel);
+                    
+                    return LevelUpgradeResult.success(
+                        userCurrentLevel, 
+                        currentLevel, 
+                        "Level upgraded successfully"
+                    );
+                } else {
+                    return LevelUpgradeResult.noUpgrade(
+                        "User " + userId + " remains at level " + userCurrentLevel
+                    );
+                }
+                
+            } catch (Exception e) {
+                return LevelUpgradeResult.failure("Level upgrade check failed: " + e.getMessage());
+            }
+        }).start();
+    }
+
+    private void grantLevelBadge(String userId, LevelConfig levelConfig) {
+        try {
+            User user = UserManager.getInstance(null).getUserById(userId);
+            if (user != null) {
+                user.addBadge(levelConfig.getBadgeEmoji(), levelConfig.getLevelName());
+                System.out.println("LEVEL SYSTEM: Granted badge " + levelConfig.getBadgeEmoji() + 
+                                 " to user " + userId + " for level " + levelConfig.getLevel());
+                
+                // إشعار النظام بالإنجاز
+                Achievements.getInstance().checkAchievement(user, "level_" + levelConfig.getLevel());
+            }
+            
+        } catch (Exception e) {
+            System.err.println("BADGE GRANT ERROR: " + e.getMessage());
+        }
+    }
+
+    private void logLevelUpgrade(String userId, int oldLevel, int newLevel) {
+        try {
+            // في الإنتاج: تسجيل في قاعدة البيانات
+            System.out.println("LEVEL UPGRADE LOG: " + userId + " - " + oldLevel + " → " + newLevel + 
+                             " at " + Instant.now());
+            
+        } catch (Exception e) {
+            System.err.println("LEVEL UPGRADE LOG ERROR: " + e.getMessage());
+        }
+    }
+
+    /**
+     * الحصول على إعدادات المستوى
+     */
+    public LevelConfig getLevelConfig(int level) {
+        return levelConfigs.getOrDefault(level, getDefaultLevelConfig(level));
+    }
+
+    private LevelConfig getDefaultLevelConfig(int level) {
+        return new LevelConfig(level, level * 1000, "مستوى " + level, "⭐", "#FFFFFF");
+    }
+
+    /**
+     * إضافة مستوى جديد ديناميكيًا
+     */
+    public void addDynamicLevel(int level, int requiredWins, String levelName, 
+                               String badgeEmoji, String badgeColor) {
+        LevelConfig config = new LevelConfig(level, requiredWins, levelName, badgeEmoji, badgeColor);
+        levelConfigs.put(level, config);
+        System.out.println("LEVEL SYSTEM: Added dynamic level " + level + " - " + levelName);
+    }
+
+    /**
+     * إزالة مستوى ديناميكي
+     */
+    public void removeDynamicLevel(int level) {
+        LevelConfig removed = levelConfigs.remove(level);
+        if (removed != null) {
+            System.out.println("LEVEL SYSTEM: Removed dynamic level " + level + " - " + removed.getLevelName());
+        }
+    }
+
+    /**
+     * تحديث شارة المستوى
+     */
+    public void updateLevelBadge(int level, String badgeEmoji, String badgeColor) {
+        LevelConfig config = levelConfigs.get(level);
+        if (config != null) {
+            config.setBadgeEmoji(badgeEmoji);
+            config.setBadgeColor(badgeColor);
+            System.out.println("LEVEL SYSTEM: Updated badge for level " + level + " - " + badgeEmoji);
+        }
+    }
+
+    /**
+     * الحصول على عدد المستويات
+     */
+    public int getLevelCount() {
+        return levelConfigs.size();
+    }
+
+    /**
+     * الحصول على أعلى مستوى
+     */
+    public int getMaxLevel() {
+        return levelConfigs.keySet().stream().mapToInt(Integer::intValue).max().orElse(1);
+    }
+
+    /**
+     * التحقق من وجود مستوى
+     */
+    public boolean hasLevel(int level) {
+        return levelConfigs.containsKey(level);
+    }
+
+    /**
+     * مسح تقدم المستخدمين (للاختبارات)
+     */
+    public void clearUserProgress() {
+        userProgress.clear();
+        System.out.println("LEVEL SYSTEM: Cleared all user progress");
+    }
+
+    // --- إعدادات المستوى ---
+    public static final class LevelConfig {
+        private final int level;
+        private final int requiredWins;
+        private final String levelName;
+        private volatile String badgeEmoji;
+        private volatile String badgeColor;
+
+        public LevelConfig(int level, int requiredWins, String levelName, 
+                          String badgeEmoji, String badgeColor) {
+            this.level = level;
+            this.requiredWins = requiredWins;
+            this.levelName = levelName;
+            this.badgeEmoji = badgeEmoji;
+            this.badgeColor = badgeColor;
+        }
+
+        // Getters
+        public int getLevel() { return level; }
+        public int getRequiredWins() { return requiredWins; }
+        public String getLevelName() { return levelName; }
+        public String getBadgeEmoji() { return badgeEmoji; }
+        public String getBadgeColor() { return badgeColor; }
+        
+        // Setters
+        public void setBadgeEmoji(String badgeEmoji) { this.badgeEmoji = badgeEmoji; }
+        public void setBadgeColor(String badgeColor) { this.badgeColor = badgeColor; }
+        
+        @Override
+        public String toString() {
+            return "LevelConfig{" +
+                "level=" + level +
+                ", requiredWins=" + requiredWins +
+                ", levelName='" + levelName + '\'' +
+                ", badgeEmoji='" + badgeEmoji + '\'' +
+                ", badgeColor='" + badgeColor + '\'' +
+                '}';
+        }
+    }
+
+    // --- تقدم المستخدم ---
+    private static final class UserLevelProgress {
+        private final String userId;
+        private final AtomicInteger winCount = new AtomicInteger(0);
+        private volatile Instant lastUpdate = Instant.now();
+
+        public UserLevelProgress(String userId) {
+            this.userId = userId;
+        }
+
+        public void updateWinCount(int newWinCount) {
+            winCount.set(newWinCount);
+            lastUpdate = Instant.now();
+        }
+
+        // Getters
+        public String getUserId() { return userId; }
+        public int getWinCount() { return winCount.get(); }
+        public Instant getLastUpdate() { return lastUpdate; }
+    }
+
+    // --- نتيجة الترقية ---
+    public static final class LevelUpgradeResult {
+        private final boolean success;
+        private final boolean upgraded;
+        private final int oldLevel;
+        private final int newLevel;
+        private final String message;
+
+        private LevelUpgradeResult(boolean success, boolean upgraded, int oldLevel, 
+                                 int newLevel, String message) {
+            this.success = success;
+            this.upgraded = upgraded;
+            this.oldLevel = oldLevel;
+            this.newLevel = newLevel;
+            this.message = message;
+        }
+
+        public static LevelUpgradeResult success(int oldLevel, int newLevel, String message) {
+            return new LevelUpgradeResult(true, true, oldLevel, newLevel, message);
+        }
+
+        public static LevelUpgradeResult noUpgrade(String message) {
+            return new LevelUpgradeResult(true, false, 0, 0, message);
+        }
+
+        public static LevelUpgradeResult failure(String message) {
+            return new LevelUpgradeResult(false, false, 0, 0, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public boolean isUpgraded() { return upgraded; }
+        public int getOldLevel() { return oldLevel; }
+        public int getNewLevel() { return newLevel; }
+        public String getMessage() { return message; }
+    }
+
+    // --- Getters ---
+    public Map<Integer, LevelConfig> getLevelConfigs() { 
+        return new ConcurrentHashMap<>(levelConfigs); 
+    }
+    public Map<String, UserLevelProgress> getUserProgress() { 
+        return new ConcurrentHashMap<>(userProgress); 
+    }
+    
+    /**
+     * إعادة تعيين النظام (للاختبارات)
+     */
+    public void reset() {
+        levelConfigs.clear();
+        userProgress.clear();
+        initializeDefaultLevels();
+        System.out.println("LEVEL SYSTEM: Reset completed");
+    }
+}
