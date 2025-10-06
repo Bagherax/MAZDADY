@@ -1,15 +1,17 @@
 package mazdady.social;
 
 import mazdady.user.User;
+import mazdady.user.UserManager;
+import mazdady.admin.AdminConfig;
 
 import java.time.Instant;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.function.BiPredicate;
+import java.util.function.BiFunction;
 
 /**
- * نظام الإنجازات مع دعم التقدم الديناميكي
- * يتبع نمط Strategy لفصل شروط الإنجازات
+ * نظام الإنجازات مع دعم الشارات الديناميكية
+ * يتبع نمط Strategy لفصل استراتيجيات الإنجازات
  */
 public final class Achievements {
     private final Map<String, Achievement> achievements = new ConcurrentHashMap<>();
@@ -27,100 +29,204 @@ public final class Achievements {
     }
 
     private void initializeAchievements() {
-        // إنجازات التداول
-        achievements.put("first_trade", new Achievement(
-            "first_trade",
-            "أول صفقة",
-            "قم بأول صفقة تداول",
+        // إنجازات المستويات
+        achievements.put("level_1", new Achievement(
+            "level_1",
+            "أول مستوى",
+            "حقق المستوى الأول",
             10,
-            (user, progress) -> user.getTradingHistory().size() >= 1
+            (user, progress) -> user.getLevel() >= 1
         ));
         
-        achievements.put("trading_master", new Achievement(
-            "trading_master",
-            "ماستر التداول",
-            "قم بـ 100 صفقة تداول",
-            100,
-            (user, progress) -> user.getTradingHistory().size() >= 100
-        ));
-        
-        // إنجازات المجتمع
-        achievements.put("social_butterfly", new Achievement(
-            "social_butterfly",
-            "فراشة اجتماعية",
-            "شارك في 10 حملات إعلانية",
+        achievements.put("level_5", new Achievement(
+            "level_5",
+            "خبير مبتدئ",
+            "حقق المستوى الخامس",
             50,
-            (user, progress) -> user.getAdCampaigns().size() >= 10
+            (user, progress) -> user.getLevel() >= 5
         ));
         
-        // إنجازات الولاء
-        achievements.put("loyal_member", new Achievement(
-            "loyal_member",
-            "عضو مخلص",
-            "استخدم التطبيق لمدة 30 يومًا متتاليًا",
+        achievements.put("level_10", new Achievement(
+            "level_10",
+            "ماجستير التداول",
+            "حقق المستوى العاشر",
+            100,
+            (user, progress) -> user.getLevel() >= 10
+        ));
+        
+        achievements.put("level_20", new Achievement(
+            "level_20",
+            "أستاذ التداول",
+            "حقق المستوى العشرين",
             200,
-            (user, progress) -> user.getStreakDays() >= 30
+            (user, progress) -> user.getLevel() >= 20
         ));
+        
+        System.out.println("ACHIEVEMENTS: Initialized " + achievements.size() + " achievements");
     }
 
     /**
-     * التحقق من إنجاز المستخدم
+     * التحقق من إنجاز المستخدم غير متزامن
      */
-    public AchievementProgress checkAchievement(User user, String achievementId) {
-        Achievement achievement = achievements.get(achievementId);
-        if (achievement == null) {
-            return new AchievementProgress(achievementId, 0, false);
-        }
-        
-        int progress = calculateProgress(user, achievementId);
-        boolean unlocked = achievement.condition.test(user, progress);
-        
-        if (unlocked && !user.hasAchievement(achievementId)) {
-            unlockAchievement(user, achievement);
-        }
-        
-        return new AchievementProgress(achievementId, progress, unlocked);
+    public void checkAchievementAsync(String userId, String achievementId) {
+        new Thread(() -> {
+            try {
+                User user = UserManager.getInstance(null).getUserById(userId);
+                if (user == null) {
+                    System.err.println("ACHIEVEMENTS: User not found - " + userId);
+                    return;
+                }
+                
+                Achievement achievement = achievements.get(achievementId);
+                if (achievement == null) {
+                    System.err.println("ACHIEVEMENTS: Achievement not found - " + achievementId);
+                    return;
+                }
+                
+                int progress = calculateAchievementProgress(user, achievementId);
+                boolean unlocked = achievement.condition.test(user, progress);
+                
+                if (unlocked && !user.hasAchievement(achievementId)) {
+                    unlockAchievement(user, achievement);
+                }
+                
+            } catch (Exception e) {
+                System.err.println("ACHIEVEMENT CHECK ERROR: " + e.getMessage());
+            }
+        }).start();
     }
 
-    /**
-     * التحقق من جميع الإنجازات
-     */
-    public void checkAllAchievements(User user) {
-        achievements.keySet().forEach(id -> checkAchievement(user, id));
-    }
-
-    private int calculateProgress(User user, String achievementId) {
+    private int calculateAchievementProgress(User user, String achievementId) {
         switch (achievementId) {
-            case "first_trade":
-            case "trading_master":
-                return user.getTradingHistory().size();
-            case "social_butterfly":
-                return user.getAdCampaigns().size();
-            case "loyal_member":
-                return user.getStreakDays();
+            case "level_1":
+            case "level_5":
+            case "level_10":
+            case "level_20":
+                return user.getLevel();
             default:
                 return 0;
         }
     }
 
     private void unlockAchievement(User user, Achievement achievement) {
-        user.addAchievement(achievement.id);
-        user.addCommunityPoints(achievement.rewardPoints);
-        System.out.println("ACHIEVEMENT UNLOCKED: " + achievement.name + " for user " + user.getUserId());
+        try {
+            // منح الإنجاز
+            user.addAchievement(achievement.id);
+            
+            // منح النقاط المجتمعية
+            user.addCommunityPoints(achievement.rewardPoints);
+            
+            // منح الشارة تلقائيًا
+            grantAchievementBadge(user, achievement);
+            
+            // إشعار النظام
+            notifyAchievementUnlocked(user.getUserId(), achievement);
+            
+            System.out.println("ACHIEVEMENTS: Unlocked " + achievement.name + " for user " + user.getUserId());
+            
+        } catch (Exception e) {
+            System.err.println("ACHIEVEMENT UNLOCK ERROR: " + e.getMessage());
+        }
+    }
+
+    private void grantAchievementBadge(User user, Achievement achievement) {
+        try {
+            // في الإنتاج: منح الشارة حسب نوع الإنجاز
+            String badgeEmoji = getBadgeEmojiForAchievement(achievement.id);
+            user.addBadge(badgeEmoji, achievement.name);
+            
+            System.out.println("ACHIEVEMENTS: Granted badge " + badgeEmoji + " for " + achievement.name);
+            
+        } catch (Exception e) {
+            System.err.println("BADGE GRANT ERROR: " + e.getMessage());
+        }
+    }
+
+    private String getBadgeEmojiForAchievement(String achievementId) {
+        switch (achievementId) {
+            case "level_1": return "🥉";
+            case "level_5": return "🥈";
+            case "level_10": return "🥇";
+            case "level_20": return "🏆";
+            default: return "⭐";
+        }
+    }
+
+    private void notifyAchievementUnlocked(String userId, Achievement achievement) {
+        try {
+            // في الإنتاج: إرسال إشعار للمستخدم
+            System.out.println("ACHIEVEMENT NOTIFICATION: " + userId + " unlocked " + achievement.name);
+            
+            // في الإنتاج: إرسال إشعار للنظام الإداري
+            mazdady.admin.AdminDashboard.getInstance().notifyAchievementUnlocked(userId, achievement);
+            
+        } catch (Exception e) {
+            System.err.println("ACHIEVEMENT NOTIFICATION ERROR: " + e.getMessage());
+        }
     }
 
     /**
-     * إنجاز
+     * تحديث إنجازات المستخدم ديناميكيًا
      */
+    public void updateAchievementsFromConfig(AdminConfig.AchievementConfig config) {
+        if (config == null) return;
+        
+        try {
+            Map<String, AdminConfig.AchievementConfig.AchievementDefinition> definitions = 
+                config.getAchievementDefinitions();
+            
+            achievements.clear();
+            definitions.forEach((id, definition) -> {
+                achievements.put(id, new Achievement(
+                    id,
+                    definition.getName(),
+                    definition.getDescription(),
+                    definition.getRewardPoints(),
+                    (user, progress) -> user.getLevel() >= definition.getRequiredLevel()
+                ));
+            });
+            
+            System.out.println("ACHIEVEMENTS: Updated from admin config - " + achievements.size() + " achievements");
+            
+        } catch (Exception e) {
+            System.err.println("ACHIEVEMENTS UPDATE ERROR: " + e.getMessage());
+        }
+    }
+
+    /**
+     * إضافة إنجاز مخصص
+     */
+    public void addCustomAchievement(String id, String name, String description, 
+                                   int rewardPoints, BiFunction<User, Integer, Boolean> condition) {
+        if (id != null && name != null && condition != null) {
+            Achievement achievement = new Achievement(id, name, description, rewardPoints, condition);
+            achievements.put(id, achievement);
+            System.out.println("ACHIEVEMENTS: Added custom achievement - " + name);
+        }
+    }
+
+    /**
+     * إزالة إنجاز مخصص
+     */
+    public void removeCustomAchievement(String id) {
+        if (id != null) {
+            Achievement removed = achievements.remove(id);
+            if (removed != null) {
+                System.out.println("ACHIEVEMENTS: Removed custom achievement - " + removed.name);
+            }
+        }
+    }
+
+    // --- الإنجاز ---
     private static final class Achievement {
         private final String id;
         private final String name;
         private final String description;
         private final int rewardPoints;
-        private final BiPredicate<User, Integer> condition;
+        private final BiFunction<User, Integer, Boolean> condition;
 
-        public Achievement(String id, String name, String description, int rewardPoints, 
-                          BiPredicate<User, Integer> condition) {
+        public Achievement(String id, String name, String description, 
+                          int rewardPoints, BiFunction<User, Integer, Boolean> condition) {
             this.id = id;
             this.name = name;
             this.description = description;
@@ -129,22 +235,17 @@ public final class Achievements {
         }
     }
 
+    // --- Getters ---
+    public int getAchievementCount() { return achievements.size(); }
+    public boolean hasAchievement(String id) { return achievements.containsKey(id); }
+    public Map<String, Achievement> getAchievements() { return new ConcurrentHashMap<>(achievements); }
+    
     /**
-     * تقدم الإنجاز
+     * إعادة تعيين الإنجازات (للاختبارات)
      */
-    public static final class AchievementProgress {
-        private final String achievementId;
-        private final int progress;
-        private final boolean unlocked;
-
-        public AchievementProgress(String achievementId, int progress, boolean unlocked) {
-            this.achievementId = achievementId;
-            this.progress = progress;
-            this.unlocked = unlocked;
-        }
-
-        public String getAchievementId() { return achievementId; }
-        public int getProgress() { return progress; }
-        public boolean isUnlocked() { return unlocked; }
+    public void reset() {
+        achievements.clear();
+        initializeAchievements();
+        System.out.println("ACHIEVEMENTS: Reset completed");
     }
 }
