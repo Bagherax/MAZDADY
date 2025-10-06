@@ -441,3 +441,275 @@ public void reset() {
     initializeUIElements();
     System.out.println("UI EDITOR: Reset completed");
 }
+    // === الفئات الداخلية ===
+    
+    /**
+     * نتيجة تعديل الواجهة
+     */
+    public static final class UIEditResult {
+        private final boolean success;
+        private final String message;
+
+        private UIEditResult(boolean success, String message) {
+            this.success = success;
+            this.message = message;
+        }
+
+        public static UIEditResult success(String message) {
+            return new UIEditResult(true, message);
+        }
+
+        public static UIEditResult failure(String message) {
+            return new UIEditResult(false, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public String getMessage() { return message; }
+    }
+
+    /**
+     * طلب تعديل الواجهة
+     */
+    public static final class UIEditRequest {
+        private final String elementId;
+        private final EditType editType;
+        private final ElementPosition position;
+        private final ElementSize size;
+        private final ElementStyle style;
+        private final boolean visible;
+        private final String iconUrl;
+        private final String wallpaperUrl;
+        private final String animatedWallpaperUrl;
+        private final String splashVideoUrl;
+        private final String interactionType;
+
+        private UIEditRequest(Builder builder) {
+            this.elementId = builder.elementId;
+            this.editType = builder.editType;
+            this.position = builder.position;
+            this.size = builder.size;
+            this.style = builder.style;
+            this.visible = builder.visible;
+            this.iconUrl = builder.iconUrl;
+            this.wallpaperUrl = builder.wallpaperUrl;
+            this.animatedWallpaperUrl = builder.animatedWallpaperUrl;
+            this.splashVideoUrl = builder.splashVideoUrl;
+            this.interactionType = builder.interactionType;
+        }
+
+        public enum EditType {
+            MOVE_ELEMENT, RESIZE_ELEMENT, CHANGE_STYLE, CHANGE_VISIBILITY,
+            UPLOAD_ICON, UPLOAD_WALLPAPER, UPLOAD_ANIMATED_WALLPAPER,
+            UPLOAD_SPLASH_VIDEO, ADD_INTERACTION
+        }
+
+        // Getters
+        public String getElementId() { return elementId; }
+        public EditType getEditType() { return editType; }
+        public ElementPosition getPosition() { return position; }
+        public ElementSize getSize() { return size; }
+        public ElementStyle getStyle() { return style; }
+        public boolean isVisible() { return visible; }
+        public String getIconUrl() { return iconUrl; }
+        public String getWallpaperUrl() { return wallpaperUrl; }
+        public String getAnimatedWallpaperUrl() { return animatedWallpaperUrl; }
+        public String getSplashVideoUrl() { return splashVideoUrl; }
+        public String getInteractionType() { return interactionType; }
+
+        /**
+         * منشئ الطلب
+         */
+        public static final class Builder {
+            private String elementId;
+            private EditType editType;
+            private ElementPosition position;
+            private ElementSize size;
+            private ElementStyle style;
+            private boolean visible = true;
+            private String iconUrl;
+            private String wallpaperUrl;
+            private String animatedWallpaperUrl;
+            private String splashVideoUrl;
+            private String interactionType;
+
+            public Builder elementId(String elementId) { this.elementId = elementId; return this; }
+            public Builder editType(EditType editType) { this.editType = editType; return this; }
+            public Builder position(ElementPosition position) { this.position = position; return this; }
+            public Builder size(ElementSize size) { this.size = size; return this; }
+            public Builder style(ElementStyle style) { this.style = style; return this; }
+            public Builder visible(boolean visible) { this.visible = visible; return this; }
+            public Builder iconUrl(String iconUrl) { this.iconUrl = iconUrl; return this; }
+            public Builder wallpaperUrl(String wallpaperUrl) { this.wallpaperUrl = wallpaperUrl; return this; }
+            public Builder animatedWallpaperUrl(String animatedWallpaperUrl) { this.animatedWallpaperUrl = animatedWallpaperUrl; return this; }
+            public Builder splashVideoUrl(String splashVideoUrl) { this.splashVideoUrl = splashVideoUrl; return this; }
+            public Builder interactionType(String interactionType) { this.interactionType = interactionType; return this; }
+
+            public UIEditRequest build() {
+                return new UIEditRequest(this);
+            }
+        }
+    }
+
+    /**
+     * عنصر واجهة المستخدم
+     */
+    public static final class UIElement {
+        private final String elementId;
+        private final ElementType type;
+        private volatile ElementPosition position;
+        private volatile ElementSize size;
+        private volatile ElementStyle style;
+        private volatile boolean visible = true;
+        private volatile String iconUrl;
+        private volatile String wallpaperUrl;
+        private volatile String animatedWallpaperUrl;
+        private volatile String splashVideoUrl;
+        private volatile String interactionType;
+
+        public UIElement(String elementId, ElementType type, ElementPosition position, 
+                        ElementSize size, ElementStyle style) {
+            this.elementId = elementId;
+            this.type = type;
+            this.position = position;
+            this.size = size;
+            this.style = style;
+        }
+
+        // --- Setters ---
+        public void setPosition(ElementPosition position) { this.position = position; }
+        public void setSize(ElementSize size) { this.size = size; }
+        public void setStyle(ElementStyle style) { this.style = style; }
+        public void setVisible(boolean visible) { this.visible = visible; }
+        public void setIconUrl(String iconUrl) { this.iconUrl = iconUrl; }
+        public void setWallpaperUrl(String wallpaperUrl) { this.wallpaperUrl = wallpaperUrl; }
+        public void setAnimatedWallpaperUrl(String animatedWallpaperUrl) { this.animatedWallpaperUrl = animatedWallpaperUrl; }
+        public void setSplashVideoUrl(String splashVideoUrl) { this.splashVideoUrl = splashVideoUrl; }
+        public void setInteractionType(String interactionType) { this.interactionType = interactionType; }
+
+        // --- Getters ---
+        public String getElementId() { return elementId; }
+        public ElementType getType() { return type; }
+        public ElementPosition getPosition() { return position; }
+        public ElementSize getSize() { return size; }
+        public ElementStyle getStyle() { return style; }
+        public boolean isVisible() { return visible; }
+        public String getIconUrl() { return iconUrl; }
+        public String getWallpaperUrl() { return wallpaperUrl; }
+        public String getAnimatedWallpaperUrl() { return animatedWallpaperUrl; }
+        public String getSplashVideoUrl() { return splashVideoUrl; }
+        public String getInteractionType() { return interactionType; }
+
+        /**
+         * تحويل العنصر إلى JSON
+         */
+        public String toJson() {
+            return "{\n" +
+                "  \"elementId\": \"" + elementId + "\",\n" +
+                "  \"type\": \"" + type + "\",\n" +
+                "  \"position\": \"" + position + "\",\n" +
+                "  \"size\": {\n" +
+                "    \"width\": " + size.getWidth() + ",\n" +
+                "    \"height\": " + size.getHeight() + "\n" +
+                "  },\n" +
+                "  \"style\": {\n" +
+                "    \"backgroundColor\": \"" + style.getBackgroundColor() + "\",\n" +
+                "    \"textColor\": \"" + style.getTextColor() + "\",\n" +
+                "    \"bold\": " + style.isBold() + "\n" +
+                "  },\n" +
+                "  \"visible\": " + visible + ",\n" +
+                "  \"iconUrl\": \"" + (iconUrl != null ? iconUrl : "") + "\",\n" +
+                "  \"wallpaperUrl\": \"" + (wallpaperUrl != null ? wallpaperUrl : "") + "\",\n" +
+                "  \"animatedWallpaperUrl\": \"" + (animatedWallpaperUrl != null ? animatedWallpaperUrl : "") + "\",\n" +
+                "  \"splashVideoUrl\": \"" + (splashVideoUrl != null ? splashVideoUrl : "") + "\",\n" +
+                "  \"interactionType\": \"" + (interactionType != null ? interactionType : "") + "\"\n" +
+                "}";
+        }
+
+        @Override
+        public String toString() {
+            return "UIElement{" +
+                "id='" + elementId + '\'' +
+                ", type=" + type +
+                ", position=" + position +
+                ", size=" + size +
+                ", style=" + style +
+                ", visible=" + visible +
+                ", iconUrl='" + iconUrl + '\'' +
+                ", wallpaperUrl='" + wallpaperUrl + '\'' +
+                ", animatedWallpaperUrl='" + animatedWallpaperUrl + '\'' +
+                ", splashVideoUrl='" + splashVideoUrl + '\'' +
+                ", interactionType='" + interactionType + '\'' +
+                '}';
+        }
+    }
+
+    /**
+     * أنواع العناصر
+     */
+    public enum ElementType {
+        BUTTON, TEXT_VIEW, IMAGE_VIEW, CUSTOM_VIEW, POPUP, FLOATING_BUTTON
+    }
+
+    /**
+     * مواقع العناصر
+     */
+    public enum ElementPosition {
+        TOP_LEFT, TOP_CENTER, TOP_RIGHT,
+        CENTER_LEFT, CENTER, CENTER_RIGHT,
+        BOTTOM_LEFT, BOTTOM_CENTER, BOTTOM_RIGHT
+    }
+
+    /**
+     * حجم العنصر
+     */
+    public static final class ElementSize {
+        private final int width;
+        private final int height;
+
+        public ElementSize(int width, int height) {
+            this.width = width;
+            this.height = height;
+        }
+
+        // Getters
+        public int getWidth() { return width; }
+        public int getHeight() { return height; }
+        
+        @Override
+        public String toString() {
+            return "ElementSize{" +
+                "width=" + width +
+                ", height=" + height +
+                '}';
+        }
+    }
+
+    /**
+     * أسلوب العنصر
+     */
+    public static final class ElementStyle {
+        private final String backgroundColor;
+        private final String textColor;
+        private final boolean bold;
+
+        public ElementStyle(String backgroundColor, String textColor, boolean bold) {
+            this.backgroundColor = backgroundColor;
+            this.textColor = textColor;
+            this.bold = bold;
+        }
+
+        // Getters
+        public String getBackgroundColor() { return backgroundColor; }
+        public String getTextColor() { return textColor; }
+        public boolean isBold() { return bold; }
+        
+        @Override
+        public String toString() {
+            return "ElementStyle{" +
+                "backgroundColor='" + backgroundColor + '\'' +
+                ", textColor='" + textColor + '\'' +
+                ", bold=" + bold +
+                '}';
+        }
+    }
+}
