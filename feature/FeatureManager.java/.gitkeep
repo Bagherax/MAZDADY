@@ -1,166 +1,291 @@
 package mazdady.feature;
 
-import mazdady.user.UserManager;
 import mazdady.user.User;
+import mazdady.user.UserManager;
+import mazdady.admin.AdminConfig;
+import mazdady.security.SecureStorage;
 
 import java.time.Duration;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.function.Consumer;
+import java.util.function.Predicate;
 
 /**
- * مدير الميزات مع دعم الإدارة المركزية
- * يتبع نمط Facade لتوفير واجهة موحدة لإدارة الميزات
+ * مدير الميزات مع دعم التفعيل الديناميكي
+ * يتبع نمط Facade لتوفير واجهة موحدة
  */
 public final class FeatureManager {
-    private final Map<String, TimeLimitedFeature> activeFeatures = new ConcurrentHashMap<>();
-    private final FeatureCountdown countdown;
-    private static final FeatureManager INSTANCE = new FeatureManager();
+    private final Map<String, FeatureConfig> featureConfigs = new ConcurrentHashMap<>();
+    private final Map<String, Boolean> userFeatures = new ConcurrentHashMap<>();
+    private final SecureStorage secureStorage;
+    private static FeatureManager instance;
 
-    private FeatureManager() {
-        this.countdown = FeatureCountdown.getInstance();
+    private FeatureManager(SecureStorage secureStorage) {
+        this.secureStorage = secureStorage;
+        initializeDefaultFeatures();
     }
 
-    public static FeatureManager getInstance() {
-        return INSTANCE;
-    }
-
-    /**
-     * تفعيل ميزة مؤقتة للمستخدم الحالي
-     */
-    public TimeLimitedFeature activateFeature(String featureId, Duration duration) {
-        User user = UserManager.getInstance(null).getCurrentUser();
-        return activateFeatureForUser(featureId, duration, user.getUserId());
-    }
-
-    /**
-     * تفعيل ميزة مؤقتة لمستخدم محدد
-     */
-    public TimeLimitedFeature activateFeatureForUser(String featureId, Duration duration, String userId) {
-        // إنشاء الميزة
-        TimeLimitedFeature feature = new TimeLimitedFeature.Builder()
-            .featureId(featureId)
-            .duration(duration)
-            .onExpiry(this::handleFeatureExpiry)
-            .build();
-        
-        // حفظ الميزة
-        activeFeatures.put(getFeatureKey(featureId, userId), feature);
-        
-        // بدء العداد التنازلي
-        countdown.startCountdown(
-            getFeatureKey(featureId, userId),
-            duration,
-            remaining -> updateFeatureUI(featureId, userId, remaining),
-            () -> handleFeatureExpiry(feature)
-        );
-        
-        System.out.println("FEATURE: Activated " + featureId + " for " + userId + " (" + duration + ")");
-        return feature;
-    }
-
-    /**
-     * التحقق من توفر الميزة
-     */
-    public boolean isFeatureAvailable(String featureId) {
-        User user = UserManager.getInstance(null).getCurrentUser();
-        return isFeatureAvailableForUser(featureId, user.getUserId());
-    }
-
-    /**
-     * التحقق من توفر الميزة لمستخدم محدد
-     */
-    public boolean isFeatureAvailableForUser(String featureId, String userId) {
-        TimeLimitedFeature feature = activeFeatures.get(getFeatureKey(featureId, userId));
-        return feature != null && feature.isValid();
-    }
-
-    /**
-     * تجديد ميزة
-     */
-    public TimeLimitedFeature renewFeature(String featureId, Duration additionalDuration) {
-        User user = UserManager.getInstance(null).getCurrentUser();
-        return renewFeatureForUser(featureId, additionalDuration, user.getUserId());
-    }
-
-    /**
-     * تجديد ميزة لمستخدم محدد
-     */
-    public TimeLimitedFeature renewFeatureForUser(String featureId, Duration additionalDuration, String userId) {
-        String key = getFeatureKey(featureId, userId);
-        TimeLimitedFeature existing = activeFeatures.get(key);
-        if (existing != null && existing.isValid()) {
-            TimeLimitedFeature renewed = existing.renew(additionalDuration);
-            activeFeatures.put(key, renewed);
-            
-            // إعادة بدء العداد
-            countdown.stopCountdown(key);
-            countdown.startCountdown(
-                key,
-                renewed.getDuration(),
-                remaining -> updateFeatureUI(featureId, userId, remaining),
-                () -> handleFeatureExpiry(renewed)
-            );
-            
-            System.out.println("FEATURE: Renewed " + featureId + " for " + userId + " (" + additionalDuration + ")");
-            return renewed;
+    public static synchronized FeatureManager getInstance(SecureStorage secureStorage) {
+        if (instance == null) {
+            instance = new FeatureManager(secureStorage);
         }
-        return null;
+        return instance;
+    }
+
+    private void initializeDefaultFeatures() {
+        featureConfigs.put("payment_tools", new FeatureConfig(
+            true,
+            user -> user.getLevel() >= 3,
+            Duration.ofHours(24)
+        ));
+        
+        featureConfigs.put("advanced_analytics", new FeatureConfig(
+            false,
+            user -> user.hasActiveSubscription(),
+            Duration.ofHours(12)
+        ));
+        
+        featureConfigs.put("floating_ad", new FeatureConfig(
+            true,
+            user -> true,
+            Duration.ofMinutes(30)
+        ));
+        
+        featureConfigs.put("team_trading", new FeatureConfig(
+            true,
+            user -> user.getLevel() >= 5,
+            Duration.ofHours(1)
+        ));
+        
+        featureConfigs.put("magic_update", new FeatureConfig(
+            true,
+            user -> user.isAdmin(),
+            Duration.ofMinutes(5)
+        ));
+        
+        System.out.println("FEATURE MANAGER: Initialized " + featureConfigs.size() + " default features");
     }
 
     /**
-     * تعطيل ميزة يدويًا
+     * التحقق من توفر ميزة للمستخدم غير متزامن
      */
-    public void disableFeature(String featureId) {
-        User user = UserManager.getInstance(null).getCurrentUser();
-        disableFeatureForUser(featureId, user.getUserId());
+    public CompletableFuture<FeatureResult> isFeatureAvailableAsync(String userId, String featureId) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                User user = UserManager.getInstance(null).getUserById(userId);
+                if (user == null) {
+                    return FeatureResult.failure("User not found");
+                }
+                
+                FeatureConfig config = featureConfigs.get(featureId);
+                if (config == null) {
+                    return FeatureResult.failure("Feature not found: " + featureId);
+                }
+                
+                // التحقق من حالة التفعيل الإداري
+                if (!config.isEnabled()) {
+                    return FeatureResult.unavailable("Feature disabled by admin");
+                }
+                
+                // التحقق من شروط المستخدم
+                if (!config.getUserCondition().test(user)) {
+                    return FeatureResult.unavailable("User does not meet feature requirements");
+                }
+                
+                // التحقق من توفر الميزة للمستخدم
+                String userFeatureKey = userId + "_" + featureId;
+                Boolean isAvailable = userFeatures.get(userFeatureKey);
+                if (isAvailable != null && !isAvailable) {
+                    return FeatureResult.unavailable("Feature temporarily unavailable for user");
+                }
+                
+                System.out.println("FEATURE MANAGER: Feature " + featureId + " available for user " + userId);
+                return FeatureResult.available(featureId, "Feature available");
+                
+            } catch (Exception e) {
+                return FeatureResult.failure("Feature availability check failed: " + e.getMessage());
+            }
+        });
     }
 
     /**
-     * تعطيل ميزة لمستخدم محدد
+     * تفعيل ميزة للمستخدم غير متزامن
      */
-    public void disableFeatureForUser(String featureId, String userId) {
-        String key = getFeatureKey(featureId, userId);
-        TimeLimitedFeature feature = activeFeatures.get(key);
-        if (feature != null) {
-            feature.disable();
-            countdown.stopCountdown(key);
-            System.out.println("FEATURE: Disabled " + featureId + " for " + userId);
+    public CompletableFuture<FeatureResult> enableFeatureForUserAsync(
+        String userId, 
+        String featureId, 
+        Duration duration
+    ) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                User user = UserManager.getInstance(null).getUserById(userId);
+                if (user == null) {
+                    return FeatureResult.failure("User not found");
+                }
+                
+                FeatureConfig config = featureConfigs.get(featureId);
+                if (config == null) {
+                    return FeatureResult.failure("Feature not found: " + featureId);
+                }
+                
+                // تفعيل الميزة
+                String userFeatureKey = userId + "_" + featureId;
+                userFeatures.put(userFeatureKey, true);
+                
+                // بدء العداد التنازلي إذا كانت الميزة محدودة الوقت
+                if (duration != null && !duration.isZero()) {
+                    FeatureCountdown.getInstance(AdminConfig.getInstance().getFeatureConfig())
+                        .startFeatureCountdownAsync(
+                            userId,
+                            featureId,
+                            duration,
+                            event -> System.out.println("FEATURE COUNTDOWN: " + featureId + 
+                                                     " - Remaining: " + event.getFormattedTime()),
+                            () -> disableFeatureForUser(userId, featureId)
+                        );
+                }
+                
+                System.out.println("FEATURE MANAGER: Enabled " + featureId + " for user " + userId + 
+                                 " (Duration: " + (duration != null ? duration.getSeconds() : "∞") + " seconds)");
+                
+                return FeatureResult.enabled(featureId, "Feature enabled successfully");
+                
+            } catch (Exception e) {
+                return FeatureResult.failure("Feature enable failed: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * تعطيل ميزة للمستخدم
+     */
+    public void disableFeatureForUser(String userId, String featureId) {
+        String userFeatureKey = userId + "_" + featureId;
+        userFeatures.put(userFeatureKey, false);
+        System.out.println("FEATURE MANAGER: Disabled " + featureId + " for user " + userId);
+    }
+
+    /**
+     * تحديث إعدادات الميزات من الإعدادات الإدارية
+     */
+    public void updateFeaturesFromConfig(AdminConfig.FeatureConfig config) {
+        if (config == null) return;
+        
+        // في الإنتاج: تحديث إعدادات الميزات
+        System.out.println("FEATURE MANAGER: Updated features from admin config");
+    }
+
+    /**
+     * الحصول على إعدادات ميزة
+     */
+    public FeatureConfig getFeatureConfig(String featureId) {
+        return featureConfigs.get(featureId);
+    }
+
+    /**
+     * إضافة ميزة جديدة
+     */
+    public void addFeature(String featureId, FeatureConfig config) {
+        if (featureId != null && config != null) {
+            featureConfigs.put(featureId, config);
+            System.out.println("FEATURE MANAGER: Added new feature - " + featureId);
         }
     }
 
-    private void handleFeatureExpiry(TimeLimitedFeature feature) {
-        // في الإنتاج: إرسال إشعار للمستخدم
-        System.out.println("FEATURE EXPIRED: " + feature.getFeatureId());
-        
-        // إزالة الميزة من القائمة النشطة
-        activeFeatures.entrySet().removeIf(entry -> 
-            entry.getValue() == feature
-        );
-    }
-
-    private void updateFeatureUI(String featureId, String userId, Duration remaining) {
-        // في الإنتاج: تحديث واجهة المستخدم
-        System.out.println("FEATURE UI: " + featureId + " for " + userId + " - " + 
-                          formatDuration(remaining) + " remaining");
-    }
-
-    private String getFeatureKey(String featureId, String userId) {
-        return featureId + "_" + userId;
-    }
-
-    private String formatDuration(Duration duration) {
-        long seconds = duration.getSeconds();
-        long hours = seconds / 3600;
-        long minutes = (seconds % 3600) / 60;
-        seconds = seconds % 60;
-        
-        if (hours > 0) {
-            return String.format("%dh %dm %ds", hours, minutes, seconds);
-        } else if (minutes > 0) {
-            return String.format("%dm %ds", minutes, seconds);
-        } else {
-            return String.format("%ds", seconds);
+    /**
+     * إزالة ميزة
+     */
+    public void removeFeature(String featureId) {
+        if (featureId != null) {
+            featureConfigs.remove(featureId);
+            userFeatures.entrySet().removeIf(entry -> entry.getKey().endsWith("_" + featureId));
+            System.out.println("FEATURE MANAGER: Removed feature - " + featureId);
         }
+    }
+
+    /**
+     * إعدادات الميزة
+     */
+    public static final class FeatureConfig {
+        private volatile boolean enabled;
+        private final Predicate<User> userCondition;
+        private final Duration defaultDuration;
+
+        public FeatureConfig(boolean enabled, Predicate<User> userCondition, Duration defaultDuration) {
+            this.enabled = enabled;
+            this.userCondition = userCondition;
+            this.defaultDuration = defaultDuration;
+        }
+
+        // Getters
+        public boolean isEnabled() { return enabled; }
+        public Predicate<User> getUserCondition() { return userCondition; }
+        public Duration getDefaultDuration() { return defaultDuration; }
+        
+        // Setters
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
+        public void setUserCondition(Predicate<User> userCondition) { this.userCondition = userCondition; }
+        public void setDefaultDuration(Duration defaultDuration) { this.defaultDuration = defaultDuration; }
+    }
+
+    /**
+     * نتيجة الميزة
+     */
+    public static final class FeatureResult {
+        private final boolean success;
+        private final boolean available;
+        private final boolean enabled;
+        private final String featureId;
+        private final String message;
+
+        private FeatureResult(boolean success, boolean available, boolean enabled, 
+                            String featureId, String message) {
+            this.success = success;
+            this.available = available;
+            this.enabled = enabled;
+            this.featureId = featureId;
+            this.message = message;
+        }
+
+        public static FeatureResult available(String featureId, String message) {
+            return new FeatureResult(true, true, false, featureId, message);
+        }
+
+        public static FeatureResult unavailable(String message) {
+            return new FeatureResult(true, false, false, null, message);
+        }
+
+        public static FeatureResult enabled(String featureId, String message) {
+            return new FeatureResult(true, true, true, featureId, message);
+        }
+
+        public static FeatureResult failure(String message) {
+            return new FeatureResult(false, false, false, null, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public boolean isAvailable() { return available; }
+        public boolean isEnabled() { return enabled; }
+        public String getFeatureId() { return featureId; }
+        public String getMessage() { return message; }
+    }
+
+    // --- Getters ---
+    public int getFeatureCount() { return featureConfigs.size(); }
+    public int getEnabledFeatureCount() { 
+        return (int) featureConfigs.values().stream().filter(FeatureConfig::isEnabled).count(); 
+    }
+    public Map<String, FeatureConfig> getFeatureConfigs() { return new ConcurrentHashMap<>(featureConfigs); }
+    public Map<String, Boolean> getUserFeatures() { return new ConcurrentHashMap<>(userFeatures); }
+    
+    /**
+     * إعادة تعيين مدير الميزات (للاختبارات)
+     */
+    public void reset() {
+        featureConfigs.clear();
+        userFeatures.clear();
+        initializeDefaultFeatures();
+        System.out.println("FEATURE MANAGER: Reset completed");
     }
 }
