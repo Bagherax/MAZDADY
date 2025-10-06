@@ -6,66 +6,250 @@ import android.content.SharedPreferences;
 import androidx.security.crypto.EncryptedSharedPreferences;
 import androidx.security.crypto.MasterKey;
 
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+
 /**
  * تفضيلات مشفرة مع دعم التخزين الآمن
  * يتبع نمط Singleton مع تهيئة آمنة
  */
 public final class EncryptedSharedPreferences {
-    private static final String FILE_NAME = "mazdady_secure_prefs";
+    private static final String PREFS_NAME = "mazdady_secure_prefs";
     private final SharedPreferences sharedPreferences;
+    private final MasterKey masterKey;
+    private static EncryptedSharedPreferences instance;
 
     private EncryptedSharedPreferences(Context context) {
         try {
-            MasterKey masterKey = new MasterKey.Builder(context)
+            // إنشاء مفتاح رئيسي آمن
+            this.masterKey = new MasterKey.Builder(context)
                 .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
                 .build();
-
-            sharedPreferences = EncryptedSharedPreferences.create(
+            
+            // إنشاء تفضيلات مشفرة
+            this.sharedPreferences = EncryptedSharedPreferences.create(
                 context,
-                FILE_NAME,
+                PREFS_NAME,
                 masterKey,
                 EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
                 EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
             );
+            
+            System.out.println("ENCRYPTED SHARED PREFERENCES: Initialized successfully");
+            
         } catch (Exception e) {
-            // في حالة الفشل، استخدام تفضيلات عادية (غير آمنة)
-            sharedPreferences = context.getSharedPreferences(FILE_NAME + "_fallback", Context.MODE_PRIVATE);
+            System.err.println("ENCRYPTED PREFS INIT ERROR: " + e.getMessage());
+            
+            // احتياطي: استخدام تفضيلات عادية (غير آمنة)
+            this.sharedPreferences = context.getSharedPreferences(
+                PREFS_NAME + "_fallback", 
+                Context.MODE_PRIVATE
+            );
+            this.masterKey = null;
         }
     }
 
-    public static EncryptedSharedPreferences create(Context context) {
-        return new EncryptedSharedPreferences(context);
+    public static synchronized EncryptedSharedPreferences getInstance(Context context) {
+        if (instance == null) {
+            instance = new EncryptedSharedPreferences(context);
+        }
+        return instance;
     }
 
+    /**
+     * حفظ سلسلة نصية مشفرة
+     */
     public void putString(String key, String value) {
-        sharedPreferences.edit().putString(key, value).apply();
+        if (key == null) return;
+        
+        try {
+            sharedPreferences.edit()
+                .putString(key, value)
+                .apply();
+                
+            System.out.println("ENCRYPTED PREFS: Saved string - " + key + " = " + 
+                             (value != null ? value.substring(0, Math.min(20, value.length())) + "..." : "null"));
+                             
+        } catch (Exception e) {
+            System.err.println("ENCRYPTED PREFS PUT STRING ERROR: " + e.getMessage());
+        }
     }
 
+    /**
+     * الحصول على سلسلة نصية مشفرة
+     */
     public String getString(String key, String defaultValue) {
-        return sharedPreferences.getString(key, defaultValue);
+        if (key == null) return defaultValue;
+        
+        try {
+            String value = sharedPreferences.getString(key, defaultValue);
+            System.out.println("ENCRYPTED PREFS: Retrieved string - " + key + " = " + 
+                             (value != null ? value.substring(0, Math.min(20, value.length())) + "..." : "null"));
+            return value;
+            
+        } catch (Exception e) {
+            System.err.println("ENCRYPTED PREFS GET STRING ERROR: " + e.getMessage());
+            return defaultValue;
+        }
     }
 
+    /**
+     * حفظ قيمة منطقية مشفرة
+     */
     public void putBoolean(String key, boolean value) {
-        sharedPreferences.edit().putBoolean(key, value).apply();
+        if (key == null) return;
+        
+        try {
+            sharedPreferences.edit()
+                .putBoolean(key, value)
+                .apply();
+                
+            System.out.println("ENCRYPTED PREFS: Saved boolean - " + key + " = " + value);
+            
+        } catch (Exception e) {
+            System.err.println("ENCRYPTED PREFS PUT BOOLEAN ERROR: " + e.getMessage());
+        }
     }
 
+    /**
+     * الحصول على قيمة منطقية مشفرة
+     */
     public boolean getBoolean(String key, boolean defaultValue) {
-        return sharedPreferences.getBoolean(key, defaultValue);
+        if (key == null) return defaultValue;
+        
+        try {
+            boolean value = sharedPreferences.getBoolean(key, defaultValue);
+            System.out.println("ENCRYPTED PREFS: Retrieved boolean - " + key + " = " + value);
+            return value;
+            
+        } catch (Exception e) {
+            System.err.println("ENCRYPTED PREFS GET BOOLEAN ERROR: " + e.getMessage());
+            return defaultValue;
+        }
     }
 
-    public void putLong(String key, long value) {
-        sharedPreferences.edit().putLong(key, value).apply();
+    /**
+     * حفظ قيمة عددية مشفرة
+     */
+    public void putInt(String key, int value) {
+        if (key == null) return;
+        
+        try {
+            sharedPreferences.edit()
+                .putInt(key, value)
+                .apply();
+                
+            System.out.println("ENCRYPTED PREFS: Saved int - " + key + " = " + value);
+            
+        } catch (Exception e) {
+            System.err.println("ENCRYPTED PREFS PUT INT ERROR: " + e.getMessage());
+        }
     }
 
-    public long getLong(String key, long defaultValue) {
-        return sharedPreferences.getLong(key, defaultValue);
+    /**
+     * الحصول على قيمة عددية مشفرة
+     */
+    public int getInt(String key, int defaultValue) {
+        if (key == null) return defaultValue;
+        
+        try {
+            int value = sharedPreferences.getInt(key, defaultValue);
+            System.out.println("ENCRYPTED PREFS: Retrieved int - " + key + " = " + value);
+            return value;
+            
+        } catch (Exception e) {
+            System.err.println("ENCRYPTED PREFS GET INT ERROR: " + e.getMessage());
+            return defaultValue;
+        }
     }
 
-    public void putFloat(String key, float value) {
-        sharedPreferences.edit().putFloat(key, value).apply();
+    /**
+     * حفظ قيمة عددية مزدوجة مشفرة
+     */
+    public void putDouble(String key, double value) {
+        if (key == null) return;
+        
+        try {
+            sharedPreferences.edit()
+                .putString(key, String.valueOf(value))
+                .apply();
+                
+            System.out.println("ENCRYPTED PREFS: Saved double - " + key + " = " + String.format("%.2f", value));
+            
+        } catch (Exception e) {
+            System.err.println("ENCRYPTED PREFS PUT DOUBLE ERROR: " + e.getMessage());
+        }
     }
 
-    public float getFloat(String key, float defaultValue) {
-        return sharedPreferences.getFloat(key, defaultValue);
+    /**
+     * الحصول على قيمة عددية مزدوجة مشفرة
+     */
+    public double getDouble(String key, double defaultValue) {
+        if (key == null) return defaultValue;
+        
+        try {
+            String valueStr = sharedPreferences.getString(key, null);
+            if (valueStr != null) {
+                double value = Double.parseDouble(valueStr);
+                System.out.println("ENCRYPTED PREFS: Retrieved double - " + key + " = " + String.format("%.2f", value));
+                return value;
+            }
+            return defaultValue;
+            
+        } catch (Exception e) {
+            System.err.println("ENCRYPTED PREFS GET DOUBLE ERROR: " + e.getMessage());
+            return defaultValue;
+        }
+    }
+
+    /**
+     * إزالة قيمة مشفرة
+     */
+    public void remove(String key) {
+        if (key == null) return;
+        
+        try {
+            sharedPreferences.edit()
+                .remove(key)
+                .apply();
+                
+            System.out.println("ENCRYPTED PREFS: Removed key - " + key);
+            
+        } catch (Exception e) {
+            System.err.println("ENCRYPTED PREFS REMOVE ERROR: " + e.getMessage());
+        }
+    }
+
+    /**
+     * مسح جميع القيم المشفرة
+     */
+    public void clearAll() {
+        try {
+            sharedPreferences.edit().clear().apply();
+            System.out.println("ENCRYPTED PREFS: Cleared all values");
+            
+        } catch (Exception e) {
+            System.err.println("ENCRYPTED PREFS CLEAR ERROR: " + e.getMessage());
+        }
+    }
+
+    // --- Getters ---
+    public SharedPreferences getSharedPreferences() { return sharedPreferences; }
+    public MasterKey getMasterKey() { return masterKey; }
+    public boolean isEncrypted() { return masterKey != null; }
+    public int getKeyCount() { 
+        try {
+            return sharedPreferences.getAll().size();
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+    
+    /**
+     * إعادة تعيين التفضيلات المشفرة (للاختبارات)
+     */
+    public void reset() {
+        clearAll();
+        System.out.println("ENCRYPTED SHARED PREFERENCES: Reset completed");
     }
 }
