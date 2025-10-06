@@ -1,0 +1,276 @@
+package mazdady.preview;
+
+import mazdady.admin.AdminConfig;
+import mazdady.user.User;
+import mazdady.user.UserManager;
+
+import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
+
+/**
+ * مدير معاينة الحقول مع دعم التحديثات الحية
+ * يتبع نمط Facade لتوفير واجهة موحدة
+ */
+public final class FieldPreviewManager {
+    private final Map<String, PreviewField> previewFields = new ConcurrentHashMap<>();
+    private final ScheduledExecutorService updateScheduler = Executors.newScheduledThreadPool(1);
+    private final AdminConfig adminConfig;
+    private static FieldPreviewManager instance;
+
+    private FieldPreviewManager(AdminConfig adminConfig) {
+        this.adminConfig = adminConfig;
+        startLiveUpdates();
+    }
+
+    public static synchronized FieldPreviewManager getInstance(AdminConfig adminConfig) {
+        if (instance == null) {
+            instance = new FieldPreviewManager(adminConfig);
+        }
+        return instance;
+    }
+
+    private void startLiveUpdates() {
+        updateScheduler.scheduleAtFixedRate(
+            this::updateAllPreviews,
+            0,
+            30,
+            TimeUnit.SECONDS
+        );
+        
+        System.out.println("FIELD PREVIEW MANAGER: Started live updates every 30 seconds");
+    }
+
+    /**
+     * تسجيل حقل معاينة جديد
+     */
+    public void registerPreviewField(String fieldId, PreviewField previewField) {
+        if (fieldId != null && previewField != null) {
+            previewFields.put(fieldId, previewField);
+            System.out.println("FIELD PREVIEW MANAGER: Registered preview field - " + fieldId);
+        }
+    }
+
+    /**
+     * إزالة حقل معاينة
+     */
+    public void unregisterPreviewField(String fieldId) {
+        PreviewField removed = previewFields.remove(fieldId);
+        if (removed != null) {
+            removed.shutdown();
+            System.out.println("FIELD PREVIEW MANAGER: Unregistered preview field - " + fieldId);
+        }
+    }
+
+    /**
+     * تحديث حقل معاينة محدد غير متزامن
+     */
+    public CompletableFuture<PreviewResult> updatePreviewFieldAsync(
+        String fieldId, 
+        String content, 
+        PreviewField.PreviewState state
+    ) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                PreviewField previewField = previewFields.get(fieldId);
+                if (previewField == null) {
+                    return PreviewResult.failure("Preview field not found: " + fieldId);
+                }
+                
+                previewField.updatePreviewAsync(content, state);
+                
+                System.out.println("FIELD PREVIEW MANAGER: Updated preview field " + fieldId + 
+                                 " - State: " + state + " - Content: " + content);
+                
+                return PreviewResult.success("Preview field updated successfully");
+                
+            } catch (Exception e) {
+                return PreviewResult.failure("Preview field update failed: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * تحديث جميع حقول المعاينة غير متزامن
+     */
+    private void updateAllPreviews() {
+        try {
+            for (Map.Entry<String, PreviewField> entry : previewFields.entrySet()) {
+                String fieldId = entry.getKey();
+                PreviewField previewField = entry.getValue();
+                
+                // تحديث المحتوى حسب نوع الحقل
+                String content = generatePreviewContent(fieldId);
+                PreviewField.PreviewState state = determinePreviewState(fieldId);
+                
+                previewField.updatePreviewAsync(content, state);
+            }
+            
+            System.out.println("FIELD PREVIEW MANAGER: Updated all " + previewFields.size() + " preview fields");
+            
+        } catch (Exception e) {
+            System.err.println("ALL PREVIEWS UPDATE ERROR: " + e.getMessage());
+        }
+    }
+
+    private String generatePreviewContent(String fieldId) {
+        switch (fieldId) {
+            case "balance_preview":
+                User user = UserManager.getInstance(null).getCurrentUser();
+                return String.format("الرصيد: %.2f MAZDADY", user.getBalance());
+                
+            case "level_preview":
+                user = UserManager.getInstance(null).getCurrentUser();
+                return "المستوى: " + user.getLevel();
+                
+            case "community_points_preview":
+                user = UserManager.getInstance(null).getCurrentUser();
+                return "نقاط المجتمع: " + user.getCommunityPoints();
+                
+            case "referral_count_preview":
+                user = UserManager.getInstance(null).getCurrentUser();
+                return "الإحالات: " + user.getReferralCount();
+                
+            case "streak_days_preview":
+                user = UserManager.getInstance(null).getCurrentUser();
+                return "سلسلة الأيام: " + user.getStreakDays() + " يوم";
+                
+            case "recent_profit_preview":
+                user = UserManager.getInstance(null).getCurrentUser();
+                return user.hasRecentProfit() ? "ربح حديث!" : "لا أرباح حديثة";
+                
+            case "kyc_status_preview":
+                user = UserManager.getInstance(null).getCurrentUser();
+                return user.isKYCVerified() ? "✅ توثيق مكتمل" : "❌ توثيق مطلوب";
+                
+            case "subscription_status_preview":
+                user = UserManager.getInstance(null).getCurrentUser();
+                return user.hasActiveSubscription() ? "⭐ اشتراك نشط" : "🆓 اشتراك مجاني";
+                
+            case "wallet_status_preview":
+                user = UserManager(null).getCurrentUser();
+                return user.getWalletAddress() != null ? "👛 محفظة متصلة" : "🔗 ربط المحفظة";
+                
+            case "security_status_preview":
+                return "🛡️ أمان مفعل";
+                
+            default:
+                return "معاينة " + fieldId;
+        }
+    }
+
+    private PreviewField.PreviewState determinePreviewState(String fieldId) {
+        switch (fieldId) {
+            case "balance_preview":
+            case "level_preview":
+            case "community_points_preview":
+            case "referral_count_preview":
+            case "streak_days_preview":
+                return PreviewField.PreviewState.SUCCESS;
+                
+            case "recent_profit_preview":
+                User user = UserManager.getInstance(null).getCurrentUser();
+                return user.hasRecentProfit() ? 
+                    PreviewField.PreviewState.SUCCESS : 
+                    PreviewField.PreviewState.EMPTY;
+                    
+            case "kyc_status_preview":
+                user = UserManager.getInstance(null).getCurrentUser();
+                return user.isKYCVerified() ? 
+                    PreviewField.PreviewState.SUCCESS : 
+                    PreviewField.PreviewState.ERROR;
+                    
+            case "subscription_status_preview":
+                user = UserManager.getInstance(null).getCurrentUser();
+                return user.hasActiveSubscription() ? 
+                    PreviewField.PreviewState.SUCCESS : 
+                    PreviewField.PreviewState.PROCESSING;
+                    
+            case "wallet_status_preview":
+                user = UserManager.getInstance(null).getCurrentUser();
+                return user.getWalletAddress() != null ? 
+                    PreviewField.PreviewState.SUCCESS : 
+                    PreviewField.PreviewState.LOADING;
+                    
+            case "security_status_preview":
+                return PreviewField.PreviewState.SUCCESS;
+                
+            default:
+                return PreviewField.PreviewState.LOADING;
+        }
+    }
+
+    /**
+     * تطبيق تأثيرات بصرية على حقل معاينة
+     */
+    public void applyVisualEffectToField(String fieldId, PreviewField.VisualEffect effect) {
+        PreviewField previewField = previewFields.get(fieldId);
+        if (previewField != null) {
+            previewField.applyVisualEffects(effect);
+            System.out.println("FIELD PREVIEW MANAGER: Applied visual effect " + effect + 
+                             " to field " + fieldId);
+        }
+    }
+
+    /**
+     * تحديث إعدادات المعاينة من الإعدادات الإدارية
+     */
+    public void updatePreviewConfigFromAdmin(AdminConfig.UIConfig.PreviewFieldConfig config) {
+        if (config != null) {
+            // في الإنتاج: تحديث إعدادات جميع حقول المعاينة
+            System.out.println("FIELD PREVIEW MANAGER: Updated preview config from admin");
+        }
+    }
+
+    /**
+     * إيقاف المدير (للاختبارات)
+     */
+    public void shutdown() {
+        updateScheduler.shutdown();
+        previewFields.values().forEach(PreviewField::shutdown);
+        previewFields.clear();
+        System.out.println("FIELD PREVIEW MANAGER: Shutdown completed");
+    }
+
+    // --- Getters ---
+    public int getPreviewFieldCount() { return previewFields.size(); }
+    public boolean hasPreviewField(String fieldId) { return previewFields.containsKey(fieldId); }
+    public PreviewField getPreviewField(String fieldId) { return previewFields.get(fieldId); }
+    public Map<String, PreviewField> getPreviewFields() { return new ConcurrentHashMap<>(previewFields); }
+    
+    /**
+     * إعادة تعيين المدير (للاختبارات)
+     */
+    public void reset() {
+        previewFields.clear();
+        System.out.println("FIELD PREVIEW MANAGER: Reset completed");
+    }
+
+    /**
+     * نتيجة المعاينة
+     */
+    public static final class PreviewResult {
+        private final boolean success;
+        private final String message;
+
+        private PreviewResult(boolean success, String message) {
+            this.success = success;
+            this.message = message;
+        }
+
+        public static PreviewResult success(String message) {
+            return new PreviewResult(true, message);
+        }
+
+        public static PreviewResult failure(String message) {
+            return new PreviewResult(false, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public String getMessage() { return message; }
+    }
+}
