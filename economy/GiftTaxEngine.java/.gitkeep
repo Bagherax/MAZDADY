@@ -1,51 +1,178 @@
 package mazdady.economy;
 
+import mazdady.user.User;
 import mazdady.user.UserManager;
+import mazdady.admin.AdminConfig;
 import mazdady.trading.PriceEngine;
+
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * محرك ضريبة الهدايا مع دعم التوزيع التلقائي
- * يتبع نمط Strategy لفصل استراتيجيات التوزيع
+ * يتبع نمط Strategy لفصل استراتيجيات الضريبة
  */
 public final class GiftTaxEngine {
-    private static final double GIFT_TAX_RATE = 0.3; // 30%
     private final PriceEngine priceEngine;
-    private static final GiftTaxEngine INSTANCE = new GiftTaxEngine();
+    private final AtomicReference<Double> giftTaxRate = new AtomicReference<>(0.3); // 30% افتراضيًا
+    private static GiftTaxEngine instance;
 
-    private GiftTaxEngine() {
-        this.priceEngine = new PriceEngine();
+    private GiftTaxEngine(PriceEngine priceEngine) {
+        this.priceEngine = priceEngine;
+        loadGiftTaxRateFromConfig();
     }
 
-    public static GiftTaxEngine getInstance() {
-        return INSTANCE;
+    public static synchronized GiftTaxEngine getInstance(PriceEngine priceEngine) {
+        if (instance == null) {
+            instance = new GiftTaxEngine(priceEngine);
+        }
+        return instance;
+    }
+
+    private void loadGiftTaxRateFromConfig() {
+        try {
+            AdminConfig.EconomyConfig economyConfig = 
+                AdminConfig.getInstance().getEconomyConfig();
+            
+            if (economyConfig != null) {
+                double rate = economyConfig.getGiftTaxRate();
+                giftTaxRate.set(rate);
+                System.out.println("GIFT TAX ENGINE: Loaded gift tax rate - " + 
+                                 String.format("%.1f", rate * 100) + "%");
+            }
+            
+        } catch (Exception e) {
+            System.err.println("GIFT TAX CONFIG ERROR: " + e.getMessage());
+        }
     }
 
     /**
-     * تطبيق ضريبة الهدايا على الربح
+     * تطبيق ضريبة الهدايا غير متزامن
      */
-    public double applyGiftTax(double profit) {
-        double giftAmount = profit * GIFT_TAX_RATE;
-        double netProfit = profit - giftAmount;
-
-        // تحويل "الهدية" إلى خزينة النظام
-        priceEngine.addToSystemTreasury(giftAmount);
-
-        // منح المستخدم نقاط مجتمعية
-        UserManager.getInstance(null).getCurrentUser().addCommunityPoints((int) giftAmount);
-
-        // عرض تأثير بصري
-        showGiftEffect(giftAmount);
-
-        System.out.println("GIFT TAX: " + giftAmount + " MAZDADY allocated to community");
-        return netProfit;
+    public CompletableFuture<GiftTaxResult> applyGiftTaxAsync(
+        String userId, 
+        double profitAmount
+    ) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                if (profitAmount <= 0) {
+                    return GiftTaxResult.failure("Invalid profit amount");
+                }
+                
+                User user = UserManager.getInstance(null).getUserById(userId);
+                if (user == null) {
+                    return GiftTaxResult.failure("User not found");
+                }
+                
+                double taxRate = giftTaxRate.get();
+                double taxAmount = profitAmount * taxRate;
+                double netProfit = profitAmount - taxAmount;
+                
+                // تحويل "الهدية" إلى خزينة النظام
+                priceEngine.addToSystemTreasury(taxAmount);
+                
+                // منح المستخدم نقاط مجتمعية
+                user.addCommunityPoints((int) taxAmount);
+                
+                // عرض تأثير بصري
+                showGiftEffect(taxAmount);
+                
+                System.out.println("GIFT TAX ENGINE: Applied gift tax - Profit: " + 
+                                 String.format("%.2f", profitAmount) + 
+                                 " MAZDADY - Tax: " + String.format("%.2f", taxAmount) + 
+                                 " MAZDADY - Net: " + String.format("%.2f", netProfit) + " MAZDADY");
+                
+                return GiftTaxResult.success(
+                    profitAmount, 
+                    taxAmount, 
+                    netProfit, 
+                    "Gift tax applied successfully"
+                );
+                
+            } catch (Exception e) {
+                return GiftTaxResult.failure("Gift tax application failed: " + e.getMessage());
+            }
+        });
     }
 
-    private void showGiftEffect(double amount) {
+    private void showGiftEffect(double taxAmount) {
         // في الإنتاج: عرض تأثير بصري للمستخدم
-        System.out.println("✨ GIFT EFFECT: +" + amount + " MAZDADY community contribution");
+        System.out.println("🎁 GIFT TAX EFFECT: +" + String.format("%.2f", taxAmount) + 
+                         " MAZDADY community contribution");
     }
 
-    public double getGiftTaxRate() {
-        return GIFT_TAX_RATE;
+    /**
+     * تحديث معدل ضريبة الهدايا
+     */
+    public void updateGiftTaxRate(double newRate) {
+        if (newRate >= 0 && newRate <= 1.0) {
+            giftTaxRate.set(newRate);
+            System.out.println("GIFT TAX ENGINE: Updated gift tax rate to " + 
+                             String.format("%.1f", newRate * 100) + "%");
+        }
+    }
+
+    /**
+     * حساب ضريبة الهدايا
+     */
+    public double calculateGiftTax(double profitAmount) {
+        if (profitAmount <= 0) return 0;
+        return profitAmount * giftTaxRate.get();
+    }
+
+    /**
+     * حساب الربح الصافي بعد الضريبة
+     */
+    public double calculateNetProfit(double profitAmount) {
+        if (profitAmount <= 0) return 0;
+        double tax = calculateGiftTax(profitAmount);
+        return profitAmount - tax;
+    }
+
+    // --- نتيجة ضريبة الهدايا ---
+    public static final class GiftTaxResult {
+        private final boolean success;
+        private final double grossProfit;
+        private final double taxAmount;
+        private final double netProfit;
+        private final String message;
+
+        private GiftTaxResult(boolean success, double grossProfit, double taxAmount, 
+                           double netProfit, String message) {
+            this.success = success;
+            this.grossProfit = grossProfit;
+            this.taxAmount = taxAmount;
+            this.netProfit = netProfit;
+            this.message = message;
+        }
+
+        public static GiftTaxResult success(double grossProfit, double taxAmount, 
+                                         double netProfit, String message) {
+            return new GiftTaxResult(true, grossProfit, taxAmount, netProfit, message);
+        }
+
+        public static GiftTaxResult failure(String message) {
+            return new GiftTaxResult(false, 0, 0, 0, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public double getGrossProfit() { return grossProfit; }
+        public double getTaxAmount() { return taxAmount; }
+        public double getNetProfit() { return netProfit; }
+        public String getMessage() { return message; }
+    }
+
+    // --- Getters ---
+    public double getGiftTaxRate() { return giftTaxRate.get(); }
+    public String getFormattedGiftTaxRate() { 
+        return String.format("%.1f", giftTaxRate.get() * 100) + "%"; 
+    }
+    
+    /**
+     * إعادة تعيين معدل الضريبة (للاختبارات)
+     */
+    public void resetGiftTaxRate() {
+        giftTaxRate.set(0.3); // 30% افتراضيًا
+        System.out.println("GIFT TAX ENGINE: Reset to default rate");
     }
 }
