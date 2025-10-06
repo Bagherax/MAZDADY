@@ -189,4 +189,89 @@ public final class PreviewField extends View {
                 indicatorPaint.setColor(Color.RED);
                 break;
             case EMPTY:
-            
+                indicatorPaint.setColor(Color.GRAY);
+                break;
+            case PROCESSING:
+                indicatorPaint.setColor(Color.BLUE);
+                break;
+            default:
+                indicatorPaint.setColor(Color.WHITE);
+        }
+        
+        canvas.drawCircle(indicatorX, indicatorY, indicatorSize, indicatorPaint);
+    }
+
+    /**
+     * تطبيق تأثيرات بصرية متقدمة
+     */
+    public void applyVisualEffects(VisualEffect effect) {
+        post(() -> {
+            try {
+                switch (effect) {
+                    case GLOW:
+                        setAlpha(0.8f);
+                        animate().alpha(1f).setDuration(300).start();
+                        break;
+                    case PULSE:
+                        animate().scaleX(1.05f).scaleY(1.05f).setDuration(200)
+                            .withEndAction(() -> animate().scaleX(1f).scaleY(1f).setDuration(200).start())
+                            .start();
+                        break;
+                    case FADE:
+                        setAlpha(0.3f);
+                        animate().alpha(1f).setDuration(500).start();
+                        break;
+                    case BLINK:
+                        animate().alpha(0f).setDuration(100)
+                            .withEndAction(() -> animate().alpha(1f).setDuration(100).start())
+                            .start();
+                        break;
+                }
+                
+                System.out.println("PREVIEW FIELD: Applied visual effect - " + effect);
+                
+            } catch (Exception e) {
+                System.err.println("VISUAL EFFECT ERROR: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * إيقاف التحديثات (للاختبارات)
+     */
+    public void shutdown() {
+        previewScheduler.shutdown();
+        System.out.println("PREVIEW FIELD: Shutdown completed");
+    }
+
+    // --- Getters ---
+    public PreviewState getCurrentState() { return currentState; }
+    public String getPreviewContent() { return previewContent; }
+    public int getAnimationFrame() { return animationFrame; }
+    public Paint getPreviewPaint() { return previewPaint; }
+    public ScheduledExecutorService getPreviewScheduler() { return previewScheduler; }
+    
+    /**
+     * إعادة تعيين الحقل (للاختبارات)
+     */
+    public void reset() {
+        previewContent = "";
+        currentState = PreviewState.LOADING;
+        animationFrame = 0;
+        System.out.println("PREVIEW FIELD: Reset completed");
+    }
+
+    /**
+     * حالة المعاينة
+     */
+    public enum PreviewState {
+        LOADING, SUCCESS, ERROR, EMPTY, PROCESSING
+    }
+
+    /**
+     * تأثير بصري
+     */
+    public enum VisualEffect {
+        GLOW, PULSE, FADE, BLINK
+    }
+}
