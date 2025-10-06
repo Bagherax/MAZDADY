@@ -1,15 +1,18 @@
 package mazdady.i18n;
 
-import java.math.BigDecimal;
+import mazdady.user.User;
+import mazdady.user.UserManager;
+
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.BiFunction;
 
 /**
  * تسعير إقليمي مع دعم التخصيص الديناميكي
  * يتبع نمط Strategy لفصل استراتيجيات التسعير
  */
 public final class RegionalPricing {
-    private final Map<String, PricingStrategy> pricingStrategies = new ConcurrentHashMap<>();
+    private final Map<String, BiFunction<Double, String, Double>> pricingStrategies = new ConcurrentHashMap<>();
     private static RegionalPricing instance;
 
     private RegionalPricing() {
@@ -25,69 +28,194 @@ public final class RegionalPricing {
 
     private void initializePricingStrategies() {
         // استراتيجيات تسعير افتراضية
-        pricingStrategies.put("GLOBAL", new GlobalPricingStrategy());
-        pricingStrategies.put("MENA", new MENAPricingStrategy());
-        pricingStrategies.put("GCC", new GCCPricingStrategy());
+        pricingStrategies.put("GLOBAL", (basePrice, region) -> basePrice);
+        pricingStrategies.put("MENA", (basePrice, region) -> basePrice * 0.9); // خصم 10% للشرق الأوسط
+        pricingStrategies.put("GCC", (basePrice, region) -> basePrice * 0.95);  // خصم 5% لدول الخليج
+        pricingStrategies.put("AFRICA", (basePrice, region) -> basePrice * 0.85); // خصم 15% لأفريقيا
+        pricingStrategies.put("ASIA", (basePrice, region) -> basePrice * 0.92);   // خصم 8% لآسيا
+        pricingStrategies.put("EUROPE", (basePrice, region) -> basePrice * 1.1);  // زيادة 10% لأوروبا
+        pricingStrategies.put("AMERICAS", (basePrice, region) -> basePrice * 1.15); // زيادة 15% للأمريكتين
+        
+        System.out.println("REGIONAL PRICING: Initialized with " + pricingStrategies.size() + " pricing strategies");
     }
 
     /**
-     * حساب السعر الإقليمي
+     * حساب السعر الإقليمي غير متزامن
      */
-    public BigDecimal calculateRegionalPrice(double basePrice, String regionCode) {
-        PricingStrategy strategy = getPricingStrategyForRegion(regionCode);
-        return strategy.calculatePrice(basePrice, regionCode);
+    public double calculateRegionalPrice(double basePrice, String regionCode) {
+        try {
+            if (basePrice <= 0 || regionCode == null || regionCode.isEmpty()) {
+                return basePrice;
+            }
+            
+            String regionGroup = getRegionGroup(regionCode);
+            BiFunction<Double, String, Double> strategy = pricingStrategies.get(regionGroup);
+            
+            if (strategy != null) {
+                double regionalPrice = strategy.apply(basePrice, regionCode);
+                System.out.println("REGIONAL PRICING: Calculated price for " + regionCode + 
+                                 " (" + regionGroup + ") - Base: " + basePrice + 
+                                 " -> Regional: " + String.format("%.2f", regionalPrice));
+                return regionalPrice;
+            } else {
+                System.out.println("REGIONAL PRICING: No strategy found for " + regionCode + 
+                                 " - Using base price: " + basePrice);
+                return basePrice;
+            }
+            
+        } catch (Exception e) {
+            System.err.println("REGIONAL PRICING ERROR: " + e.getMessage());
+            return basePrice; // العودة للسعر الأساسي في حال الخطأ
+        }
+    }
+
+    private String getRegionGroup(String regionCode) {
+        switch (regionCode.toUpperCase()) {
+            case "SA":
+            case "AE":
+            case "QA":
+            case "KW":
+            case "BH":
+            case "OM":
+            case "JO":
+            case "LB":
+            case "SY":
+            case "PS":
+            case "EG":
+            case "YE":
+            case "IQ":
+            case "TN":
+            case "MA":
+            case "DZ":
+            case "LY":
+                return "MENA";
+                
+            case "SAUDI_ARABIA":
+            case "UNITED_ARAB_EMIRATES":
+            case "QATAR":
+            case "KUWAIT":
+            case "BAHRAIN":
+            case "OMAN":
+                return "GCC";
+                
+            case "EGYPT":
+            case "SYRIA":
+            case "LEBANON":
+            case "JORDAN":
+            case "PALESTINE":
+            case "YEMEN":
+            case "IRAQ":
+                return "MENA";
+                
+            case "SOUTH_AFRICA":
+            case "NIGERIA":
+            case "KENYA":
+            case "GHANA":
+            case "MOROCCO":
+            case "TUNISIA":
+            case "ALGERIA":
+            case "LIBYA":
+                return "AFRICA";
+                
+            case "INDIA":
+            case "PAKISTAN":
+            case "BANGLADESH":
+            case "INDONESIA":
+            case "PHILIPPINES":
+            case "THAILAND":
+            case "VIETNAM":
+            case "MALAYSIA":
+            case "SINGAPORE":
+                return "ASIA";
+                
+            case "GERMANY":
+            case "FRANCE":
+            case "UK":
+            case "ITALY":
+            case "SPAIN":
+            case "NETHERLANDS":
+            case "BELGIUM":
+            case "SWITZERLAND":
+            case "AUSTRIA":
+            case "SWEDEN":
+            case "NORWAY":
+            case "DENMARK":
+            case "FINLAND":
+                return "EUROPE";
+                
+            case "USA":
+            case "CANADA":
+            case "BRAZIL":
+            case "ARGENTINA":
+            case "MEXICO":
+            case "CHILE":
+            case "COLOMBIA":
+            case "PERU":
+                return "AMERICAS";
+                
+            default:
+                return "GLOBAL";
+        }
     }
 
     /**
-     * الحصول على استراتيجية التسعير للمنطقة
+     * تحديث استراتيجية تسعير إقليمي
      */
-    private PricingStrategy getPricingStrategyForRegion(String regionCode) {
-        // في الإنتاج: تحديد الاستراتيجية حسب المنطقة
-        if ("SA".equals(regionCode) || "AE".equals(regionCode) || "QA".equals(regionCode) ||
-            "KW".equals(regionCode) || "OM".equals(regionCode) || "BH".equals(regionCode)) {
-            return pricingStrategies.get("GCC");
-        } else if ("EG".equals(regionCode) || "JO".equals(regionCode) || "LB".equals(regionCode)) {
-            return pricingStrategies.get("MENA");
-        }
-        return pricingStrategies.get("GLOBAL");
-    }
-
-    /**
-     * واجهة استراتيجية التسعير
-     */
-    @FunctionalInterface
-    public interface PricingStrategy {
-        BigDecimal calculatePrice(double basePrice, String regionCode);
-    }
-
-    // --- استراتيجيات التسعير ---
-    private static final class GlobalPricingStrategy implements PricingStrategy {
-        @Override
-        public BigDecimal calculatePrice(double basePrice, String regionCode) {
-            return BigDecimal.valueOf(basePrice).setScale(2, java.math.RoundingMode.HALF_UP);
-        }
-    }
-
-    private static final class MENAPricingStrategy implements PricingStrategy {
-        @Override
-        public BigDecimal calculatePrice(double basePrice, String regionCode) {
-            // خصم 10% للمنطقة
-            return BigDecimal.valueOf(basePrice * 0.9).setScale(2, java.math.RoundingMode.HALF_UP);
-        }
-    }
-
-    private static final class GCCPricingStrategy implements PricingStrategy {
-        @Override
-        public BigDecimal calculatePrice(double basePrice, String regionCode) {
-            // سعر عادي للخليج
-            return BigDecimal.valueOf(basePrice).setScale(2, java.math.RoundingMode.HALF_UP);
+    public void updatePricingStrategy(String regionGroup, BiFunction<Double, String, Double> strategy) {
+        if (regionGroup != null && strategy != null) {
+            pricingStrategies.put(regionGroup, strategy);
+            System.out.println("REGIONAL PRICING: Updated pricing strategy for " + regionGroup);
         }
     }
 
     /**
-     * إضافة استراتيجية تسعير مخصصة
+     * إضافة استراتيجية تسعير إقليمي جديدة
      */
-    public void addPricingStrategy(String regionGroup, PricingStrategy strategy) {
-        pricingStrategies.put(regionGroup, strategy);
+    public void addRegionalPricingStrategy(String regionGroup, BiFunction<Double, String, Double> strategy) {
+        if (regionGroup != null && strategy != null) {
+            pricingStrategies.put(regionGroup, strategy);
+            System.out.println("REGIONAL PRICING: Added new pricing strategy for " + regionGroup);
+        }
+    }
+
+    /**
+     * إزالة استراتيجية تسعير إقليمي
+     */
+    public void removeRegionalPricingStrategy(String regionGroup) {
+        if (regionGroup != null) {
+            BiFunction<Double, String, Double> removed = pricingStrategies.remove(regionGroup);
+            if (removed != null) {
+                System.out.println("REGIONAL PRICING: Removed pricing strategy for " + regionGroup);
+            }
+        }
+    }
+
+    /**
+     * الحصول على استراتيجية تسعير إقليمي
+     */
+    public BiFunction<Double, String, Double> getPricingStrategy(String regionGroup) {
+        return pricingStrategies.get(regionGroup);
+    }
+
+    /**
+     * التحقق من وجود استراتيجية تسعير إقليمي
+     */
+    public boolean hasPricingStrategy(String regionGroup) {
+        return pricingStrategies.containsKey(regionGroup);
+    }
+
+    // --- Getters ---
+    public int getPricingStrategyCount() { return pricingStrategies.size(); }
+    public Map<String, BiFunction<Double, String, Double>> getPricingStrategies() { 
+        return new ConcurrentHashMap<>(pricingStrategies); 
+    }
+    
+    /**
+     * إعادة تعيين التسعير الإقليمي (للاختبارات)
+     */
+    public void reset() {
+        pricingStrategies.clear();
+        initializePricingStrategies();
+        System.out.println("REGIONAL PRICING: Reset completed");
     }
 }
