@@ -1,7 +1,9 @@
 package mazdady.emergency;
 
-import mazdady.user.UserManager;
 import mazdady.wallet.WalletManager;
+import mazdady.user.User;
+import mazdady.user.UserManager;
+import mazdady.security.SecureStorage;
 import mazdady.auth.KYCValidator;
 
 import java.time.Instant;
@@ -9,180 +11,343 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * استرداد المحفظة مع دعم التحقق المتعدد العوامل
- * يتبع نمط State لتمثيل مراحل الاسترداد
+ * استرداد المحفظة مع دعم التحقق المتقدم
+ * يتبع نمط Strategy لفصل استراتيجيات الاسترداد
  */
 public final class WalletRecovery {
-    private final AtomicReference<RecoveryState> currentState = new AtomicReference<>(new IdleState());
-    private static final WalletRecovery INSTANCE = new WalletRecovery();
+    private final SecureStorage secureStorage;
+    private final KYCValidator kycValidator;
+    private static WalletRecovery instance;
 
-    private WalletRecovery() {}
+    private WalletRecovery(SecureStorage secureStorage, KYCValidator kycValidator) {
+        this.secureStorage = secureStorage;
+        this.kycValidator = kycValidator;
+    }
 
-    public static WalletRecovery getInstance() {
-        return INSTANCE;
+    public static synchronized WalletRecovery getInstance(SecureStorage secureStorage, KYCValidator kycValidator) {
+        if (instance == null) {
+            instance = new WalletRecovery(secureStorage, kycValidator);
+        }
+        return instance;
     }
 
     /**
-     * بدء عملية استرداد المحفظة غير المتزامنة
+     * استرداد المحفظة غير متزامن مع دعم التحقق المتقدم
      */
-    public CompletableFuture<RecoveryResult> startRecoveryAsync(String userId) {
+    public CompletableFuture<RecoveryResult> recoverWalletAsync(
+        String userId, 
+        String recoveryPhrase, 
+        String kycDocument
+    ) {
         return CompletableFuture.supplyAsync(() -> {
             try {
-                RecoveryEvent event = new RecoveryEvent(userId, Instant.now());
-                RecoveryState newState = currentState.get().startRecovery(event);
-                currentState.set(newState);
+                // 1. التحقق من المستخدم
+                User user = UserManager.getInstance(null).getUserById(userId);
+                if (user == null) {
+                    return RecoveryResult.failure("User not found");
+                }
                 
-                if (newState instanceof CompletedState) {
-                    return RecoveryResult.success("Wallet recovery completed successfully");
-                } else if (newState instanceof FailedState) {
-                    return RecoveryResult.failure("Wallet recovery failed");
+                // 2. التحقق من KYC
+                if (!user.isKYCVerified()) {
+                    KYCValidator.KYCResult kycResult = 
+                        kycValidator.startKYCVerificationAsync(userId, kycDocument).join();
+                    if (!kycResult.isSuccess()) {
+                        return RecoveryResult.failure("KYC verification required: " + kycResult.getMessage());
+                    }
+                }
+                
+                // 3. التحقق من عبارة الاسترداد
+                if (!isValidRecoveryPhrase(recoveryPhrase)) {
+                    return RecoveryResult.failure("Invalid recovery phrase");
+                }
+                
+                // 4. استرداد المحفظة
+                WalletManager walletManager = new WalletManager();
+                boolean success = walletManager.recoverWalletFromPhrase(recoveryPhrase);
+                
+                if (success) {
+                    // 5. تحديث حالة المستخدم
+                    user.setWalletRecovered(true);
+                    user.setLastRecoveryTime(Instant.now());
+                    
+                    // 6. حفظ في التخزين الآمن
+                    secureStorage.putString("wallet_recovery_" + userId, 
+                        secureStorage.encrypt(recoveryPhrase));
+                    
+                    System.out.println("WALLET RECOVERY: Wallet recovered for user " + userId);
+                    return RecoveryResult.success("Wallet recovered successfully");
+                    
                 } else {
-                    return RecoveryResult.inProgress("Recovery in progress");
+                    return RecoveryResult.failure("Wallet recovery failed");
                 }
                 
             } catch (Exception e) {
-                return RecoveryResult.failure("Recovery error: " + e.getMessage());
+                return RecoveryResult.failure("Wallet recovery error: " + e.getMessage());
             }
         });
     }
 
+    private boolean isValidRecoveryPhrase(String phrase) {
+        if (phrase == null || phrase.isEmpty()) return false;
+        
+        String[] words = phrase.trim().split("\\s+");
+        return words.length == 12 || words.length == 18 || words.length == 24;
+    }
+
     /**
-     * التحقق من KYC للاسترداد
+     * التحقق من حالة استرداد المحفظة
      */
-    public CompletableFuture<Boolean> verifyKYCForRecovery(String userId) {
+    public RecoveryStatus checkRecoveryStatus(String userId) {
+        try {
+            User user = UserManager.getInstance(null).getUserById(userId);
+            if (user == null) {
+                return RecoveryStatus.notFound("User not found");
+            }
+            
+            if (user.isWalletRecovered()) {
+                return RecoveryStatus.recovered("Wallet already recovered", user.getLastRecoveryTime());
+            } else {
+                return RecoveryStatus.pending("Wallet recovery pending");
+            }
+            
+        } catch (Exception e) {
+            return RecoveryStatus.error("Recovery status check failed: " + e.getMessage());
+        }
+    }
+
+    /**
+     * تحديث عبارة الاسترداد
+     */
+    public CompletableFuture<UpdateResult> updateRecoveryPhraseAsync(
+        String userId, 
+        String oldPhrase, 
+        String newPhrase
+    ) {
         return CompletableFuture.supplyAsync(() -> {
             try {
-                mazdady.auth.KYCValidator.KYCResult result = 
-                    KYCValidator.getInstance().startKYCVerificationAsync(userId).join();
-                return result.isSuccess();
+                // التحقق من المستخدم
+                User user = UserManager.getInstance(null).getUserById(userId);
+                if (user == null) {
+                    return UpdateResult.failure("User not found");
+                }
+                
+                // التحقق من عبارة الاسترداد القديمة
+                String storedPhrase = secureStorage.getString("wallet_recovery_" + userId, null);
+                if (storedPhrase == null || !storedPhrase.equals(oldPhrase)) {
+                    return UpdateResult.failure("Invalid old recovery phrase");
+                }
+                
+                // التحقق من عبارة الاسترداد الجديدة
+                if (!isValidRecoveryPhrase(newPhrase)) {
+                    return UpdateResult.failure("Invalid new recovery phrase");
+                }
+                
+                // تحديث عبارة الاسترداد
+                secureStorage.putString("wallet_recovery_" + userId, 
+                    secureStorage.encrypt(newPhrase));
+                
+                System.out.println("WALLET RECOVERY: Recovery phrase updated for user " + userId);
+                return UpdateResult.success("Recovery phrase updated successfully");
+                
             } catch (Exception e) {
-                System.err.println("KYC VERIFICATION FAILED: " + e.getMessage());
-                return false;
+                return UpdateResult.failure("Recovery phrase update failed: " + e.getMessage());
             }
         });
     }
 
     /**
-     * استرداد المحفظة يدويًا
+     * استرداد المحفظة من النسخة الاحتياطية
      */
-    public boolean manualRecovery(String userId, String recoveryPhrase) {
-        // في الإنتاج: التحقق من عبارة الاسترداد
-        if ("valid_recovery_phrase".equals(recoveryPhrase)) {
-            WalletManager wallet = new WalletManager();
-            wallet.depositMAZDADY(1000.0); // استرداد رصيد افتراضي
-            System.out.println("WALLET RECOVERY: Manual recovery successful for " + userId);
-            return true;
-        }
-        return false;
+    public CompletableFuture<RecoveryResult> recoverFromBackupAsync(String userId) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                // استرداد من النسخة الاحتياطية
+                String backupData = secureStorage.getString("wallet_backup_" + userId, null);
+                if (backupData == null) {
+                    return RecoveryResult.failure("No backup found for user");
+                }
+                
+                String decryptedData = secureStorage.decrypt(backupData);
+                WalletManager walletManager = new WalletManager();
+                boolean success = walletManager.importWalletData(decryptedData);
+                
+                if (success) {
+                    User user = UserManager.getInstance(null).getUserById(userId);
+                    if (user != null) {
+                        user.setWalletRecovered(true);
+                        user.setLastRecoveryTime(Instant.now());
+                    }
+                    
+                    System.out.println("WALLET RECOVERY: Wallet recovered from backup for user " + userId);
+                    return RecoveryResult.success("Wallet recovered from backup successfully");
+                } else {
+                    return RecoveryResult.failure("Wallet recovery from backup failed");
+                }
+                
+            } catch (Exception e) {
+                return RecoveryResult.failure("Backup recovery error: " + e.getMessage());
+            }
+        });
     }
 
     /**
-     * حدث الاسترداد
+     * إنشاء نسخة احتياطية للمحفظة
      */
-    private static final class RecoveryEvent {
-        private final String userId;
-        private final Instant timestamp;
-
-        public RecoveryEvent(String userId, Instant timestamp) {
-            this.userId = userId;
-            this.timestamp = timestamp;
-        }
-
-        public String getUserId() { return userId; }
-        public Instant getTimestamp() { return timestamp; }
-    }
-
-    /**
-     * واجهة حالة الاسترداد
-     */
-    private interface RecoveryState {
-        RecoveryState startRecovery(RecoveryEvent event);
-    }
-
-    // --- حالات الاسترداد ---
-    private static final class IdleState implements RecoveryState {
-        @Override
-        public RecoveryState startRecovery(RecoveryEvent event) {
-            System.out.println("WALLET RECOVERY: Starting recovery for " + event.getUserId());
-            return new VerificationState(event.getUserId());
-        }
-    }
-
-    private static final class VerificationState implements RecoveryState {
-        private final String userId;
-
-        public VerificationState(String userId) {
-            this.userId = userId;
-        }
-
-        @Override
-        public RecoveryState startRecovery(RecoveryEvent event) {
-            // في الإنتاج: بدء عملية التحقق
-            System.out.println("WALLET RECOVERY: Verification in progress for " + userId);
-            return new RecoveryStateImpl(userId);
-        }
-    }
-
-    private static final class RecoveryStateImpl implements RecoveryState {
-        private final String userId;
-
-        public RecoveryStateImpl(String userId) {
-            this.userId = userId;
-        }
-
-        @Override
-        public RecoveryState startRecovery(RecoveryEvent event) {
-            // في الإنتاج: تنفيذ الاسترداد الفعلي
-            WalletManager wallet = new WalletManager();
-            wallet.depositMAZDADY(500.0);
-            System.out.println("WALLET RECOVERY: Recovery completed for " + userId);
-            return new CompletedState();
-        }
-    }
-
-    private static final class CompletedState implements RecoveryState {
-        @Override
-        public RecoveryState startRecovery(RecoveryEvent event) {
-            return this;
-        }
-    }
-
-    private static final class FailedState implements RecoveryState {
-        @Override
-        public RecoveryState startRecovery(RecoveryEvent event) {
-            return this;
-        }
+    public CompletableFuture<BackupResult> createBackupAsync(String userId) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                WalletManager walletManager = new WalletManager();
+                String walletData = walletManager.exportWalletData();
+                String encryptedData = secureStorage.encrypt(walletData);
+                
+                secureStorage.putString("wallet_backup_" + userId, encryptedData);
+                
+                System.out.println("WALLET RECOVERY: Backup created for user " + userId);
+                return BackupResult.success("Wallet backup created successfully");
+                
+            } catch (Exception e) {
+                return BackupResult.failure("Backup creation failed: " + e.getMessage());
+            }
+        });
     }
 
     /**
      * نتيجة الاسترداد
      */
     public static final class RecoveryResult {
-        private final Status status;
+        private final boolean success;
         private final String message;
 
-        private RecoveryResult(Status status, String message) {
-            this.status = status;
+        private RecoveryResult(boolean success, String message) {
+            this.success = success;
             this.message = message;
         }
 
         public static RecoveryResult success(String message) {
-            return new RecoveryResult(Status.SUCCESS, message);
+            return new RecoveryResult(true, message);
         }
 
         public static RecoveryResult failure(String message) {
-            return new RecoveryResult(Status.FAILURE, message);
+            return new RecoveryResult(false, message);
         }
 
-        public static RecoveryResult inProgress(String message) {
-            return new RecoveryResult(Status.IN_PROGRESS, message);
-        }
-
-        public boolean isSuccess() { return status == Status.SUCCESS; }
+        public boolean isSuccess() { return success; }
         public String getMessage() { return message; }
+    }
 
-        public enum Status {
-            SUCCESS, FAILURE, IN_PROGRESS
+    /**
+     * نتيجة التحديث
+     */
+    public static final class UpdateResult {
+        private final boolean success;
+        private final String message;
+
+        private UpdateResult(boolean success, String message) {
+            this.success = success;
+            this.message = message;
         }
+
+        public static UpdateResult success(String message) {
+            return new UpdateResult(true, message);
+        }
+
+        public static UpdateResult failure(String message) {
+            return new UpdateResult(false, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public String getMessage() { return message; }
+    }
+
+    /**
+     * نتيجة النسخ الاحتياطي
+     */
+    public static final class BackupResult {
+        private final boolean success;
+        private final String message;
+
+        private BackupResult(boolean success, String message) {
+            this.success = success;
+            this.message = message;
+        }
+
+        public static BackupResult success(String message) {
+            return new BackupResult(true, message);
+        }
+
+        public static BackupResult failure(String message) {
+            return new BackupResult(false, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public String getMessage() { return message; }
+    }
+
+    /**
+     * حالة الاسترداد
+     */
+    public static final class RecoveryStatus {
+        private final boolean recovered;
+        private final boolean pending;
+        private final boolean error;
+        private final String message;
+        private final Instant recoveryTime;
+
+        private RecoveryStatus(boolean recovered, boolean pending, boolean error, 
+                             String message, Instant recoveryTime) {
+            this.recovered = recovered;
+            this.pending = pending;
+            this.error = error;
+            this.message = message;
+            this.recoveryTime = recoveryTime;
+        }
+
+        public static RecoveryStatus recovered(String message, Instant recoveryTime) {
+            return new RecoveryStatus(true, false, false, message, recoveryTime);
+        }
+
+        public static RecoveryStatus pending(String message) {
+            return new RecoveryStatus(false, true, false, message, null);
+        }
+
+        public static RecoveryStatus notFound(String message) {
+            return new RecoveryStatus(false, false, false, message, null);
+        }
+
+        public static RecoveryStatus error(String message) {
+            return new RecoveryStatus(false, false, true, message, null);
+        }
+
+        public boolean isRecovered() { return recovered; }
+        public boolean isPending() { return pending; }
+        public boolean isError() { return error; }
+        public String getMessage() { return message; }
+        public Instant getRecoveryTime() { return recoveryTime; }
+        
+        public String getFormattedRecoveryTime() {
+            return recoveryTime != null ? 
+                recoveryTime.toString().substring(0, 19).replace("T", " ") : 
+                "Never";
+        }
+    }
+
+    // --- Getters ---
+    public boolean hasValidRecoveryPhrase(String phrase) { return isValidRecoveryPhrase(phrase); }
+    public RecoveryStatus getRecoveryStatus(String userId) { return checkRecoveryStatus(userId); }
+    public boolean isUserWalletRecovered(String userId) { 
+        User user = UserManager.getInstance(null).getUserById(userId);
+        return user != null && user.isWalletRecovered();
+    }
+    
+    /**
+     * إعادة تعيين حالة الاسترداد (للاختبارات)
+     */
+    public void resetRecoveryState(String userId) {
+        User user = UserManager.getInstance(null).getUserById(userId);
+        if (user != null) {
+            user.setWalletRecovered(false);
+            user.setLastRecoveryTime(null);
+        }
+        System.out.println("WALLET RECOVERY: Recovery state reset for user " + userId);
     }
 }
