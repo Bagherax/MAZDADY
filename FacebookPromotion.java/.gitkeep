@@ -1,0 +1,18 @@
+package mazdady.social;
+
+public final class FacebookPromotion implements PromotionManager.PromotionChannel {
+    @Override
+    public String getType() {
+        return "FACEBOOK";
+    }
+
+    @Override
+    public boolean isAvailable() {
+        return true;
+    }
+
+    @Override
+    public void execute(PromotionManager.Promotion promotion) {
+        System.out.println("FACEBOOK PROMOTION: Launching promotion " + promotion.getId() + " for user " + promotion.getAuthorId());
+    }
+}
