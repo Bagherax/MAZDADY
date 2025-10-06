@@ -4,200 +4,513 @@
     <meta charset="UTF-8">
     <title>لوحة تحكم MAZDADY</title>
     <style>
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #0f0f1b; color: #fff; padding: 20px; }
-        .container { max-width: 800px; margin: 0 auto; }
-        h1 { color: #4CAF50; text-align: center; }
-        .card { background: #1a1a2e; padding: 20px; margin: 15px 0; border-radius: 10px; }
-        label { display: block; margin: 10px 0 5px; }
-        input, select { width: 100%; padding: 10px; margin-bottom: 10px; background: #252540; border: 1px solid #4CAF50; color: white; border-radius: 5px; }
-        button { background: #4CAF50; color: white; border: none; padding: 12px 20px; width: 100%; font-size: 16px; border-radius: 5px; cursor: pointer; }
-        button:hover { background: #45a049; }
-        .status { text-align: center; margin-top: 20px; padding: 10px; border-radius: 5px; }
-        .success { background: #2e7d32; }
-        .error { background: #c62828; }
+        body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            background: #0f0f1b; 
+            color: #ffffff; 
+            padding: 20px; 
+            direction: rtl;
+        }
+        .container { 
+            max-width: 1200px; 
+            margin: 0 auto; 
+            background: #1a1a2e; 
+            padding: 20px; 
+            border-radius: 15px; 
+        }
+        h1, h2, h3 { 
+            color: #4CAF50; 
+            text-align: center; 
+        }
+        .card { 
+            background: #252540; 
+            padding: 20px; 
+            margin: 15px 0; 
+            border-radius: 10px; 
+            box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+        }
+        label { 
+            display: block; 
+            margin: 10px 0 5px; 
+            font-weight: bold; 
+        }
+        input, select, textarea { 
+            width: 100%; 
+            padding: 12px; 
+            margin-bottom: 15px; 
+            background: #37474F; 
+            border: 1px solid #4CAF50; 
+            color: white; 
+            border-radius: 8px; 
+            font-size: 16px;
+        }
+        button { 
+            background: #4CAF50; 
+            color: white; 
+            border: none; 
+            padding: 15px 25px; 
+            width: 100%; 
+            font-size: 18px; 
+            border-radius: 8px; 
+            cursor: pointer; 
+            font-weight: bold;
+            transition: all 0.3s ease;
+        }
+        button:hover { 
+            background: #45a049; 
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(0,0,0,0.4);
+        }
+        .danger { 
+            background: #F44336 !important; 
+        }
+        .danger:hover { 
+            background: #d32f2f !important; 
+        }
+        .warning { 
+            background: #FF9800 !important; 
+        }
+        .warning:hover { 
+            background: #f57c00 !important; 
+        }
+        .info { 
+            background: #2196F3 !important; 
+        }
+        .info:hover { 
+            background: #1976D2 !important; 
+        }
+        .status { 
+            text-align: center; 
+            margin-top: 20px; 
+            padding: 15px; 
+            border-radius: 8px; 
+            font-weight: bold;
+        }
+        .success { 
+            background: #2e7d32; 
+        }
+        .error { 
+            background: #c62828; 
+        }
+        .grid { 
+            display: grid; 
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); 
+            gap: 20px; 
+        }
+        .file-upload { 
+            border: 2px dashed #4CAF50; 
+            padding: 20px; 
+            text-align: center; 
+            border-radius: 8px; 
+            margin: 15px 0;
+        }
+        .file-upload:hover { 
+            background: #37474F; 
+        }
+        .preview-image { 
+            max-width: 200px; 
+            max-height: 200px; 
+            margin: 10px auto; 
+            display: block; 
+            border-radius: 8px;
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>لوحة تحكم MAZDADY</h1>
+        <h2>إدارة واجهة المستخدم والتطبيقات</h2>
         
-        <div class="card">
-            <h2>إعدادات السحب</h2>
-            <label>الحد الأدنى للمستوى:</label>
-            <input type="number" id="minLevel" value="5">
+        <!-- قسم رفع الملفات -->
+        <div class="grid">
+            <!-- رفع فيديو الافتتاح -->
+            <div class="card">
+                <h3>رفع فيديو الافتتاح</h3>
+                <div class="file-upload">
+                    <input type="file" id="splashVideo" accept="video/mp4">
+                    <p>اختر فيديو MP4 (الحد الأقصى: 10MB)</p>
+                </div>
+                <button onclick="uploadSplashVideo()">رفع الفيديو</button>
+                <img id="splashVideoPreview" class="preview-image" style="display:none;">
+            </div>
             
-            <label>الجدولة:</label>
-            <select id="schedule">
-                <option value="weekly">أسبوعي</option>
-                <option value="monthly">شهري</option>
+            <!-- رفع خلفية الواجهة -->
+            <div class="card">
+                <h3>رفع خلفية الواجهة</h3>
+                <div class="file-upload">
+                    <input type="file" id="uiBackground" accept="image/*">
+                    <p>اختر صورة PNG/JPG (الحد الأقصى: 5MB)</p>
+                </div>
+                <button onclick="uploadUIBackground()">رفع الخلفية</button>
+                <img id="uiBackgroundPreview" class="preview-image" style="display:none;">
+            </div>
+            
+            <!-- رفع خلفية الـ Popup -->
+            <div class="card">
+                <h3>رفع خلفية الـ Popup</h3>
+                <div class="file-upload">
+                    <input type="file" id="popupBackground" accept="image/*">
+                    <p>اختر صورة PNG/JPG (الحد الأقصى: 2MB)</p>
+                </div>
+                <button onclick="uploadPopupBackground()">رفع الخلفية</button>
+                <img id="popupBackgroundPreview" class="preview-image" style="display:none;">
+            </div>
+            
+            <!-- رفع خلفية خط التداول -->
+            <div class="card">
+                <h3>رفع خلفية خط التداول</h3>
+                <div class="file-upload">
+                    <input type="file" id="tradingLineBackground" accept="image/gif,image/*">
+                    <p>اختر صورة GIF/PNG/JPG (الحد الأقصى: 3MB)</p>
+                </div>
+                <button onclick="uploadTradingLineBackground()">رفع الخلفية</button>
+                <img id="tradingLineBackgroundPreview" class="preview-image" style="display:none;">
+            </div>
+            
+            <!-- رفع خلفية الزر العائم -->
+            <div class="card">
+                <h3>رفع خلفية الزر العائم</h3>
+                <div class="file-upload">
+                    <input type="file" id="floatingAdBackground" accept="image/*">
+                    <p>اختر صورة PNG/JPG (الحد الأقصى: 1MB)</p>
+                </div>
+                <button onclick="uploadFloatingAdBackground()">رفع الخلفية</button>
+                <img id="floatingAdBackgroundPreview" class="preview-image" style="display:none;">
+            </div>
+        </div>
+        
+        <!-- قسم تعديل العناصر -->
+        <div class="card">
+            <h3>تعديل عناصر الواجهة</h3>
+            
+            <label>اختر العنصر:</label>
+            <select id="elementSelector">
+                <option value="buy_button">زر الشراء</option>
+                <option value="sell_button">زر البيع</option>
+                <option value="balance_view">عرض الرصيد</option>
+                <option value="trading_line">خط التداول</option>
+                <option value="popup_window">نافذة Popup</option>
+                <option value="floating_ad_button">زر الإعلان العائم</option>
+                <option value="main_background">الخلفية الرئيسية</option>
             </select>
-        </div>
-
-        <div class="card">
-            <h2>ضرائب السحب</h2>
-            <label>محفظة رقمية (%):</label>
-            <input type="number" id="taxWallet" value="5" step="0.1">
             
-            <label>تحويل بنكي (%):</label>
-            <input type="number" id="taxBank" value="8" step="0.1">
+            <label>الموضع:</label>
+            <select id="elementPosition">
+                <option value="top_left">أعلى يسار</option>
+                <option value="top_center">أعلى وسط</option>
+                <option value="top_right">أعلى يمين</option>
+                <option value="center">الوسط</option>
+                <option value="bottom_left">أسفل يسار</option>
+                <option value="bottom_center">أسفل وسط</option>
+                <option value="bottom_right">أسفل يمين</option>
+            </select>
+            
+            <label>العرض (dp):</label>
+            <input type="number" id="elementWidth" value="160" min="50" max="500">
+            
+            <label>الارتفاع (dp):</label>
+            <input type="number" id="elementHeight" value="56" min="30" max="200">
+            
+            <label>اللون الخلفي:</label>
+            <input type="color" id="elementBackgroundColor" value="#4CAF50">
+            
+            <label>لون النص:</label>
+            <input type="color" id="elementTextColor" value="#FFFFFF">
+            
+            <label>الرؤية:</label>
+            <select id="elementVisibility">
+                <option value="visible">مرئي</option>
+                <option value="hidden">مخفي</option>
+            </select>
+            
+            <button onclick="updateElement()">تحديث العنصر</button>
         </div>
-
+        
+        <!-- قسم إعدادات النظام -->
         <div class="card">
-            <h2>تصميم الواجهة الأساسية</h2>
-            <label>لون الخلفية:</label>
-            <input type="color" id="mainBg" value="#0f0f1b">
-            <label>لون الشريط العلوي:</label>
-            <input type="color" id="topBarColor" value="#1a1a2e">
-            <label>لون زر الشراء:</label>
-            <input type="color" id="buyButtonColor" value="#4CAF50">
-            <label>لون زر البيع:</label>
-            <input type="color" id="sellButtonColor" value="#F44336">
+            <h3>إعدادات النظام</h3>
+            
+            <label>الحد الأدنى للمستوى للسحب:</label>
+            <input type="number" id="minWithdrawalLevel" value="5" min="1" max="10">
+            
+            <label>الحد الأسبوعي للسحب (MAZDADY):</label>
+            <input type="number" id="weeklyWithdrawalLimit" value="1000" min="100" max="10000">
+            
+            <label>نسبة ضريبة السحب (%):</label>
+            <input type="number" id="withdrawalTaxRate" value="5" min="0" max="50" step="0.1">
+            
+            <label>نسبة ضريبة الهدايا (%):</label>
+            <input type="number" id="giftTaxRate" value="30" min="0" max="100" step="1">
+            
+            <label>فترة تحلل المحفظة (ساعات):</label>
+            <input type="number" id="walletDecayPeriod" value="24" min="1" max="168">
+            
+            <label>نسبة تحلل المحفظة (%):</label>
+            <input type="number" id="walletDecayRate" value="1" min="0" max="10" step="0.1">
+            
+            <button onclick="updateSystemSettings()">تحديث إعدادات النظام</button>
         </div>
-
+        
+        <!-- قسم إدارة المستخدمين -->
         <div class="card">
-            <h2>تصميم الواجهة</h2>
-            <label>لون خلفية الـ Popup:</label>
-            <input type="color" id="popupBg" value="#1a1a2e">
-            <label>لون عنوان الـ Popup:</label>
-            <input type="color" id="popupTitleColor" value="#4CAF50">
-            <label>حجم عنوان الـ Popup (pt):</label>
-            <input type="number" id="popupTitleSize" value="20" min="10" max="30">
-            <label>عرض الـ Popup (% من الشاشة):</label>
-            <input type="number" id="popupWidth" value="95" min="50" max="100">
+            <h3>إدارة المستخدمين</h3>
+            
+            <label>معرف المستخدم:</label>
+            <input type="text" id="userId" placeholder="أدخل معرف المستخدم">
+            
+            <label>المستوى الجديد:</label>
+            <input type="number" id="userLevel" value="1" min="1" max="10">
+            
+            <button onclick="setUserLevel()" class="info">تعيين المستوى</button>
+            
+            <button onclick="freezeUserAccount()" class="warning">تجميد الحساب</button>
+            
+            <button onclick="unfreezeUserAccount()" class="info">إلغاء تجميد الحساب</button>
+            
+            <button onclick="banUser()" class="danger">حظر المستخدم</button>
+            
+            <button onclick="unbanUser()" class="info">إلغاء حظر المستخدم</button>
         </div>
-
-        <button onclick="saveConfig()">حفظ الإعدادات</button>
+        
+        <!-- قسم بوتات الطوارئ -->
+        <div class="card">
+            <h3>بوتات الطوارئ</h3>
+            
+            <label>نوع البوت:</label>
+            <select id="emergencyBotType">
+                <option value="market_stabilizer">بوت تثبيت السوق</option>
+                <option value="loss_protector">بوت حماية الخسارة</option>
+                <option value="security_guard">بوت الحماية الأمنية</option>
+                <option value="performance_optimizer">بوت تحسين الأداء</option>
+            </select>
+            
+            <label>المعلمات:</label>
+            <textarea id="emergencyBotParams" rows="4" placeholder='{"intensity": 0.8, "duration": 300}'></textarea>
+            
+            <button onclick="activateEmergencyBot()" class="danger">تفعيل بوت الطوارئ</button>
+            
+            <button onclick="deactivateEmergencyBot()" class="info">تعطيل بوت الطوارئ</button>
+        </div>
+        
+        <!-- قسم التحديثات السحرية -->
+        <div class="card">
+            <h3>التحديثات السحرية</h3>
+            
+            <label>رقم الإصدار الجديد:</label>
+            <input type="text" id="newVersion" placeholder="1.2.3">
+            
+            <label>وصف التحديث:</label>
+            <textarea id="updateDescription" rows="3" placeholder="ما الذي تم إصلاحه أو تحسينه؟"></textarea>
+            
+            <button onclick="triggerMagicUpdate()" class="info">تفعيل التحديث السحري</button>
+            
+            <button onclick="rollbackUpdate()" class="warning">تراجع عن التحديث</button>
+        </div>
+        
+        <!-- حالة النظام -->
         <div id="status" class="status" style="display:none;"></div>
     </div>
 
     <script>
-        async function saveConfig() {
-            const config = {
-                min_withdrawal_level: parseInt(document.getElementById('minLevel').value),
-                withdrawal_schedule: document.getElementById('schedule').value,
-                tax_rates: {
-                    wallet_crypto: parseFloat(document.getElementById('taxWallet').value),
-                    bank_transfer: parseFloat(document.getElementById('taxBank').value)
-                },
-                ui: {
-                    main_background_color: document.getElementById('mainBg').value,
-                    top_bar_color: document.getElementById('topBarColor').value,
-                    buy_button_color: document.getElementById('buyButtonColor').value,
-                    sell_button_color: document.getElementById('sellButtonColor').value,
-                    popup_bg: document.getElementById('popupBg').value,
-                    popup_title_color: document.getElementById('popupTitleColor').value,
-                    popup_title_size: parseFloat(document.getElementById('popupTitleSize').value),
-                    popup_width_ratio: parseFloat(document.getElementById('popupWidth').value) / 100
-                },
-                last_updated: new Date().toISOString()
-            };
-
-            document.getElementById('status').className = 'status success';
-            document.getElementById('status').innerText = '✅ تم الحفظ! (في الإنتاج: سيتم تحديث config.json تلقائيًا)';
-            document.getElementById('status').style.display = 'block';
+        // --- Utility Functions ---
+        function showStatus(message, isSuccess) {
+            const statusDiv = document.getElementById('status');
+            statusDiv.textContent = message;
+            statusDiv.className = 'status ' + (isSuccess ? 'success' : 'error');
+            statusDiv.style.display = 'block';
+            
+            setTimeout(() => {
+                statusDiv.style.display = 'none';
+            }, 5000);
         }
-        
-        <!-- أضف هذا داخل قسم "خلفيات مخصصة" -->
-<div class="card">
-    <h3>رفع صورة مخصصة</h3>
-    <label>اختر العنصر:</label>
-    <select id="elementSelect">
-        <option value="main_background">الواجهة الرئيسية</option>
-        <option value="buy_button_background">زر الشراء</option>
-        <option value="sell_button_background">زر البيع</option>
-        <option value="popup_background">خلفية الـ Popup</option>
-    </select>
-    
-    <label>اختر الصورة من معرضك:</label>
-    <input type="file" id="imageUpload" accept="image/*">
-    
-    <button onclick="handleUpload()">رفع الصورة</button>
-</div>
 
-<script>
-function handleUpload() {
-    const fileInput = document.getElementById('imageUpload');
-    const element = document.getElementById('elementSelect').value;
-    
-    if (fileInput.files.length === 0) {
-        alert('يرجى اختيار صورة!');
-        return;
-    }
-    
-    const file = fileInput.files[0];
-    uploadImage(file, element); // من upload.js
-}
-<div class="card">
-    <h2>الزر العائم للإعلانات</h2>
-    
-    <label>مفعل:</label>
-    <input type="checkbox" id="adEnabled" checked>
-    
-    <label>مدة العرض (ثواني):</label>
-    <input type="number" id="adDisplay" value="10" min="5" max="60">
-    
-    <label>مدة الإخفاء (ثواني):</label>
-    <input type="number" id="adHide" value="30" min="10" max="300">
-    
-    <label>رابط صورة الإعلان:</label>
-    <input type="url" id="adImageUrl" placeholder="https://example.com/ad.png">
-    
-    <button onclick="saveFloatingAd()">حفظ إعدادات الإعلان</button>
-    <div class="card">
-    <h2>إدارة العناصر</h2>
-    
-    <div class="element-control" data-element="buy_button">
-        <h3>زر الشراء</h3>
-        <label>مرئي: <input type="checkbox" class="visible" checked></label>
-        <label>الموضع:
-            <select class="position">
-                <option value="bottom_left">أسفل يسار</option>
-                <option value="bottom_right" selected>أسفل يمين</option>
-                <option value="center">الوسط</option>
-            </select>
-        </label>
-        <label>يتطلب اشتراك: <input type="checkbox" class="subscription"></label>
-        <label>الحد الأدنى للمستوى: <input type="number" class="min-level" value="1"></label>
-    </div>
+        function getFormData() {
+            return {
+                // عناصر الواجهة
+                element: document.getElementById('elementSelector').value,
+                position: document.getElementById('elementPosition').value,
+                width: parseInt(document.getElementById('elementWidth').value),
+                height: parseInt(document.getElementById('elementHeight').value),
+                backgroundColor: document.getElementById('elementBackgroundColor').value,
+                textColor: document.getElementById('elementTextColor').value,
+                visibility: document.getElementById('elementVisibility').value,
+                
+                // إعدادات النظام
+                minWithdrawalLevel: parseInt(document.getElementById('minWithdrawalLevel').value),
+                weeklyWithdrawalLimit: parseFloat(document.getElementById('weeklyWithdrawalLimit').value),
+                withdrawalTaxRate: parseFloat(document.getElementById('withdrawalTaxRate').value),
+                giftTaxRate: parseFloat(document.getElementById('giftTaxRate').value),
+                walletDecayPeriod: parseInt(document.getElementById('walletDecayPeriod').value),
+                walletDecayRate: parseFloat(document.getElementById('walletDecayRate').value),
+                
+                // إدارة المستخدمين
+                userId: document.getElementById('userId').value,
+                userLevel: parseInt(document.getElementById('userLevel').value),
+                
+                // بوتات الطوارئ
+                emergencyBotType: document.getElementById('emergencyBotType').value,
+                emergencyBotParams: document.getElementById('emergencyBotParams').value,
+                
+                // التحديثات السحرية
+                newVersion: document.getElementById('newVersion').value,
+                updateDescription: document.getElementById('updateDescription').value
+            };
+        }
 
-    <div class="element-control" data-element="payment_tools">
-        <h3>أدوات الدفع</h3>
-        <label>مرئي: <input type="checkbox" class="visible"></label>
-        <label>الموضع:
-            <select class="position">
-                <option value="sidebar" selected>شريط جانبي</option>
-                <option value="bottom_center">أسفل الوسط</option>
-            </select>
-        </label>
-        <label>يتطلب اشتراك: <input type="checkbox" class="subscription" checked></label>
-        <label>الحد الأدنى للمستوى: <input type="number" class="min-level" value="3"></label>
-    </div>
+        // --- File Upload Functions ---
+        function uploadSplashVideo() {
+            const fileInput = document.getElementById('splashVideo');
+            if (fileInput.files.length === 0) {
+                showStatus('يرجى اختيار فيديو!', false);
+                return;
+            }
+            
+            const file = fileInput.files[0];
+            if (file.size > 10 * 1024 * 1024) { // 10MB
+                showStatus('حجم الفيديو كبير جدًّا! الحد الأقصى: 10MB', false);
+                return;
+            }
+            
+            uploadFile(file, '/api/admin/upload-splash-video', 'splashVideoPreview');
+        }
 
-    <!-- كرر لنفس العناصر الأخرى -->
+        function uploadUIBackground() {
+            const fileInput = document.getElementById('uiBackground');
+            if (fileInput.files.length === 0) {
+                showStatus('يرجى اختيار صورة!', false);
+                return;
+            }
+            
+            const file = fileInput.files[0];
+            if (file.size > 5 * 1024 * 1024) { // 5MB
+                showStatus('حجم الصورة كبير جدًّا! الحد الأقصى: 5MB', false);
+                return;
+            }
+            
+            uploadFile(file, '/api/admin/upload-background-image', 'uiBackgroundPreview');
+        }
 
-    <button onclick="saveElementSettings()">حفظ إعدادات العناصر</button>
-</div>
+        function uploadPopupBackground() {
+            const fileInput = document.getElementById('popupBackground');
+            if (fileInput.files.length === 0) {
+                showStatus('يرجى اختيار صورة!', false);
+                return;
+            }
+            
+            const file = fileInput.files[0];
+            if (file.size > 2 * 1024 * 1024) { // 2MB
+                showStatus('حجم الصورة كبير جدًّا! الحد الأقصى: 2MB', false);
+                return;
+            }
+            
+            uploadFile(file, '/api/admin/upload-popup-background', 'popupBackgroundPreview');
+        }
 
-<script>
-function saveElementSettings() {
-    const elements = {};
-    document.querySelectorAll('.element-control').forEach(div => {
-        const elementId = div.dataset.element;
-        elements[elementId] = {
-            visible: div.querySelector('.visible').checked,
-            position: div.querySelector('.position').value,
-            subscription_required: div.querySelector('.subscription').checked,
-            min_level: parseInt(div.querySelector('.min-level').value)
-        };
-    });
+        function uploadTradingLineBackground() {
+            const fileInput = document.getElementById('tradingLineBackground');
+            if (fileInput.files.length === 0) {
+                showStatus('يرجى اختيار صورة!', false);
+                return;
+            }
+            
+            const file = fileInput.files[0];
+            if (file.size > 3 * 1024 * 1024) { // 3MB
+                showStatus('حجم الصورة كبير جدًّا! الحد الأقصى: 3MB', false);
+                return;
+            }
+            
+            uploadFile(file, '/api/admin/upload-trading-line-background', 'tradingLineBackgroundPreview');
+        }
 
-    // تحديث config.json
-    updateConfigElements(elements);
-    alert('✅ تم حفظ إعدادات العناصر!');
-}
-</script>
-</div>
-</script>
-    </script>
-</body>
-</html>
+        function uploadFloatingAdBackground() {
+            const fileInput = document.getElementById('floatingAdBackground');
+            if (fileInput.files.length === 0) {
+                showStatus('يرجى اختيار صورة!', false);
+                return;
+            }
+            
+            const file = fileInput.files[0];
+            if (file.size > 1 * 1024 * 1024) { // 1MB
+                showStatus('حجم الصورة كبير جدًّا! الحد الأقصى: 1MB', false);
+                return;
+            }
+            
+            uploadFile(file, '/api/admin/upload-floating-ad-background', 'floatingAdBackgroundPreview');
+        }
+
+        function uploadFile(file, endpoint, previewId) {
+            const formData = new FormData();
+            formData.append('file', file);
+            
+            fetch(endpoint, {
+                method: 'POST',
+                body: formData,
+                headers: {
+                    'Authorization': 'Bearer YOUR_ADMIN_TOKEN_HERE'
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showStatus(data.message, true);
+                    showPreview(previewId, data.image_url || data.video_url);
+                } else {
+                    showStatus(data.message, false);
+                }
+            })
+            .catch(error => {
+                showStatus('فشل رفع الملف: ' + error.message, false);
+            });
+        }
+
+        function showPreview(previewId, url) {
+            if (url) {
+                const preview = document.getElementById(previewId);
+                preview.src = url;
+                preview.style.display = 'block';
+            }
+        }
+
+        // --- Element Update Functions ---
+        function updateElement() {
+            const formData = getFormData();
+            
+            fetch('/api/admin/update-ui-element', {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer YOUR_ADMIN_TOKEN_HERE'
+                },
+                body: JSON.stringify({
+                    elementId: formData.element,
+                    position: formData.position,
+                    size: {
+                        width: formData.width,
+                        height: formData.height
+                    },
+                    colors: {
+                        background: formData.backgroundColor,
+                        text: formData.textColor
+                    },
+                    visibility: formData.visibility
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                showStatus(data.message, data.success);
+            })
+            .catch(error => {
+                showStatus('فشل تحديث العنصر: ' + error.message, false);
+            });
+        }
+
+        // --- System Settings Functions ---
+        function updateSystemSettings() {
+            const formData = getFormData();
+            
+            fetch('/api/admin/system-settings', {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer YOUR_ADMIN_TOKEN_HERE'
+            
