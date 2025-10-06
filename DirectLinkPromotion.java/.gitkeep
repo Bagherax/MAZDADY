@@ -1,0 +1,18 @@
+package mazdady.social;
+
+public final class DirectLinkPromotion implements PromotionManager.PromotionChannel {
+    @Override
+    public String getType() {
+        return "DIRECT_LINK";
+    }
+
+    @Override
+    public boolean isAvailable() {
+        return true;
+    }
+
+    @Override
+    public void execute(PromotionManager.Promotion promotion) {
+        System.out.println("DIRECT LINK PROMOTION: Launching promotion " + promotion.getId() + " for user " + promotion.getAuthorId());
+    }
+}
