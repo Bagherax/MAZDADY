@@ -3,16 +3,16 @@ package mazdady.i18n;
 import android.content.Context;
 
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * تحميل اللغات الديناميكي مع دعم التحديثات الحية
- * يتبع نمط Strategy لفصل مصادر التحميل
+ * يتبع نمط Strategy لفصل استراتيجيات التحميل
  */
 public final class DynamicLang {
-    private final Map<String, LanguagePack> languagePacks = new ConcurrentHashMap<>();
     private final Context context;
+    private final Map<String, LanguagePack> languagePacks = new ConcurrentHashMap<>();
     private static DynamicLang instance;
 
     private DynamicLang(Context context) {
@@ -29,16 +29,21 @@ public final class DynamicLang {
     /**
      * تحميل حزمة لغة غير متزامن
      */
-    public CompletableFuture<LanguagePack> loadLanguageAsync(String languageCode) {
+    public CompletableFuture<LanguageResult> loadLanguageAsync(String languageCode) {
         return CompletableFuture.supplyAsync(() -> {
-            LanguagePack pack = languagePacks.get(languageCode);
-            if (pack == null) {
-                // في الإنتاج: تحميل من السيرفر أو الموارد
-                pack = new LanguagePack(languageCode);
-                languagePacks.put(languageCode, pack);
-                System.out.println("DYNAMIC LANG: Loaded language pack " + languageCode);
+            try {
+                LanguagePack pack = languagePacks.get(languageCode);
+                if (pack == null) {
+                    // في الإنتاج: تحميل من السيرفر أو الموارد
+                    pack = new LanguagePack(languageCode);
+                    languagePacks.put(languageCode, pack);
+                    System.out.println("DYNAMIC LANG: Loaded language pack " + languageCode);
+                }
+                return LanguageResult.success(pack, "Language pack loaded successfully");
+                
+            } catch (Exception e) {
+                return LanguageResult.failure("Language loading failed: " + e.getMessage());
             }
-            return pack;
         });
     }
 
@@ -46,9 +51,13 @@ public final class DynamicLang {
      * تطبيق لغة فورًا
      */
     public void applyLanguage(String languageCode) {
-        DeviceLang.getInstance(context).setLanguage(languageCode);
-        TranslationManager.getInstance(context).changeLanguage(languageCode);
-        System.out.println("DYNAMIC LANG: Applied language " + languageCode);
+        try {
+            DeviceLang.getInstance(context).setLanguage(languageCode);
+            TranslationManager.getInstance(context).changeLanguage(languageCode);
+            System.out.println("DYNAMIC LANG: Applied language " + languageCode);
+        } catch (Exception e) {
+            System.err.println("LANGUAGE APPLY ERROR: " + e.getMessage());
+        }
     }
 
     /**
@@ -63,6 +72,65 @@ public final class DynamicLang {
     }
 
     /**
+     * الحصول على حزمة لغة
+     */
+    public LanguagePack getLanguagePack(String languageCode) {
+        return languagePacks.get(languageCode);
+    }
+
+    /**
+     * التحقق من وجود حزمة لغة
+     */
+    public boolean hasLanguagePack(String languageCode) {
+        return languagePacks.containsKey(languageCode);
+    }
+
+    /**
+     * حذف حزمة لغة
+     */
+    public void removeLanguagePack(String languageCode) {
+        LanguagePack removed = languagePacks.remove(languageCode);
+        if (removed != null) {
+            System.out.println("DYNAMIC LANG: Removed language pack " + languageCode);
+        }
+    }
+
+    /**
+     * حذف جميع حزم اللغات (للاختبارات)
+     */
+    public void clearAllLanguagePacks() {
+        languagePacks.clear();
+        System.out.println("DYNAMIC LANG: Cleared all language packs");
+    }
+
+    /**
+     * نتيجة اللغة
+     */
+    public static final class LanguageResult {
+        private final boolean success;
+        private final LanguagePack languagePack;
+        private final String message;
+
+        private LanguageResult(boolean success, LanguagePack languagePack, String message) {
+            this.success = success;
+            this.languagePack = languagePack;
+            this.message = message;
+        }
+
+        public static LanguageResult success(LanguagePack languagePack, String message) {
+            return new LanguageResult(true, languagePack, message);
+        }
+
+        public static LanguageResult failure(String message) {
+            return new LanguageResult(false, null, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public LanguagePack getLanguagePack() { return languagePack; }
+        public String getMessage() { return message; }
+    }
+
+    /**
      * حزمة اللغة
      */
     public static final class LanguagePack {
@@ -71,7 +139,6 @@ public final class DynamicLang {
 
         public LanguagePack(String languageCode) {
             this.languageCode = languageCode;
-            // في الإنتاج: تحميل الترجمات من الملفات أو السيرفر
             initializeDefaultTranslations();
         }
 
@@ -79,18 +146,46 @@ public final class DynamicLang {
             translations.put("buy_button", languageCode.equals("ar") ? "شراء" : "Buy");
             translations.put("sell_button", languageCode.equals("ar") ? "بيع" : "Sell");
             translations.put("balance_label", languageCode.equals("ar") ? "الرصيد: {0} MAZDADY" : "Balance: {0} MAZDADY");
+            translations.put("withdraw_button", languageCode.equals("ar") ? "سحب الأرباح" : "Withdraw Profits");
+            translations.put("deposit_button", languageCode.equals("ar") ? "إيداع" : "Deposit");
+            translations.put("settings_button", languageCode.equals("ar") ? "الإعدادات" : "Settings");
+            translations.put("help_button", languageCode.equals("ar") ? "المساعدة" : "Help");
+            translations.put("exit_button", languageCode.equals("ar") ? "خروج" : "Exit");
         }
 
         public void updateTranslations(Map<String, String> newTranslations) {
-            translations.putAll(newTranslations);
+            if (newTranslations != null) {
+                translations.putAll(newTranslations);
+            }
         }
 
         public String getTranslation(String key) {
             return translations.getOrDefault(key, key);
         }
 
-        public String getLanguageCode() {
-            return languageCode;
+        public String getLanguageCode() { return languageCode; }
+        public int getTranslationCount() { return translations.size(); }
+        public Map<String, String> getTranslations() { return new ConcurrentHashMap<>(translations); }
+        
+        /**
+         * إعادة تعيين الترجمات (للاختبارات)
+         */
+        public void reset() {
+            translations.clear();
+            initializeDefaultTranslations();
+            System.out.println("LANGUAGE PACK: Reset completed for " + languageCode);
         }
+    }
+
+    // --- Getters ---
+    public int getLanguagePackCount() { return languagePacks.size(); }
+    public Map<String, LanguagePack> getLanguagePacks() { return new ConcurrentHashMap<>(languagePacks); }
+    
+    /**
+     * إعادة تعيين المدير (للاختبارات)
+     */
+    public void reset() {
+        languagePacks.clear();
+        System.out.println("DYNAMIC LANG: Reset completed");
     }
 }
