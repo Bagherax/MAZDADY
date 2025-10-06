@@ -1,27 +1,256 @@
 // server/admin/api.js
-async function saveConfig(config) {
-    // في الإنتاج: حفظ في config.json عبر GitHub API
-    console.log("تم حفظ الإعدادات:", config);
+const express = require('express');
+const multer = require('multer');
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
+
+const app = express();
+const upload = multer({ dest: 'uploads/' });
+
+// --- إعدادات الأمان ---
+const ADMIN_TOKEN = process.env.ADMIN_TOKEN || 'YOUR_SECRET_ADMIN_TOKEN_HERE';
+const CORS_ORIGIN = process.env.CORS_ORIGIN || '*';
+
+// --- Middlewares ---
+app.use(express.json());
+app.use((req, res, next) => {
+    res.header('Access-Control-Allow-Origin', CORS_ORIGIN);
+    res.header('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE');
+    next();
+});
+
+// --- Authentication Middleware ---
+function authenticateAdmin(req, res, next) {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
     
-    // محاكاة الحفظ
-    return { success: true, message: "تم الحفظ بنجاح!" };
+    if (!token || token !== ADMIN_TOKEN) {
+        return res.status(401).json({ 
+            success: false, 
+            message: 'Unauthorized: Invalid admin token' 
+        });
+    }
+    
+    console.log('ADMIN API: Authenticated request from admin');
+    next();
 }
 
-async function updateFeatureToggle(featureId, enabled) {
-    const config = await fetchConfig();
-    config.ui.elements[featureId].visible = enabled;
-    return saveConfig(config);
-}
+// --- Routes ---
 
-// دوال مساعدة
-async function fetchConfig() {
-    // في الإنتاج: جلب من server/config.json
-    return {
-        ui: {
-            elements: {
-                payment_tools: { visible: false },
-                floating_ad: { visible: true }
-            }
+/**
+ * تحديث الإعدادات الإدارية
+ */
+app.put('/api/admin/config', authenticateAdmin, (req, res) => {
+    try {
+        const newConfig = req.body;
+        const configPath = path.join(__dirname, '../config.json');
+        
+        // التحقق من صحة الإعدادات
+        if (!isValidConfig(newConfig)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid configuration format'
+            });
         }
-    };
-}
+        
+        // حفظ الإعدادات الجديدة
+        fs.writeFileSync(configPath, JSON.stringify(newConfig, null, 2));
+        
+        console.log('ADMIN API: Configuration updated successfully');
+        res.json({
+            success: true,
+            message: 'Configuration updated successfully'
+        });
+        
+    } catch (error) {
+        console.error('CONFIG UPDATE ERROR:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Configuration update failed: ' + error.message
+        });
+    }
+});
+
+/**
+ * الحصول على الإعدادات الإدارية
+ */
+app.get('/api/admin/config', authenticateAdmin, (req, res) => {
+    try {
+        const configPath = path.join(__dirname, '../config.json');
+        const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+        
+        console.log('ADMIN API: Configuration retrieved successfully');
+        res.json({
+            success: true,
+            config: config
+        });
+        
+    } catch (error) {
+        console.error('CONFIG RETRIEVE ERROR:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to retrieve configuration: ' + error.message
+        });
+    }
+});
+
+/**
+ * تحديث أبعاد العناصر
+ */
+app.put('/api/admin/element-dimensions', authenticateAdmin, (req, res) => {
+    try {
+        const newDimensions = req.body;
+        const dimensionsPath = path.join(__dirname, '../element_dimensions.json');
+        
+        // التحقق من صحة الأبعاد
+        if (!isValidDimensions(newDimensions)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid element dimensions format'
+            });
+        }
+        
+        // حفظ الأبعاد الجديدة
+        fs.writeFileSync(dimensionsPath, JSON.stringify(newDimensions, null, 2));
+        
+        console.log('ADMIN API: Element dimensions updated successfully');
+        res.json({
+            success: true,
+            message: 'Element dimensions updated successfully'
+        });
+        
+    } catch (error) {
+        console.error('DIMENSIONS UPDATE ERROR:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Element dimensions update failed: ' + error.message
+        });
+    }
+});
+
+/**
+ * رفع فيديو افتتاحي
+ */
+app.post('/api/admin/upload-splash-video', authenticateAdmin, upload.single('video'), (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({
+                success: false,
+                message: 'No video file uploaded'
+            });
+        }
+        
+        const videoFile = req.file;
+        const targetPath = path.join(__dirname, '../videos/splash_intro.mp4');
+        
+        // نقل الملف إلى المجلد النهائي
+        fs.renameSync(videoFile.path, targetPath);
+        
+        // تحديث config.json
+        const configPath = path.join(__dirname, '../config.json');
+        const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+        config.ui.splash_video_url = 'https://raw.githubusercontent.com/BAGHERAX/MAZDADY/main/server/videos/splash_intro.mp4';
+        fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+        
+        console.log('ADMIN API: Splash video uploaded successfully');
+        res.json({
+            success: true,
+            message: 'Splash video uploaded successfully',
+            video_url: config.ui.splash_video_url
+        });
+        
+    } catch (error) {
+        console.error('VIDEO UPLOAD ERROR:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Splash video upload failed: ' + error.message
+        });
+    }
+});
+
+/**
+ * رفع صورة خلفية للواجهة
+ */
+app.post('/api/admin/upload-background-image', authenticateAdmin, upload.single('image'), (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({
+                success: false,
+                message: 'No image file uploaded'
+            });
+        }
+        
+        const imageFile = req.file;
+        const targetPath = path.join(__dirname, '../images/ui_background.png');
+        
+        // نقل الملف إلى المجلد النهائي
+        fs.renameSync(imageFile.path, targetPath);
+        
+        // تحديث config.json
+        const configPath = path.join(__dirname, '../config.json');
+        const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+        config.ui.main_background_image = 'https://raw.githubusercontent.com/BAGHERAX/MAZDADY/main/server/images/ui_background.png';
+        fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+        
+        console.log('ADMIN API: Background image uploaded successfully');
+        res.json({
+            success: true,
+            message: 'Background image uploaded successfully',
+            image_url: config.ui.main_background_image
+        });
+        
+    } catch (error) {
+        console.error('BACKGROUND IMAGE UPLOAD ERROR:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Background image upload failed: ' + error.message
+        });
+    }
+});
+
+/**
+ * رفع صورة خلفية للـ Popup
+ */
+app.post('/api/admin/upload-popup-background', authenticateAdmin, upload.single('image'), (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({
+                success: false,
+                message: 'No image file uploaded'
+            });
+        }
+        
+        const imageFile = req.file;
+        const targetPath = path.join(__dirname, '../images/popup_background.png');
+        
+        // نقل الملف إلى المجلد النهائي
+        fs.renameSync(imageFile.path, targetPath);
+        
+        // تحديث config.json
+        const configPath = path.join(__dirname, '../config.json');
+        const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+        config.ui.popup_background_image = 'https://raw.githubusercontent.com/BAGHERAX/MAZDADY/main/server/images/popup_background.png';
+        fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+        
+        console.log('ADMIN API: Popup background uploaded successfully');
+        res.json({
+            success: true,
+            message: 'Popup background uploaded successfully',
+            image_url: config.ui.popup_background_image
+        });
+        
+    } catch (error) {
+        console.error('POPUP BACKGROUND UPLOAD ERROR:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Popup background upload failed: ' + error.message
+        });
+    }
+});
+
+/**
+ * رفع صورة خلفية لخط التداول
+ */
+app.post('/api/admin/upload-trading-line-background', authenticateAdmin, upload.single('image'), (
