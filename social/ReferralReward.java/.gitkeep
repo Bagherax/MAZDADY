@@ -1,98 +1,69 @@
 package mazdady.social;
 
-import mazdady.user.User;
-import mazdady.user.UserManager;
-
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * مكافآت الإحالة مع دعم المكافآت المتعددة المستويات
- * يتبع نمط Strategy لفصل استراتيجيات المكافآت
+ * مكافآت الإحالة
+ * يحسب المكافآت عند دعوة الأصدقاء
  */
 public final class ReferralReward {
-    private static ReferralReward instance;
+    private final Map<String, ReferralInfo> referrals = new ConcurrentHashMap<>();
+    private static final int REFERRAL_BONUS = 50;
 
-    private ReferralReward() {}
-
-    public static synchronized ReferralReward getInstance() {
-        if (instance == null) {
-            instance = new ReferralReward();
-        }
-        return instance;
-    }
-
-    /**
-     * منح مكافأة الإحالة غير المتزامنة
-     */
-    public CompletableFuture<RewardResult> grantReferralRewardAsync(String referrerId, String refereeId) {
+    public CompletableFuture<ReferralResult> processReferralAsync(String referrerId, String refereeId) {
         return CompletableFuture.supplyAsync(() -> {
-            try {
-                User referrer = UserManager.getInstance(null).getCurrentUser();
-                if (!referrer.getUserId().equals(referrerId)) {
-                    return RewardResult.failure("Invalid referrer ID");
-                }
-                
-                // مكافأة المحيل
-                double referrerReward = calculateReferrerReward(referrer.getReferralCount() + 1);
-                referrer.setBalance(referrer.getBalance() + referrerReward);
-                referrer.incrementReferralCount();
-                
-                // مكافأة المحال
-                User referee = UserManager.getInstance(null).getCurrentUser();
-                double refereeReward = 25.0; // مكافأة ثابتة للمحال
-                referee.setBalance(referee.getBalance() + refereeReward);
-                
-                System.out.println("REFERRAL REWARD: " + referrerReward + " MAZDADY to " + referrerId + 
-                                 ", " + refereeReward + " MAZDADY to " + refereeId);
-                
-                return RewardResult.success(referrerReward, refereeReward);
-                
-            } catch (Exception e) {
-                return RewardResult.failure("Referral reward failed: " + e.getMessage());
+            if (referrals.containsKey(refereeId)) {
+                return ReferralResult.failure("User already referred: " + refereeId);
             }
+
+            referrals.put(refereeId, new ReferralInfo(referrerId, System.currentTimeMillis()));
+            return ReferralResult.success("Referral processed for " + referrerId, REFERRAL_BONUS);
         });
     }
 
-    private double calculateReferrerReward(int referralCount) {
-        // مكافآت تصاعدية للمحيل
-        if (referralCount <= 5) {
-            return 10.0; // 10 MAZDADY لكل إحالة أولى
-        } else if (referralCount <= 15) {
-            return 15.0; // 15 MAZDADY
-        } else if (referralCount <= 50) {
-            return 20.0; // 20 MAZDADY
-        } else {
-            return 25.0; // 25 MAZDADY
-        }
+    public int getTotalReferralCount(String userId) {
+        return (int) referrals.values().stream()
+            .filter(info -> info.getReferrerId().equals(userId))
+            .count();
     }
 
-    /**
-     * نتيجة المكافأة
-     */
-    public static final class RewardResult {
+    // --- Inner Classes ---
+    public static final class ReferralResult {
         private final boolean success;
-        private final double referrerReward;
-        private final double refereeReward;
         private final String message;
+        private final int rewardPoints;
 
-        private RewardResult(boolean success, double referrerReward, double refereeReward, String message) {
+        private ReferralResult(boolean success, String message, int rewardPoints) {
             this.success = success;
-            this.referrerReward = referrerReward;
-            this.refereeReward = refereeReward;
             this.message = message;
+            this.rewardPoints = rewardPoints;
         }
 
-        public static RewardResult success(double referrerReward, double refereeReward) {
-            return new RewardResult(true, referrerReward, refereeReward, "Referral rewards granted successfully");
+        public static ReferralResult success(String message, int rewardPoints) {
+            return new ReferralResult(true, message, rewardPoints);
         }
 
-        public static RewardResult failure(String message) {
-            return new RewardResult(false, 0, 0, message);
+        public static ReferralResult failure(String message) {
+            return new ReferralResult(false, message, 0);
         }
 
         public boolean isSuccess() { return success; }
-        public double getReferrerReward() { return referrerReward; }
-        public double getRefereeReward() { return refereeReward; }
         public String getMessage() { return message; }
+        public int getRewardPoints() { return rewardPoints; }
+    }
+
+    public static final class ReferralInfo {
+        private final String referrerId;
+        private final long timestamp;
+
+        public ReferralInfo(String referrerId, long timestamp) {
+            this.referrerId = referrerId;
+            this.timestamp = timestamp;
+        }
+
+        public String getReferrerId() { return referrerId; }
+        public long getTimestamp() { return timestamp; }
     }
 }
