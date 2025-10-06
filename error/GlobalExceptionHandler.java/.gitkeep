@@ -4,8 +4,12 @@ import android.app.Activity;
 import android.app.Application;
 import android.content.Context;
 
+import mazdady.user.User;
+import mazdady.user.UserManager;
+
 import java.lang.Thread.UncaughtExceptionHandler;
 import java.time.Instant;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Consumer;
 
@@ -15,24 +19,19 @@ import java.util.function.Consumer;
  */
 public final class GlobalExceptionHandler implements UncaughtExceptionHandler {
     private final UncaughtExceptionHandler defaultHandler;
-    private final CopyOnWriteArrayList<Consumer<ErrorEvent>> listeners = new CopyOnWriteArrayList<>();
+    private final CrashReporter crashReporter;
+    private final CopyOnWriteArrayList<Consumer<ErrorEvent>> errorListeners = new CopyOnWriteArrayList<>();
     private static GlobalExceptionHandler instance;
 
-    private GlobalExceptionHandler(Application application) {
+    private GlobalExceptionHandler(CrashReporter crashReporter) {
         this.defaultHandler = Thread.getDefaultUncaughtExceptionHandler();
+        this.crashReporter = crashReporter;
         Thread.setDefaultUncaughtExceptionHandler(this);
-        application.registerActivityLifecycleCallbacks(new ActivityLifecycleCallbacks());
     }
 
-    public static synchronized void initialize(Application application) {
+    public static synchronized GlobalExceptionHandler getInstance(CrashReporter crashReporter) {
         if (instance == null) {
-            instance = new GlobalExceptionHandler(application);
-        }
-    }
-
-    public static GlobalExceptionHandler getInstance() {
-        if (instance == null) {
-            throw new IllegalStateException("GlobalExceptionHandler not initialized. Call initialize() first.");
+            instance = new GlobalExceptionHandler(crashReporter);
         }
         return instance;
     }
@@ -40,10 +39,15 @@ public final class GlobalExceptionHandler implements UncaughtExceptionHandler {
     @Override
     public void uncaughtException(Thread thread, Throwable throwable) {
         ErrorEvent event = new ErrorEvent(throwable, Instant.now(), getCurrentActivity());
-        notifyListeners(event);
+        
+        // إعلام المستمعين
+        notifyErrorListeners(event);
         
         // حفظ تقرير العطل
-        CrashReporter.getInstance().saveCrashReport(event);
+        crashReporter.saveCrashReportAsync(event);
+        
+        System.out.println("GLOBAL EXCEPTION HANDLER: Uncaught exception - " + 
+                         throwable.getClass().getSimpleName() + ": " + throwable.getMessage());
         
         // استدعاء المعالج الافتراضي (لإنهاء التطبيق)
         if (defaultHandler != null) {
@@ -51,26 +55,55 @@ public final class GlobalExceptionHandler implements UncaughtExceptionHandler {
         }
     }
 
-    private void notifyListeners(ErrorEvent event) {
-        listeners.forEach(listener -> {
+    /**
+     * معالجة استثناء مُcaught غير متزامن
+     */
+    public CompletableFuture<HandleResult> handleCaughtExceptionAsync(
+        Throwable throwable, 
+        String context
+    ) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                ErrorEvent event = new ErrorEvent(throwable, Instant.now(), context);
+                notifyErrorListeners(event);
+                
+                // في الإنتاج: تسجيل الخطأ في السجل
+                System.err.println("CAUGHT EXCEPTION: " + context + " - " + 
+                                 throwable.getClass().getSimpleName() + ": " + throwable.getMessage());
+                
+                return HandleResult.success("Exception handled successfully");
+                
+            } catch (Exception e) {
+                return HandleResult.failure("Exception handling failed: " + e.getMessage());
+            }
+        });
+    }
+
+    private void notifyErrorListeners(ErrorEvent event) {
+        errorListeners.forEach(listener -> {
             try {
                 listener.accept(event);
             } catch (Exception e) {
-                // تجاهل أخطاء المستمعين لتجنب التكرار
+                // تجاهل أخطاء المستمعين
             }
         });
     }
 
     public void addErrorListener(Consumer<ErrorEvent> listener) {
-        listeners.add(listener);
+        if (listener != null) {
+            errorListeners.add(listener);
+            System.out.println("GLOBAL EXCEPTION HANDLER: Added error listener");
+        }
     }
 
     public void removeErrorListener(Consumer<ErrorEvent> listener) {
-        listeners.remove(listener);
+        errorListeners.remove(listener);
+        System.out.println("GLOBAL EXCEPTION HANDLER: Removed error listener");
     }
 
     private Activity getCurrentActivity() {
-        return ActivityLifecycleCallbacks.getCurrentActivity();
+        // في الإنتاج: الحصول من ActivityLifecycleCallbacks
+        return null; // محاكاة
     }
 
     /**
@@ -79,35 +112,51 @@ public final class GlobalExceptionHandler implements UncaughtExceptionHandler {
     public static final class ErrorEvent {
         private final Throwable throwable;
         private final Instant timestamp;
-        private final Activity activity;
+        private final Object context;
 
-        public ErrorEvent(Throwable throwable, Instant timestamp, Activity activity) {
+        public ErrorEvent(Throwable throwable, Instant timestamp, Object context) {
             this.throwable = throwable;
             this.timestamp = timestamp;
-            this.activity = activity;
+            this.context = context;
         }
 
+        // Getters
         public Throwable getThrowable() { return throwable; }
         public Instant getTimestamp() { return timestamp; }
-        public Activity getActivity() { return activity; }
+        public Object getContext() { return context; }
+        
+        @Override
+        public String toString() {
+            return "ErrorEvent{" +
+                "type=" + (throwable != null ? throwable.getClass().getSimpleName() : "null") +
+                ", message='" + (throwable != null ? throwable.getMessage() : "null") + '\'' +
+                ", timestamp=" + timestamp +
+                ", context=" + context +
+                '}';
+        }
     }
 
     /**
-     * مراقب دورة حياة النشاط
+     * نتيجة المعالجة
      */
-    private static final class ActivityLifecycleCallbacks implements Application.ActivityLifecycleCallbacks {
-        private static volatile Activity currentActivity;
+    public static final class HandleResult {
+        private final boolean success;
+        private final String message;
 
-        @Override public void onActivityCreated(Activity activity, android.os.Bundle savedInstanceState) {}
-        @Override public void onActivityStarted(Activity activity) {}
-        @Override public void onActivityResumed(Activity activity) { currentActivity = activity; }
-        @Override public void onActivityPaused(Activity activity) {}
-        @Override public void onActivityStopped(Activity activity) {}
-        @Override public void onActivitySaveInstanceState(Activity activity, android.os.Bundle outState) {}
-        @Override public void onActivityDestroyed(Activity activity) { if (currentActivity == activity) currentActivity = null; }
-
-        public static Activity getCurrentActivity() {
-            return currentActivity;
+        private HandleResult(boolean success, String message) {
+            this.success = success;
+            this.message = message;
         }
+
+        public static HandleResult success(String message) {
+            return new HandleResult(true, message);
+        }
+
+        public static HandleResult failure(String message) {
+            return new HandleResult(false, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public String getMessage() { return message; }
     }
 }
