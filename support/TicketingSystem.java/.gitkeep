@@ -1,136 +1,56 @@
 package mazdady.support;
 
-import mazdady.user.User;
-import mazdady.user.UserManager;
-
-import java.time.Instant;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
 
 /**
- * نظام التذاكر مع دعم تتبع الحالة المتقدم
- * يتبع نمط State لتمثيل حالات التذكرة
+ * نظام إدارة التذاكر (الواجهة الموحدة)
  */
 public final class TicketingSystem {
-    private final Map<String, SupportTicket> tickets = new ConcurrentHashMap<>();
-    private final AtomicInteger nextTicketId = new AtomicInteger(1000);
-    private static TicketingSystem instance;
+    private final Map<String, Ticketing.Ticket> tickets = new ConcurrentHashMap<>();
+    private final List<AlHelpdesk.SupportAgent> agents = new java.util.ArrayList<>();
 
-    private TicketingSystem() {}
-
-    public static synchronized TicketingSystem getInstance() {
-        if (instance == null) {
-            instance = new TicketingSystem();
-        }
-        return instance;
-    }
-
-    /**
-     * إنشاء تذكرة دعم جديدة
-     */
-    public SupportTicket createTicket(String subject, String description, String category) {
-        User user = UserManager.getInstance(null).getCurrentUser();
-        String ticketId = "TICKET-" + nextTicketId.getAndIncrement();
-        
-        SupportTicket ticket = new SupportTicket.Builder()
-            .ticketId(ticketId)
-            .userId(user.getUserId())
-            .subject(subject)
-            .description(description)
-            .category(category)
-            .build();
-            
-        tickets.put(ticketId, ticket);
-        System.out.println("TICKET CREATED: " + ticketId + " for user " + user.getUserId());
-        
-        return ticket;
-    }
-
-    /**
-     * تحديث حالة التذكرة
-     */
-    public void updateTicketStatus(String ticketId, TicketStatus status) {
-        SupportTicket ticket = tickets.get(ticketId);
-        if (ticket != null) {
-            ticket.updateStatus(status);
-            System.out.println("TICKET UPDATED: " + ticketId + " status changed to " + status);
-        }
-    }
-
-    /**
-     * الحصول على تذكرة
-     */
-    public SupportTicket getTicket(String ticketId) {
-        return tickets.get(ticketId);
-    }
-
-    /**
-     * تذكرة الدعم
-     */
-    public static final class SupportTicket {
-        private final String ticketId;
-        private final String userId;
-        private final String subject;
-        private final String description;
-        private final String category;
-        private volatile TicketStatus status;
-        private final Instant createdAt;
-        private volatile Instant resolvedAt;
-
-        private SupportTicket(Builder builder) {
-            this.ticketId = builder.ticketId;
-            this.userId = builder.userId;
-            this.subject = builder.subject;
-            this.description = builder.description;
-            this.category = builder.category;
-            this.status = TicketStatus.OPEN;
-            this.createdAt = Instant.now();
-        }
-
-        public void updateStatus(TicketStatus status) {
-            this.status = status;
-            if (status == TicketStatus.RESOLVED || status == TicketStatus.CLOSED) {
-                this.resolvedAt = Instant.now();
+    public CompletableFuture<Ticketing.TicketResult> escalateTicketToAgentAsync(String ticketId, String agentId) {
+        return CompletableFuture.supplyAsync(() -> {
+            Ticketing.Ticket ticket = tickets.get(ticketId);
+            if (ticket == null) {
+                return Ticketing.TicketResult.failure("Ticket not found: " + ticketId);
             }
-        }
 
-        // Getters
-        public String getTicketId() { return ticketId; }
-        public String getUserId() { return userId; }
-        public String getSubject() { return subject; }
-        public String getDescription() { return description; }
-        public String getCategory() { return category; }
-        public TicketStatus getStatus() { return status; }
-        public Instant getCreatedAt() { return createdAt; }
-        public Instant getResolvedAt() { return resolvedAt; }
+            AlHelpdesk.SupportAgent agent = agents.stream()
+                .filter(a -> a.getId().equals(agentId) && a.isAvailable())
+                .findFirst()
+                .orElse(null);
 
-        /**
-         * منشئ التذكرة
-         */
-        public static class Builder {
-            private String ticketId;
-            private String userId;
-            private String subject;
-            private String description;
-            private String category;
-
-            public Builder ticketId(String ticketId) { this.ticketId = ticketId; return this; }
-            public Builder userId(String userId) { this.userId = userId; return this; }
-            public Builder subject(String subject) { this.subject = subject; return this; }
-            public Builder description(String description) { this.description = description; return this; }
-            public Builder category(String category) { this.category = category; return this; }
-
-            public SupportTicket build() {
-                return new SupportTicket(this);
+            if (agent == null) {
+                return Ticketing.TicketResult.failure("Agent not available: " + agentId);
             }
-        }
+
+            ticket.setAssignedAgent(agent.getName());
+            ticket.setStatus(Ticketing.TicketStatus.IN_PROGRESS);
+
+            return Ticketing.TicketResult.success("Ticket escalated to agent: " + agent.getName(), ticketId);
+        });
     }
 
-    /**
-     * حالة التذكرة
-     */
-    public enum TicketStatus {
-        OPEN, IN_PROGRESS, RESOLVED, CLOSED
+    public List<Ticketing.Ticket> getOpenTickets() {
+        return tickets.values().stream()
+            .filter(ticket -> ticket.getStatus() == Ticketing.TicketStatus.OPEN)
+            .collect(Collectors.toList());
+    }
+
+    public List<Ticketing.Ticket> getUserTickets(String userId) {
+        return tickets.values().stream()
+            .filter(ticket -> ticket.getUserId().equals(userId))
+            .collect(Collectors.toList());
+    }
+
+    public int getOpenTicketCount() {
+        return (int) tickets.values().stream()
+            .filter(ticket -> ticket.getStatus() == Ticketing.TicketStatus.OPEN)
+            .count();
     }
 }
