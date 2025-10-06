@@ -1,90 +1,178 @@
 package mazdady.social;
 
-import mazdady.user.User;
-import mazdady.user.UserManager;
-
+import java.util.*;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicLong;
+import java.util.stream.Collectors;
 
 /**
- * مدير المجتمع مع دعم الأنشطة الاجتماعية
- * يتبع نمط Singleton مع تهيئة آمنة
+ * مدير المجتمع
+ * يتبع نمط Command لتنفيذ أوامر إدارة المجتمع
  */
 public final class CommunityMgr {
-    private final ConcurrentHashMap<String, CommunityActivity> activities = new ConcurrentHashMap<>();
-    private final AtomicLong totalCommunityPoints = new AtomicLong(0);
-    private static CommunityMgr instance;
+    private final Map<String, User> users = new ConcurrentHashMap<>();
+    private final Map<String, Post> posts = new ConcurrentHashMap<>();
+    private final Map<String, Comment> comments = new ConcurrentHashMap<>();
+    private final Set<String> blockedUsers = ConcurrentHashMap.newKeySet();
+    private final Set<String> mutedUsers = ConcurrentHashMap.newKeySet();
 
-    private CommunityMgr() {}
+    public CompletableFuture<CommunityResult> executeCommandAsync(CommunityCommand command) {
+        return CompletableFuture.supplyAsync(() -> {
+            switch (command.getType()) {
+                case MUTE_USER:
+                    mutedUsers.add(command.getTargetUserId());
+                    return CommunityResult.success("User muted: " + command.getTargetUserId());
+                case UNMUTE_USER:
+                    mutedUsers.remove(command.getTargetUserId());
+                    return CommunityResult.success("User unmuted: " + command.getTargetUserId());
+                case BLOCK_USER:
+                    blockedUsers.add(command.getTargetUserId());
+                    return CommunityResult.success("User blocked: " + command.getTargetUserId());
+                case UNBLOCK_USER:
+                    blockedUsers.remove(command.getTargetUserId());
+                    return CommunityResult.success("User unblocked: " + command.getTargetUserId());
+                case DELETE_POST:
+                    posts.remove(command.getPostId());
+                    return CommunityResult.success("Post deleted: " + command.getPostId());
+                case REPORT_POST:
+                    System.out.println("REPORT: Post " + command.getPostId() + " reported by " + command.getActorUserId());
+                    return CommunityResult.success("Report submitted for post: " + command.getPostId());
+                default:
+                    return CommunityResult.failure("Unknown command: " + command.getType());
+            }
+        });
+    }
 
-    public static synchronized CommunityMgr getInstance() {
-        if (instance == null) {
-            instance = new CommunityMgr();
+    public List<Post> getUserPosts(String userId) {
+        return posts.values().stream()
+            .filter(post -> post.getAuthorId().equals(userId))
+            .collect(Collectors.toList());
+    }
+
+    public List<Comment> getPostComments(String postId) {
+        return comments.values().stream()
+            .filter(comment -> comment.getPostId().equals(postId))
+            .collect(Collectors.toList());
+    }
+
+    // --- Inner Classes ---
+    public enum CommandType {
+        MUTE_USER, UNMUTE_USER, BLOCK_USER, UNBLOCK_USER, DELETE_POST, REPORT_POST
+    }
+
+    public static final class CommunityCommand {
+        private final CommandType type;
+        private final String actorUserId;
+        private final String targetUserId;
+        private final String postId;
+
+        private CommunityCommand(Builder builder) {
+            this.type = builder.type;
+            this.actorUserId = builder.actorUserId;
+            this.targetUserId = builder.targetUserId;
+            this.postId = builder.postId;
         }
-        return instance;
-    }
 
-    /**
-     * تسجيل نشاط اجتماعي
-     */
-    public void registerActivity(String userId, ActivityType type, double impact) {
-        CommunityActivity activity = new CommunityActivity(userId, type, impact, System.currentTimeMillis());
-        activities.put("activity_" + System.currentTimeMillis(), activity);
-        
-        // منح نقاط مجتمعية
-        int points = calculateCommunityPoints(type, impact);
-        User user = UserManager.getInstance(null).getCurrentUser();
-        if (user.getUserId().equals(userId)) {
-            user.addCommunityPoints(points);
-            totalCommunityPoints.addAndGet(points);
-        }
-        
-        System.out.println("COMMUNITY ACTIVITY: " + type + " by " + userId + " (" + points + " points)");
-    }
+        public CommandType getType() { return type; }
+        public String getActorUserId() { return actorUserId; }
+        public String getTargetUserId() { return targetUserId; }
+        public String getPostId() { return postId; }
 
-    private int calculateCommunityPoints(ActivityType type, double impact) {
-        switch (type) {
-            case TRADING:
-                return (int) (impact * 0.1); // 0.1 نقطة لكل MAZDADY
-            case AD_CAMPAIGN:
-                return (int) (impact * 0.5); // 0.5 نقطة لكل MAZDADY
-            case REFERRAL:
-                return 50; // 50 نقطة لكل إحالة
-            case ACHIEVEMENT:
-                return 100; // 100 نقطة لكل إنجاز
-            default:
-                return 10;
+        public static final class Builder {
+            private CommandType type;
+            private String actorUserId;
+            private String targetUserId;
+            private String postId;
+
+            public Builder type(CommandType type) { this.type = type; return this; }
+            public Builder actorUserId(String actorUserId) { this.actorUserId = actorUserId; return this; }
+            public Builder targetUserId(String targetUserId) { this.targetUserId = targetUserId; return this; }
+            public Builder postId(String postId) { this.postId = postId; return this; }
+
+            public CommunityCommand build() {
+                return new CommunityCommand(this);
+            }
         }
     }
 
-    /**
-     * الحصول على إجمالي نقاط المجتمع
-     */
-    public long getTotalCommunityPoints() {
-        return totalCommunityPoints.get();
+    public static final class CommunityResult {
+        private final boolean success;
+        private final String message;
+
+        private CommunityResult(boolean success, String message) {
+            this.success = success;
+            this.message = message;
+        }
+
+        public static CommunityResult success(String message) {
+            return new CommunityResult(true, message);
+        }
+
+        public static CommunityResult failure(String message) {
+            return new CommunityResult(false, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public String getMessage() { return message; }
     }
 
-    /**
-     * نشاط المجتمع
-     */
-    private static final class CommunityActivity {
-        private final String userId;
-        private final ActivityType type;
-        private final double impact;
+    public static final class User {
+        private final String id;
+        private final String username;
+        private final String email;
+
+        public User(String id, String username, String email) {
+            this.id = id;
+            this.username = username;
+            this.email = email;
+        }
+
+        // Getters...
+        public String getId() { return id; }
+        public String getUsername() { return username; }
+        public String getEmail() { return email; }
+    }
+
+    public static final class Post {
+        private final String id;
+        private final String authorId;
+        private final String content;
         private final long timestamp;
 
-        public CommunityActivity(String userId, ActivityType type, double impact, long timestamp) {
-            this.userId = userId;
-            this.type = type;
-            this.impact = impact;
-            this.timestamp = timestamp;
+        public Post(String id, String authorId, String content) {
+            this.id = id;
+            this.authorId = authorId;
+            this.content = content;
+            this.timestamp = System.currentTimeMillis();
         }
+
+        // Getters...
+        public String getId() { return id; }
+        public String getAuthorId() { return authorId; }
+        public String getContent() { return content; }
+        public long getTimestamp() { return timestamp; }
     }
 
-    /**
-     * أنواع الأنشطة
-     */
-    public enum ActivityType {
-        TRADING, AD_CAMPAIGN, REFERRAL, ACHIEVEMENT, SOCIAL_POST
+    public static final class Comment {
+        private final String id;
+        private final String postId;
+        private final String authorId;
+        private final String content;
+        private final long timestamp;
+
+        public Comment(String id, String postId, String authorId, String content) {
+            this.id = id;
+            this.postId = postId;
+            this.authorId = authorId;
+            this.content = content;
+            this.timestamp = System.currentTimeMillis();
+        }
+
+        // Getters...
+        public String getId() { return id; }
+        public String getPostId() { return postId; }
+        public String getAuthorId() { return authorId; }
+        public String getContent() { return content; }
+        public long getTimestamp() { return timestamp; }
     }
 }
