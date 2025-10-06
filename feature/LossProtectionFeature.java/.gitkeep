@@ -1,0 +1,97 @@
+package mazdady.feature;
+
+import mazdady.trading.PriceEngine;
+import mazdady.user.User;
+import mazdady.user.UserManager;
+
+import java.time.Duration;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+
+/**
+ * ميزة الحماية من الخسارة مع دعم النسب المتعددة
+ * يتبع نمط Strategy لفصل استراتيجيات الحماية
+ */
+public final class LossProtectionFeature {
+    private final int protectionPercentage;
+    private final ScheduledExecutorService protectionScheduler = Executors.newScheduledThreadPool(1);
+    private volatile boolean isActive = false;
+
+    public LossProtectionFeature(int protectionPercentage) {
+        this.protectionPercentage = protectionPercentage;
+    }
+
+    /**
+     * تفعيل ميزة الحماية من الخسارة
+     */
+    public void activateLossProtection(String userId, Duration duration) {
+        if (isActive) {
+            System.out.println("LOSS PROTECTION: Already active for user " + userId);
+            return;
+        }
+        
+        isActive = true;
+        long durationMs = duration.toMillis();
+        
+        System.out.println("LOSS PROTECTION: Activated " + protectionPercentage + "% protection for user " + 
+                         userId + " - Duration: " + durationMs + "ms");
+        
+        // جدولة إيقاف الميزة بعد المدة المحددة
+        protectionScheduler.schedule(
+            this::deactivateLossProtection,
+            durationMs,
+            TimeUnit.MILLISECONDS
+        );
+    }
+
+    /**
+     * تطبيق الحماية من الخسارة
+     */
+    public double applyLossProtection(double originalLoss) {
+        if (!isActive || originalLoss <= 0) return originalLoss;
+        
+        double protectedLoss = originalLoss * (protectionPercentage / 100.0);
+        double actualLoss = originalLoss - protectedLoss;
+        
+        System.out.println("LOSS PROTECTION: Original loss: " + String.format("%.2f", originalLoss) + 
+                         " MAZDADY - Protected: " + String.format("%.2f", protectedLoss) + 
+                         " MAZDADY - Actual: " + String.format("%.2f", actualLoss) + " MAZDADY");
+        
+        return actualLoss;
+    }
+
+    /**
+     * تعطيل ميزة الحماية من الخسارة
+     */
+    private void deactivateLossProtection() {
+        isActive = false;
+        System.out.println("LOSS PROTECTION: " + protectionPercentage + "% protection deactivated");
+    }
+
+    /**
+     * التحقق من حالة الميزة
+     */
+    public boolean isActive() { return isActive; }
+
+    /**
+     * إيقاف الميزة (للاختبارات)
+     */
+    public void shutdown() {
+        isActive = false;
+        protectionScheduler.shutdown();
+        System.out.println("LOSS PROTECTION: Shutdown completed");
+    }
+
+    // --- Getters ---
+    public int getProtectionPercentage() { return protectionPercentage; }
+    public ScheduledExecutorService getProtectionScheduler() { return protectionScheduler; }
+    
+    /**
+     * إعادة تعيين الميزة (للاختبارات)
+     */
+    public void reset() {
+        isActive = false;
+        System.out.println("LOSS PROTECTION: Reset completed");
+    }
+}
