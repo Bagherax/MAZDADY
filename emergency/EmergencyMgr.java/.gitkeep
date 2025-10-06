@@ -16,7 +16,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
 /**
- * مدير الطوارئ مع دعم التحكم المركزي
+ * مدير الطوارئ مع دعم الاستجابة الفورية
  * يتبع نمط Facade لتوفير واجهة موحدة
  */
 public final class EmergencyMgr {
@@ -25,7 +25,6 @@ public final class EmergencyMgr {
     private final ScheduledExecutorService emergencyScheduler = Executors.newScheduledThreadPool(1);
     private final Map<String, Consumer<EmergencyEvent>> emergencyListeners = new ConcurrentHashMap<>();
     private volatile boolean emergencyModeActive = false;
-    private volatile EmergencyLevel currentLevel = EmergencyLevel.NORMAL;
     private static EmergencyMgr instance;
 
     private EmergencyMgr(WalletManager walletManager, SecurityMonitor securityMonitor) {
@@ -43,202 +42,209 @@ public final class EmergencyMgr {
 
     private void startEmergencyMonitoring() {
         emergencyScheduler.scheduleAtFixedRate(
-            this::checkEmergencyConditions,
+            this::checkForEmergencies,
             0,
-            15,
+            30,
             TimeUnit.SECONDS
         );
         
-        System.out.println("EMERGENCY MANAGER: Started emergency monitoring every 15 seconds");
+        System.out.println("EMERGENCY MGR: Started monitoring every 30 seconds");
     }
 
     /**
-     * التحقق من شروط الطوارئ غير متزامن
+     * التحقق من وجود طوارئ غير متزامن
      */
-    private void checkEmergencyConditions() {
+    private void checkForEmergencies() {
         try {
             if (emergencyModeActive) return;
             
-            // التحقق من شروط الطوارئ
-            if (shouldActivateEmergencyMode()) {
-                activateEmergencyMode();
-            }
-            
-        } catch (Exception e) {
-            System.err.println("EMERGENCY MONITORING ERROR: " + e.getMessage());
-        }
-    }
-
-    private boolean shouldActivateEmergencyMode() {
-        try {
-            // التحقق من رصيد النظام
-            double systemTreasury = walletManager.getSystemTreasury();
-            if (systemTreasury < 1000.0) { // أقل من 1000 MAZDADY
-                return true;
-            }
-            
-            // التحقق من عدد المستخدمين النشطين
-            int activeUsers = UserManager.getInstance(null).getActiveUserCount();
-            if (activeUsers < 10) { // أقل من 10 مستخدمين نشطين
-                return true;
-            }
+            // التحقق من حالة المحفظة
+            checkWalletEmergency();
             
             // التحقق من حالة الأمان
-            if (securityMonitor.hasRecentSecurityIncidents()) {
-                return true;
-            }
+            checkSecurityEmergency();
             
-            return false;
+            // التحقق من حالة النظام
+            checkSystemEmergency();
             
         } catch (Exception e) {
-            System.err.println("EMERGENCY CONDITION CHECK ERROR: " + e.getMessage());
-            return false;
+            System.err.println("EMERGENCY CHECK ERROR: " + e.getMessage());
+        }
+    }
+
+    private void checkWalletEmergency() {
+        try {
+            double systemTreasury = walletManager.getSystemTreasury();
+            double totalUserBalance = UserManager.getInstance(null).getAllUsers().stream()
+                .mapToDouble(User::getBalance)
+                .sum();
+            
+            // إذا كان الخزان أقل من 10% من رصيد المستخدمين
+            if (systemTreasury < totalUserBalance * 0.1) {
+                triggerEmergency(EmergencyType.WALLET_CRISIS, "System treasury below 10% of user balances");
+            }
+            
+        } catch (Exception e) {
+            System.err.println("WALLET EMERGENCY CHECK ERROR: " + e.getMessage());
+        }
+    }
+
+    private void checkSecurityEmergency() {
+        try {
+            // التحقق من عدد المحاولات الفاشلة
+            int failedAttempts = securityMonitor.getFailedLoginAttempts();
+            if (failedAttempts > 100) {
+                triggerEmergency(EmergencyType.SECURITY_CRISIS, "High number of failed login attempts detected");
+            }
+            
+            // التحقق من الأجهزة المخترقة
+            int compromisedDevices = securityMonitor.getCompromisedDevicesCount();
+            if (compromisedDevices > 10) {
+                triggerEmergency(EmergencyType.SECURITY_CRISIS, "Multiple compromised devices detected");
+            }
+            
+        } catch (Exception e) {
+            System.err.println("SECURITY EMERGENCY CHECK ERROR: " + e.getMessage());
+        }
+    }
+
+    private void checkSystemEmergency() {
+        try {
+            // التحقق من أداء النظام
+            double cpuUsage = getSystemCPUUsage();
+            double memoryUsage = getSystemMemoryUsage();
+            
+            if (cpuUsage > 90.0 || memoryUsage > 95.0) {
+                triggerEmergency(EmergencyType.SYSTEM_CRISIS, 
+                    "High system resource usage - CPU: " + String.format("%.1f", cpuUsage) + 
+                    "%, Memory: " + String.format("%.1f", memoryUsage) + "%");
+            }
+            
+        } catch (Exception e) {
+            System.err.println("SYSTEM EMERGENCY CHECK ERROR: " + e.getMessage());
         }
     }
 
     /**
-     * تفعيل وضع الطوارئ غير متزامن
+     * تفعيل طوارئ غير متزامن
      */
-    public CompletableFuture<EmergencyResult> activateEmergencyModeAsync() {
+    public CompletableFuture<EmergencyResult> triggerEmergencyAsync(EmergencyType emergencyType, String reason) {
         return CompletableFuture.supplyAsync(() -> {
             try {
-                activateEmergencyMode();
-                return EmergencyResult.success("Emergency mode activated successfully");
+                triggerEmergency(emergencyType, reason);
+                return EmergencyResult.success("Emergency triggered successfully");
                 
             } catch (Exception e) {
-                return EmergencyResult.failure("Emergency mode activation failed: " + e.getMessage());
+                return EmergencyResult.failure("Emergency trigger failed: " + e.getMessage());
             }
         });
     }
 
-    /**
-     * تفعيل وضع الطوارئ
-     */
-    public void activateEmergencyMode() {
-        if (emergencyModeActive) {
-            System.out.println("EMERGENCY MANAGER: Emergency mode already active");
-            return;
-        }
+    private void triggerEmergency(EmergencyType emergencyType, String reason) {
+        System.out.println("🚨 EMERGENCY MGR: Emergency triggered - " + emergencyType + " - " + reason);
         
-        emergencyModeActive = true;
-        currentLevel = EmergencyLevel.CRITICAL;
+        EmergencyEvent event = new EmergencyEvent(emergencyType, reason, Instant.now());
+        notifyEmergencyListeners(event);
         
-        System.out.println("🚨 EMERGENCY MANAGER: Emergency mode activated at " + Instant.now());
+        // تسجيل الطوارئ في السجل الأمني
+        securityMonitor.reportEmergency(emergencyType.name(), reason);
         
-        // تنفيذ إجراءات الطوارئ
-        executeEmergencyMeasures();
-        
-        // إشعار المستمعين
-        notifyEmergencyListeners(new EmergencyEvent(
-            EmergencyEventType.MODE_ACTIVATED,
-            "Emergency mode activated",
-            Instant.now()
-        ));
-        
-        // جدولة إيقاف الطوارئ تلقائيًا بعد 24 ساعة
-        emergencyScheduler.schedule(
-            this::deactivateEmergencyMode,
-            24,
-            TimeUnit.HOURS
-        );
+        // تطبيق إجراءات الطوارئ
+        applyEmergencyMeasures(emergencyType, reason);
     }
 
-    /**
-     * تعطيل وضع الطوارئ غير متزامن
-     */
-    public CompletableFuture<EmergencyResult> deactivateEmergencyModeAsync() {
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                deactivateEmergencyMode();
-                return EmergencyResult.success("Emergency mode deactivated successfully");
-                
-            } catch (Exception e) {
-                return EmergencyResult.failure("Emergency mode deactivation failed: " + e.getMessage());
-            }
-        });
-    }
-
-    /**
-     * تعطيل وضع الطوارئ
-     */
-    public void deactivateEmergencyMode() {
-        if (!emergencyModeActive) {
-            System.out.println("EMERGENCY MANAGER: Emergency mode already inactive");
-            return;
-        }
-        
-        emergencyModeActive = false;
-        currentLevel = EmergencyLevel.NORMAL;
-        
-        System.out.println("✅ EMERGENCY MANAGER: Emergency mode deactivated at " + Instant.now());
-        
-        // تنفيذ إجراءات إنهاء الطوارئ
-        executeEmergencyExitMeasures();
-        
-        // إشعار المستمعين
-        notifyEmergencyListeners(new EmergencyEvent(
-            EmergencyEventType.MODE_DEACTIVATED,
-            "Emergency mode deactivated",
-            Instant.now()
-        ));
-    }
-
-    private void executeEmergencyMeasures() {
-        try {
-            // 1. تجميد السحوبات
-            walletManager.freezeWithdrawals(1440); // تجميد لمدة 24 ساعة
-            
-            // 2. تفعيل بوت الطوارئ
-            mazdady.bot.EmergencyBot emergencyBot = 
-                mazdady.bot.EmergencyBot.getInstance(
-                    mazdady.trading.PriceEngine.getInstance(),
-                    new mazdady.ui.TradingLineView(null, null)
-                );
-            emergencyBot.activateEmergencyBot();
-            
-            // 3. إرسال تنبيه للجميع
-            UserManager.getInstance(null).getAllUsers().forEach(user -> {
-                System.out.println("EMERGENCY ALERT: Sent to user " + user.getUserId());
-            });
-            
-            // 4. تسجيل الحدث في السجل الأمني
-            securityMonitor.logEmergencyEvent("EMERGENCY_MODE_ACTIVATED", 
-                "Emergency mode activated due to critical system conditions");
-            
-            System.out.println("EMERGENCY MANAGER: Emergency measures executed");
-            
-        } catch (Exception e) {
-            System.err.println("EMERGENCY MEASURES ERROR: " + e.getMessage());
+    private void applyEmergencyMeasures(EmergencyType emergencyType, String reason) {
+        switch (emergencyType) {
+            case WALLET_CRISIS:
+                handleWalletCrisis(reason);
+                break;
+            case SECURITY_CRISIS:
+                handleSecurityCrisis(reason);
+                break;
+            case SYSTEM_CRISIS:
+                handleSystemCrisis(reason);
+                break;
+            case FINANCIAL_CRISIS:
+                handleFinancialCrisis(reason);
+                break;
         }
     }
 
-    private void executeEmergencyExitMeasures() {
-        try {
-            // 1. إلغاء تجميد السحوبات
-            walletManager.unfreezeWithdrawals();
-            
-            // 2. تعطيل بوت الطوارئ
-            mazdady.bot.EmergencyBot emergencyBot = 
-                mazdady.bot.EmergencyBot.getInstance(
-                    mazdady.trading.PriceEngine.getInstance(),
-                    new mazdady.ui.TradingLineView(null, null)
-                );
-            emergencyBot.deactivateEmergencyBot();
-            
-            // 3. إرسال تنبيه إنهاء الطوارئ
-            UserManager.getInstance(null).getAllUsers().forEach(user -> {
-                System.out.println("EMERGENCY EXIT ALERT: Sent to user " + user.getUserId());
-            });
-            
-            // 4. تسجيل الحدث في السجل الأمني
-            securityMonitor.logEmergencyEvent("EMERGENCY_MODE_DEACTIVATED", 
-                "Emergency mode deactivated - System stabilized");
-            
-            System.out.println("EMERGENCY MANAGER: Emergency exit measures executed");
-            
-        } catch (Exception e) {
-            System.err.println("EMERGENCY EXIT MEASURES ERROR: " + e.getMessage());
-        }
+    private void handleWalletCrisis(String reason) {
+        System.out.println("WALLET CRISIS: Applying protective measures...");
+        
+        // تجميد السحوبات مؤقتًا
+        walletManager.freezeWithdrawals(60); // تجميد لمدة ساعة
+        
+        // تفعيل بوت الطوارئ
+        FailSafeMgr.getInstance(walletManager, securityMonitor).activateEmergencyMode();
+        
+        // إرسال تنبيه للادمن
+        AdminConfig.getInstance().notifyAdmins("WALLET_CRISIS", reason);
+    }
+
+    private void handleSecurityCrisis(String reason) {
+        System.out.println("SECURITY CRISIS: Activating security protocols...");
+        
+        // تفعيل وضع الأمان العالي
+        securityMonitor.activateHighSecurityMode();
+        
+        // تسجيل خروج جميع المستخدمين
+        UserManager.getInstance(null).logoutAllUsers();
+        
+        // إرسال تنبيه للادمن
+        AdminConfig.getInstance().notifyAdmins("SECURITY_CRISIS", reason);
+    }
+
+    private void handleSystemCrisis(String reason) {
+        System.out.println("SYSTEM CRISIS: Optimizing system resources...");
+        
+        // تقليل عدد العمليات الخلفية
+        reduceBackgroundProcesses();
+        
+        // تفعيل وضع الأداء العالي
+        activateHighPerformanceMode();
+        
+        // إرسال تنبيه للادمن
+        AdminConfig.getInstance().notifyAdmins("SYSTEM_CRISIS", reason);
+    }
+
+    private void handleFinancialCrisis(String reason) {
+        System.out.println("FINANCIAL CRISIS: Stabilizing financial system...");
+        
+        // تفعيل بوت تثبيت السوق
+        mazdady.bot.MarketStabilizerBot stabilizerBot = 
+            new mazdady.bot.MarketStabilizerBot("STAB_BOT_" + System.currentTimeMillis(), 
+                                              mazdady.trading.PriceEngine.getInstance());
+        stabilizerBot.start();
+        
+        // إرسال تنبيه للادمن
+        AdminConfig.getInstance().notifyAdmins("FINANCIAL_CRISIS", reason);
+    }
+
+    private void reduceBackgroundProcesses() {
+        // في الإنتاج: تقليل العمليات الخلفية
+        System.out.println("EMERGENCY MGR: Reduced background processes");
+    }
+
+    private void activateHighPerformanceMode() {
+        // في الإنتاج: تفعيل وضع الأداء العالي
+        System.out.println("EMERGENCY MGR: Activated high performance mode");
+    }
+
+    private double getSystemCPUUsage() {
+        // في الإنتاج: الحصول من SystemInfo
+        return ThreadLocalRandom.current().nextDouble(0, 100);
+    }
+
+    private double getSystemMemoryUsage() {
+        // في الإنتاج: الحصول من Runtime
+        Runtime runtime = Runtime.getRuntime();
+        long maxMemory = runtime.maxMemory();
+        long totalMemory = runtime.totalMemory();
+        long freeMemory = runtime.freeMemory();
+        long usedMemory = totalMemory - freeMemory;
+        return (double) usedMemory / maxMemory * 100;
     }
 
     private void notifyEmergencyListeners(EmergencyEvent event) {
@@ -257,7 +263,7 @@ public final class EmergencyMgr {
     public void addEmergencyListener(String listenerId, Consumer<EmergencyEvent> listener) {
         if (listenerId != null && listener != null) {
             emergencyListeners.put(listenerId, listener);
-            System.out.println("EMERGENCY MANAGER: Added emergency listener - " + listenerId);
+            System.out.println("EMERGENCY MGR: Added emergency listener - " + listenerId);
         }
     }
 
@@ -267,72 +273,49 @@ public final class EmergencyMgr {
     public void removeEmergencyListener(String listenerId) {
         if (listenerId != null) {
             emergencyListeners.remove(listenerId);
-            System.out.println("EMERGENCY MANAGER: Removed emergency listener - " + listenerId);
+            System.out.println("EMERGENCY MGR: Removed emergency listener - " + listenerId);
         }
     }
 
     /**
-     * تحديث مستوى الطوارئ
-     */
-    public void updateEmergencyLevel(EmergencyLevel level) {
-        this.currentLevel = level;
-        System.out.println("EMERGENCY MANAGER: Emergency level updated to " + level);
-        
-        // إشعار المستمعين
-        notifyEmergencyListeners(new EmergencyEvent(
-            EmergencyEventType.LEVEL_CHANGED,
-            "Emergency level changed to " + level,
-            Instant.now()
-        ));
-    }
-
-    /**
-     * إيقاف المدير (للاختبارات)
+     * إيقاف المراقبة (للاختبارات)
      */
     public void shutdown() {
         emergencyScheduler.shutdown();
         emergencyListeners.clear();
-        emergencyModeActive = false;
-        System.out.println("EMERGENCY MANAGER: Shutdown completed");
+        System.out.println("EMERGENCY MGR: Shutdown completed");
     }
 
     /**
-     * مستويات الطوارئ
+     * نوع الطوارئ
      */
-    public enum EmergencyLevel {
-        NORMAL, WARNING, CRITICAL, SYSTEM_WIDE
-    }
-
-    /**
-     * أنواع أحداث الطوارئ
-     */
-    public enum EmergencyEventType {
-        MODE_ACTIVATED, MODE_DEACTIVATED, LEVEL_CHANGED, SYSTEM_ALERT
+    public enum EmergencyType {
+        WALLET_CRISIS, SECURITY_CRISIS, SYSTEM_CRISIS, FINANCIAL_CRISIS
     }
 
     /**
      * حدث الطوارئ
      */
     public static final class EmergencyEvent {
-        private final EmergencyEventType type;
-        private final String message;
+        private final EmergencyType type;
+        private final String reason;
         private final Instant timestamp;
 
-        public EmergencyEvent(EmergencyEventType type, String message, Instant timestamp) {
+        public EmergencyEvent(EmergencyType type, String reason, Instant timestamp) {
             this.type = type;
-            this.message = message;
+            this.reason = reason;
             this.timestamp = timestamp;
         }
 
-        public EmergencyEventType getType() { return type; }
-        public String getMessage() { return message; }
+        public EmergencyType getType() { return type; }
+        public String getReason() { return reason; }
         public Instant getTimestamp() { return timestamp; }
         
         @Override
         public String toString() {
             return "EmergencyEvent{" +
                 "type=" + type +
-                ", message='" + message + '\'' +
+                ", reason='" + reason + '\'' +
                 ", timestamp=" + timestamp +
                 '}';
         }
@@ -364,16 +347,17 @@ public final class EmergencyMgr {
 
     // --- Getters ---
     public boolean isEmergencyModeActive() { return emergencyModeActive; }
-    public EmergencyLevel getCurrentLevel() { return currentLevel; }
     public int getEmergencyListenerCount() { return emergencyListeners.size(); }
-    public boolean hasActiveEmergency() { return emergencyModeActive && currentLevel != EmergencyLevel.NORMAL; }
+    public EmergencyType getCurrentEmergencyType() { 
+        // في الإنتاج: الحصول من حالة النظام
+        return EmergencyType.SYSTEM_CRISIS; // محاكاة
+    }
     
     /**
      * إعادة تعيين حالة الطوارئ (للاختبارات)
      */
     public void resetEmergencyState() {
         emergencyModeActive = false;
-        currentLevel = EmergencyLevel.NORMAL;
-        System.out.println("EMERGENCY MANAGER: Emergency state reset");
+        System.out.println("EMERGENCY MGR: Emergency state reset");
     }
 }
