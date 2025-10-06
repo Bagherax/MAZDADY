@@ -9,39 +9,178 @@ import android.net.Network;
 import android.net.NetworkCapabilities;
 import android.net.NetworkRequest;
 
-import java.util.concurrent.CopyOnWriteArrayList;
+import java.time.Instant;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
 /**
  * كاشف الاتصال مع دعم المراقبة الحية
- * يتبع نمط Observer لإعلام المكونات بتغيرات الاتصال
+ * يتبع نمط Observer لإعلام النظام بتغيرات الاتصال
  */
-public final class Connectivity {
+public final class Connectivity extends BroadcastReceiver {
     private final Context context;
-    private final CopyOnWriteArrayList<Consumer<ConnectivityEvent>> listeners = new CopyOnWriteArrayList<>();
-    private final NetworkCallback networkCallback;
-    private boolean isConnected = false;
+    private final Map<String, Consumer<ConnectivityEvent>> connectionListeners = new ConcurrentHashMap<>();
+    private final ScheduledExecutorService connectivityScheduler = Executors.newScheduledThreadPool(1);
+    private volatile boolean isConnected = false;
+    private volatile NetworkType currentNetworkType = NetworkType.UNKNOWN;
+    private static Connectivity instance;
 
     private Connectivity(Context context) {
         this.context = context.getApplicationContext();
-        this.networkCallback = new NetworkCallback();
         registerNetworkCallback();
+        startConnectivityMonitoring();
     }
 
-    public static Connectivity create(Context context) {
-        return new Connectivity(context);
+    public static synchronized Connectivity getInstance(Context context) {
+        if (instance == null) {
+            instance = new Connectivity(context);
+        }
+        return instance;
     }
 
     private void registerNetworkCallback() {
-        ConnectivityManager connectivityManager = 
-            (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
-        
-        if (connectivityManager != null) {
-            NetworkRequest request = new NetworkRequest.Builder()
-                .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-                .build();
-            connectivityManager.registerNetworkCallback(request, networkCallback);
+        try {
+            ConnectivityManager connectivityManager = 
+                (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
+            
+            if (connectivityManager != null) {
+                NetworkRequest request = new NetworkRequest.Builder()
+                    .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                    .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+                    .addTransportType(NetworkCapabilities.TRANSPORT_CELLULAR)
+                    .build();
+                
+                connectivityManager.registerNetworkCallback(request, this);
+                
+                // تسجيل المستقبل البثي
+                IntentFilter filter = new IntentFilter(ConnectivityManager.CONNECTIVITY_ACTION);
+                context.registerReceiver(this, filter);
+                
+                System.out.println("CONNECTIVITY: Registered network callback");
+            }
+            
+        } catch (Exception e) {
+            System.err.println("NETWORK CALLBACK REGISTRATION ERROR: " + e.getMessage());
         }
+    }
+
+    private void startConnectivityMonitoring() {
+        connectivityScheduler.scheduleAtFixedRate(
+            this::checkConnectivityStatus,
+            0,
+            30,
+            TimeUnit.SECONDS
+        );
+        
+        System.out.println("CONNECTIVITY: Started monitoring every 30 seconds");
+    }
+
+    /**
+     * التحقق من حالة الاتصال بشكل دوري
+     */
+    private void checkConnectivityStatus() {
+        try {
+            ConnectivityManager cm = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
+            if (cm != null) {
+                Network network = cm.getActiveNetwork();
+                if (network != null) {
+                    NetworkCapabilities capabilities = cm.getNetworkCapabilities(network);
+                    if (capabilities != null && capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) {
+                        if (!isConnected) {
+                            isConnected = true;
+                            currentNetworkType = detectNetworkType(capabilities);
+                            notifyConnectionListeners(new ConnectivityEvent(
+                                ConnectivityEventType.CONNECTED,
+                                currentNetworkType,
+                                "Internet connection established",
+                                Instant.now()
+                            ));
+                            System.out.println("CONNECTIVITY: Internet connection established - " + currentNetworkType);
+                        }
+                    } else {
+                        if (isConnected) {
+                            isConnected = false;
+                            notifyConnectionListeners(new ConnectivityEvent(
+                                ConnectivityEventType.DISCONNECTED,
+                                currentNetworkType,
+                                "Internet connection lost",
+                                Instant.now()
+                            ));
+                            currentNetworkType = NetworkType.UNKNOWN;
+                            System.out.println("CONNECTIVITY: Internet connection lost");
+                        }
+                    }
+                } else {
+                    if (isConnected) {
+                        isConnected = false;
+                        notifyConnectionListeners(new ConnectivityEvent(
+                            ConnectivityEventType.DISCONNECTED,
+                            currentNetworkType,
+                            "No active network",
+                            Instant.now()
+                        ));
+                        currentNetworkType = NetworkType.UNKNOWN;
+                        System.out.println("CONNECTIVITY: No active network");
+                    }
+                }
+            }
+            
+        } catch (Exception e) {
+            System.err.println("CONNECTIVITY STATUS CHECK ERROR: " + e.getMessage());
+        }
+    }
+
+    @Override
+    public void onReceive(Context context, Intent intent) {
+        if (ConnectivityManager.CONNECTIVITY_ACTION.equals(intent.getAction())) {
+            checkConnectivityStatus();
+        }
+    }
+
+    private NetworkType detectNetworkType(NetworkCapabilities capabilities) {
+        if (capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
+            return NetworkType.WIFI;
+        } else if (capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) {
+            return NetworkType.MOBILE;
+        } else if (capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)) {
+            return NetworkType.ETHERNET;
+        } else {
+            return NetworkType.UNKNOWN;
+        }
+    }
+
+    /**
+     * إضافة مستمع لتغيرات الاتصال
+     */
+    public void addConnectionListener(String listenerId, Consumer<ConnectivityEvent> listener) {
+        if (listenerId != null && listener != null) {
+            connectionListeners.put(listenerId, listener);
+            System.out.println("CONNECTIVITY: Added connection listener - " + listenerId);
+        }
+    }
+
+    /**
+     * إزالة مستمع لتغيرات الاتصال
+     */
+    public void removeConnectionListener(String listenerId) {
+        if (listenerId != null) {
+            connectionListeners.remove(listenerId);
+            System.out.println("CONNECTIVITY: Removed connection listener - " + listenerId);
+        }
+    }
+
+    private void notifyConnectionListeners(ConnectivityEvent event) {
+        connectionListeners.values().forEach(listener -> {
+            try {
+                listener.accept(event);
+            } catch (Exception e) {
+                // تجاهل أخطاء المستمعين
+            }
+        });
     }
 
     /**
@@ -52,59 +191,112 @@ public final class Connectivity {
     }
 
     /**
-     * إضافة مستمع لتغيرات الاتصال
+     * الحصول على نوع الشبكة الحالية
      */
-    public void addConnectionListener(Consumer<ConnectivityEvent> listener) {
-        listeners.add(listener);
+    public NetworkType getCurrentNetworkType() {
+        return currentNetworkType;
     }
 
     /**
-     * إزالة مستمع
+     * التحقق من نوع الشبكة
      */
-    public void removeConnectionListener(Consumer<ConnectivityEvent> listener) {
-        listeners.remove(listener);
+    public boolean isNetworkType(NetworkType type) {
+        return currentNetworkType == type;
     }
 
-    private void notifyListeners(ConnectivityEvent event) {
-        listeners.forEach(listener -> {
-            try {
-                listener.accept(event);
-            } catch (Exception e) {
-                // تجاهل أخطاء المستمعين
-            }
-        });
+    /**
+     * التحقق من وجود اتصال سريع
+     */
+    public boolean hasFastConnection() {
+        return isConnected && (
+            currentNetworkType == NetworkType.WIFI || 
+            currentNetworkType == NetworkType.ETHERNET
+        );
+    }
+
+    /**
+     * التحقق من وجود اتصال بطيء
+     */
+    public boolean hasSlowConnection() {
+        return isConnected && currentNetworkType == NetworkType.MOBILE;
+    }
+
+    /**
+     * إيقاف المراقبة (للاختبارات)
+     */
+    public void shutdown() {
+        connectivityScheduler.shutdown();
+        try {
+            context.unregisterReceiver(this);
+        } catch (Exception e) {
+            // تجاهل الأخطاء
+        }
+        connectionListeners.clear();
+        System.out.println("CONNECTIVITY: Shutdown completed");
+    }
+
+    /**
+     * إعادة تعيين الكاشف (للاختبارات)
+     */
+    public void reset() {
+        isConnected = false;
+        currentNetworkType = NetworkType.UNKNOWN;
+        connectionListeners.clear();
+        System.out.println("CONNECTIVITY: Reset completed");
     }
 
     /**
      * حدث الاتصال
      */
     public static final class ConnectivityEvent {
-        private final boolean connected;
-        private final long timestamp;
+        private final ConnectivityEventType type;
+        private final NetworkType networkType;
+        private final String message;
+        private final Instant timestamp;
 
-        public ConnectivityEvent(boolean connected) {
-            this.connected = connected;
-            this.timestamp = System.currentTimeMillis();
+        public ConnectivityEvent(ConnectivityEventType type, NetworkType networkType, 
+                               String message, Instant timestamp) {
+            this.type = type;
+            this.networkType = networkType;
+            this.message = message;
+            this.timestamp = timestamp;
         }
 
-        public boolean isConnected() { return connected; }
-        public long getTimestamp() { return timestamp; }
+        // Getters
+        public ConnectivityEventType getType() { return type; }
+        public NetworkType getNetworkType() { return networkType; }
+        public String getMessage() { return message; }
+        public Instant getTimestamp() { return timestamp; }
+        
+        @Override
+        public String toString() {
+            return "ConnectivityEvent{" +
+                "type=" + type +
+                ", networkType=" + networkType +
+                ", message='" + message + '\'' +
+                ", timestamp=" + timestamp +
+                '}';
+        }
     }
 
     /**
-     * رد اتصال الشبكة
+     * أنواع الأحداث الاتصالية
      */
-    private final class NetworkCallback extends ConnectivityManager.NetworkCallback {
-        @Override
-        public void onAvailable(Network network) {
-            isConnected = true;
-            notifyListeners(new ConnectivityEvent(true));
-        }
+    public enum ConnectivityEventType {
+        CONNECTED, DISCONNECTED, NETWORK_CHANGED, SIGNAL_STRENGTH_CHANGED
+    }
 
-        @Override
-        public void onLost(Network network) {
-            isConnected = false;
-            notifyListeners(new ConnectivityEvent(false));
-        }
+    /**
+     * أنواع الشبكات
+     */
+    public enum NetworkType {
+        WIFI, MOBILE, ETHERNET, UNKNOWN
+    }
+
+    // --- Getters ---
+    public int getConnectionListenerCount() { return connectionListeners.size(); }
+    public boolean hasConnectionListeners() { return !connectionListeners.isEmpty(); }
+    public Map<String, Consumer<ConnectivityEvent>> getConnectionListeners() { 
+        return new ConcurrentHashMap<>(connectionListeners); 
     }
 }
