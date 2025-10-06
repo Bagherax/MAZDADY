@@ -1,0 +1,272 @@
+package mazdady.feature;
+
+import mazdady.trading.PriceEngine;
+import mazdady.trading.TradingLineView;
+import mazdady.user.User;
+import mazdady.user.UserManager;
+
+import java.time.Instant;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ThreadLocalRandom;
+
+/**
+ * ميزة القناص مع دعم الطلقات المؤثرة
+ * يتبع نمط Strategy لفصل استراتيجيات القنص
+ */
+public final class SniperFeature {
+    private final PriceEngine priceEngine;
+    private final TradingLineView tradingLineView;
+    private final ScheduledExecutorService sniperScheduler = Executors.newScheduledThreadPool(1);
+    private static SniperFeature instance;
+
+    private SniperFeature(PriceEngine priceEngine, TradingLineView tradingLineView) {
+        this.priceEngine = priceEngine;
+        this.tradingLineView = tradingLineView;
+    }
+
+    public static synchronized SniperFeature getInstance(PriceEngine priceEngine, TradingLineView tradingLineView) {
+        if (instance == null) {
+            instance = new SniperFeature(priceEngine, tradingLineView);
+        }
+        return instance;
+    }
+
+    /**
+     * تنفيذ طلقة قناص غير متزامن
+     */
+    public CompletableFuture<SnipeResult> executeSnipeShotAsync(
+        String userId, 
+        double shotPrice,
+        SnipeType snipeType
+    ) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                User user = UserManager.getInstance(null).getCurrentUser();
+                if (user == null || !user.getUserId().equals(userId)) {
+                    return SnipeResult.failure("Invalid user");
+                }
+                
+                // التحقق من الرصيد للطلقة
+                double shotCost = calculateShotCost(snipeType);
+                if (user.getBalance() < shotCost) {
+                    return SnipeResult.failure("Insufficient balance for " + snipeType + " shot");
+                }
+                
+                // خصم تكلفة الطلقة
+                user.setBalance(user.getBalance() - shotCost);
+                
+                // تنفيذ الطلقة
+                SnipeShot shot = new SnipeShot(
+                    "SHOT_" + System.currentTimeMillis(),
+                    userId,
+                    shotPrice,
+                    snipeType,
+                    shotCost,
+                    Instant.now()
+                );
+                
+                // عرض الطلقة على خط التداول
+                tradingLineView.addSnipeShot(shot);
+                
+                // بدء تأثير الطلقة
+                startSnipeEffect(shot);
+                
+                System.out.println("SNIPER FEATURE: Executed " + snipeType + 
+                                 " shot at price " + String.format("%.4f", shotPrice) + 
+                                 " - Cost: " + String.format("%.2f", shotCost) + " MAZDADY");
+                
+                return SnipeResult.success(shot, "Snipe shot executed successfully");
+                
+            } catch (Exception e) {
+                return SnipeResult.failure("Snipe shot failed: " + e.getMessage());
+            }
+        });
+    }
+
+    private double calculateShotCost(SnipeType snipeType) {
+        switch (snipeType) {
+            case PRECISION_SHOT:
+                return 50.0; // طلقة دقة عالية
+            case POWER_SHOT:
+                return 100.0; // طلقة قوة
+            case STEALTH_SHOT:
+                return 75.0; // طلقة خفية
+            case MULTI_SHOT:
+                return 200.0; // طلقات متعددة
+            default:
+                return 50.0;
+        }
+    }
+
+    private void startSnipeEffect(SnipeShot shot) {
+        sniperScheduler.schedule(
+            () -> applySnipeImpact(shot),
+            ThreadLocalRandom.current().nextInt(1000, 3000), // تأثير بعد 1-3 ثواني
+            java.util.concurrent.TimeUnit.MILLISECONDS
+        );
+        
+        System.out.println("SNIPER FEATURE: Snipe effect scheduled for shot " + shot.getShotId());
+    }
+
+    private void applySnipeImpact(SnipeShot shot) {
+        try {
+            double currentPrice = priceEngine.getCurrentPrice();
+            double impact = calculateSnipeImpact(shot.getSnipeType(), shot.getShotPrice(), currentPrice);
+            
+            // تطبيق التأثير على السعر
+            if (impact > 0) {
+                priceEngine.executeBuyOrder(shot.getUserId(), impact);
+            } else {
+                priceEngine.executeSellOrder(shot.getUserId(), Math.abs(impact));
+            }
+            
+            // عرض تأثير بصري
+            showSnipeEffect(shot, impact);
+            
+            // إزالة الطلقة من الخط
+            tradingLineView.removeSnipeShot(shot.getShotId());
+            
+            System.out.println("SNIPER FEATURE: Applied impact " + String.format("%.2f", impact) + 
+                             " MAZDADY for shot " + shot.getShotId());
+            
+        } catch (Exception e) {
+            System.err.println("SNIPER IMPACT ERROR: " + e.getMessage());
+        }
+    }
+
+    private double calculateSnipeImpact(SnipeType snipeType, double shotPrice, double currentPrice) {
+        double priceDifference = shotPrice - currentPrice;
+        double baseImpact = Math.abs(priceDifference) * 0.1; // 10% من الفرق
+        
+        switch (snipeType) {
+            case PRECISION_SHOT:
+                return baseImpact * 1.5; // تأثير مضاعف
+            case POWER_SHOT:
+                return baseImpact * 2.0; // تأثير قوي
+            case STEALTH_SHOT:
+                return baseImpact * 1.2; // تأثير خفي
+            case MULTI_SHOT:
+                return baseImpact * 3.0; // تأثير متعدد
+            default:
+                return baseImpact;
+        }
+    }
+
+    private void showSnipeEffect(SnipeShot shot, double impact) {
+        String effectType = impact > 0 ? "BULLISH" : "BEARISH";
+        double intensity = Math.abs(impact);
+        
+        tradingLineView.showSnipeEffect(
+            shot.getShotId(),
+            effectType,
+            intensity,
+            shot.getShotPrice()
+        );
+        
+        System.out.println("SNIPER EFFECT: " + shot.getShotId() + 
+                         " - " + effectType + " impact - Intensity: " + 
+                         String.format("%.2f", intensity) + " MAZDADY");
+    }
+
+    /**
+     * نتيجة الطلقة
+     */
+    public static final class SnipeResult {
+        private final boolean success;
+        private final SnipeShot shot;
+        private final String message;
+
+        private SnipeResult(boolean success, SnipeShot shot, String message) {
+            this.success = success;
+            this.shot = shot;
+            this.message = message;
+        }
+
+        public static SnipeResult success(SnipeShot shot, String message) {
+            return new SnipeResult(true, shot, message);
+        }
+
+        public static SnipeResult failure(String message) {
+            return new SnipeResult(false, null, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public SnipeShot getShot() { return shot; }
+        public String getMessage() { return message; }
+    }
+
+    /**
+     * طلقة القناص
+     */
+    public static final class SnipeShot {
+        private final String shotId;
+        private final String userId;
+        private final double shotPrice;
+        private final SnipeType snipeType;
+        private final double cost;
+        private final Instant timestamp;
+
+        public SnipeShot(String shotId, String userId, double shotPrice, 
+                        SnipeType snipeType, double cost, Instant timestamp) {
+            this.shotId = shotId;
+            this.userId = userId;
+            this.shotPrice = shotPrice;
+            this.snipeType = snipeType;
+            this.cost = cost;
+            this.timestamp = timestamp;
+        }
+
+        // Getters
+        public String getShotId() { return shotId; }
+        public String getUserId() { return userId; }
+        public double getShotPrice() { return shotPrice; }
+        public SnipeType getSnipeType() { return snipeType; }
+        public double getCost() { return cost; }
+        public Instant getTimestamp() { return timestamp; }
+    }
+
+    /**
+     * أنواع الطلقات
+     */
+    public enum SnipeType {
+        PRECISION_SHOT("طلقة دقة عالية"),
+        POWER_SHOT("طلقة قوة"),
+        STEALTH_SHOT("طلقة خفية"),
+        MULTI_SHOT("طلقات متعددة");
+
+        private final String displayName;
+
+        SnipeType(String displayName) {
+            this.displayName = displayName;
+        }
+
+        public String getName() { return displayName; }
+    }
+
+    /**
+     * إيقاف الميزة (للاختبارات)
+     */
+    public void shutdown() {
+        sniperScheduler.shutdown();
+        System.out.println("SNIPER FEATURE: Shutdown completed");
+    }
+
+    // --- Getters ---
+    public int getActiveShotCount() {
+        return (int) sniperScheduler.getActiveCount();
+    }
+    
+    public boolean hasActiveShots() {
+        return sniperScheduler.getActiveCount() > 0;
+    }
+    
+    /**
+     * إعادة تعيين الميزة (للاختبارات)
+     */
+    public void reset() {
+        shutdown();
+        System.out.println("SNIPER FEATURE: Reset completed");
+    }
+}
