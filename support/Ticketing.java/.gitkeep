@@ -1,40 +1,144 @@
 package mazdady.support;
 
-import android.content.Context;
+import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * واجهة التذاكر مع دعم العمليات المتقدمة
- * يتبع نمط Facade لتوفير واجهة موحدة
+ * نظام التذاكر (Tickets)
+ * يدعم:
+ * - إنشاء تذكرة
+ * - تعيين وكيل
+ * - تحديث الحالة
+ * - التصنيف
  */
 public final class Ticketing {
-    private final Context context;
+    private final Map<String, Ticket> tickets = new ConcurrentHashMap<>();
+    private final AlHelpdesk helpdesk;
 
-    private Ticketing(Context context) {
-        this.context = context.getApplicationContext();
+    public Ticketing(AlHelpdesk helpdesk) {
+        this.helpdesk = helpdesk;
     }
 
-    public static Ticketing create(Context context) {
-        return new Ticketing(context);
+    public CompletableFuture<TicketResult> createTicketAsync(TicketRequest request) {
+        return CompletableFuture.supplyAsync(() -> {
+            String ticketId = java.util.UUID.randomUUID().toString();
+            Ticket ticket = new Ticket(
+                ticketId,
+                request.getUserId(),
+                request.getSubject(),
+                request.getDescription(),
+                request.getPriority(),
+                request.getCategory()
+            );
+
+            tickets.put(ticketId, ticket);
+            System.out.println("TICKETING: Ticket created: " + ticketId + " for user " + request.getUserId());
+
+            // في الإنتاج: تعيين وكيل تلقائيًا
+            return TicketResult.success("Ticket created successfully. ID: " + ticketId, ticketId);
+        });
     }
 
-    /**
-     * إنشاء تذكرة جديدة
-     */
-    public TicketingSystem.SupportTicket createTicket(String subject, String description, String category) {
-        return TicketingSystem.getInstance().createTicket(subject, description, category);
+    public CompletableFuture<TicketResult> updateTicketStatusAsync(String ticketId, TicketStatus newStatus) {
+        return CompletableFuture.supplyAsync(() -> {
+            Ticket ticket = tickets.get(ticketId);
+            if (ticket == null) {
+                return TicketResult.failure("Ticket not found: " + ticketId);
+            }
+
+            ticket.setStatus(newStatus);
+            return TicketResult.success("Ticket status updated to: " + newStatus, ticketId);
+        });
     }
 
-    /**
-     * تحديث حالة التذكرة
-     */
-    public void updateTicketStatus(String ticketId, TicketingSystem.TicketStatus status) {
-        TicketingSystem.getInstance().updateTicketStatus(ticketId, status);
+    // --- Inner Classes ---
+    public static final class TicketResult {
+        private final boolean success;
+        private final String message;
+        private final String ticketId;
+
+        private TicketResult(boolean success, String message, String ticketId) {
+            this.success = success;
+            this.message = message;
+            this.ticketId = ticketId;
+        }
+
+        public static TicketResult success(String message, String ticketId) {
+            return new TicketResult(true, message, ticketId);
+        }
+
+        public static TicketResult failure(String message) {
+            return new TicketResult(false, message, null);
+        }
+
+        public boolean isSuccess() { return success; }
+        public String getMessage() { return message; }
+        public String getTicketId() { return ticketId; }
     }
 
-    /**
-     * الحصول على تذكرة
-     */
-    public TicketingSystem.SupportTicket getTicket(String ticketId) {
-        return TicketingSystem.getInstance().getTicket(ticketId);
+    public static final class TicketRequest {
+        private final String userId;
+        private final String subject;
+        private final String description;
+        private final TicketPriority priority;
+        private final String category;
+
+        public TicketRequest(String userId, String subject, String description, TicketPriority priority, String category) {
+            this.userId = userId;
+            this.subject = subject;
+            this.description = description;
+            this.priority = priority;
+            this.category = category;
+        }
+
+        public String getUserId() { return userId; }
+        public String getSubject() { return subject; }
+        public String getDescription() { return description; }
+        public TicketPriority getPriority() { return priority; }
+        public String getCategory() { return category; }
+    }
+
+    public static final class Ticket {
+        private final String id;
+        private final String userId;
+        private final String subject;
+        private final String description;
+        private final TicketPriority priority;
+        private final String category;
+        private volatile TicketStatus status = TicketStatus.OPEN;
+        private volatile String assignedAgent;
+        private final long timestamp;
+
+        public Ticket(String id, String userId, String subject, String description, TicketPriority priority, String category) {
+            this.id = id;
+            this.userId = userId;
+            this.subject = subject;
+            this.description = description;
+            this.priority = priority;
+            this.category = category;
+            this.timestamp = System.currentTimeMillis();
+        }
+
+        public void setStatus(TicketStatus status) { this.status = status; }
+        public void setAssignedAgent(String assignedAgent) { this.assignedAgent = assignedAgent; }
+
+        public String getId() { return id; }
+        public String getUserId() { return userId; }
+        public String getSubject() { return subject; }
+        public String getDescription() { return description; }
+        public TicketPriority getPriority() { return priority; }
+        public String getCategory() { return category; }
+        public TicketStatus getStatus() { return status; }
+        public String getAssignedAgent() { return assignedAgent; }
+        public long getTimestamp() { return timestamp; }
+    }
+
+    public enum TicketPriority {
+        LOW, MEDIUM, HIGH, CRITICAL
+    }
+
+    public enum TicketStatus {
+        OPEN, IN_PROGRESS, RESOLVED, CLOSED, REOPENED
     }
 }
